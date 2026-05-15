@@ -12,269 +12,280 @@ use ora_contracts::{
 use ora_domain::{
     AuditFields, TaskId, Worktree, WorktreeActivity as DomainWorktreeActivity, WorktreeId,
 };
+use ora_logging::{with_recorded_trace_logging, with_trace_logging};
 use pretty_assertions::assert_eq;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use tracing_subscriber::layer::{Context, Layer};
-use tracing_subscriber::prelude::*;
 use tracing_subscriber::registry::LookupSpan;
 
 /// Verifies create handlers build domain worktrees and return the shared contract response.
 #[test]
 fn creates_worktrees_with_generated_identity_and_clock_values() {
-    let repository = Rc::new(FakeWorktreeRepository::default());
-    let handler = CreateWorktreeHandler::new(
-        repository.clone(),
-        FixedWorktreeIdGenerator::new("worktree-1"),
-        FixedClock::new(1_700_000_000_000),
-    );
+    with_trace_logging(|| {
+        let repository = Rc::new(FakeWorktreeRepository::default());
+        let handler = CreateWorktreeHandler::new(
+            repository.clone(),
+            FixedWorktreeIdGenerator::new("worktree-1"),
+            FixedClock::new(1_700_000_000_000),
+        );
 
-    let response = match handler.handle(CreateWorktreeRequest {
-        task_id: "task-1".to_string(),
-        branch_name: Some("feature/task-handlers".to_string()),
-        activity: ContractWorktreeActivity::Active,
-    }) {
-        Ok(response) => response,
-        Err(error) => panic!("create handler failed: {error}"),
-    };
+        let response = match handler.handle(CreateWorktreeRequest {
+            task_id: "task-1".to_string(),
+            branch_name: Some("feature/task-handlers".to_string()),
+            activity: ContractWorktreeActivity::Active,
+        }) {
+            Ok(response) => response,
+            Err(error) => panic!("create handler failed: {error}"),
+        };
 
-    assert_eq!(
-        response,
-        CreateWorktreeResponse {
-            worktree: ContractWorktree {
-                id: "worktree-1".to_string(),
-                task_id: "task-1".to_string(),
-                branch_name: Some("feature/task-handlers".to_string()),
-                activity: ContractWorktreeActivity::Active,
-            },
-        }
-    );
-    assert_eq!(
-        repository.visible_worktrees(),
-        vec![Worktree::new(
-            WorktreeId::new("worktree-1"),
-            TaskId::new("task-1"),
-            Some("feature/task-handlers".to_string()),
-            DomainWorktreeActivity::Active,
-            AuditFields::new(1_700_000_000_000, 1_700_000_000_000, false),
-        )]
-    );
+        assert_eq!(
+            response,
+            CreateWorktreeResponse {
+                worktree: ContractWorktree {
+                    id: "worktree-1".to_string(),
+                    task_id: "task-1".to_string(),
+                    branch_name: Some("feature/task-handlers".to_string()),
+                    activity: ContractWorktreeActivity::Active,
+                },
+            }
+        );
+        assert_eq!(
+            repository.visible_worktrees(),
+            vec![Worktree::new(
+                WorktreeId::new("worktree-1"),
+                TaskId::new("task-1"),
+                Some("feature/task-handlers".to_string()),
+                DomainWorktreeActivity::Active,
+                AuditFields::new(1_700_000_000_000, 1_700_000_000_000, false),
+            )]
+        );
+    });
 }
 
 /// Verifies get handlers return the shared contract projection for existing worktrees.
 #[test]
 fn gets_worktrees_by_identifier() {
-    let repository = Rc::new(FakeWorktreeRepository::with_worktrees(vec![Worktree::new(
-        WorktreeId::new("worktree-1"),
-        TaskId::new("task-1"),
-        None,
-        DomainWorktreeActivity::Inactive,
-        AuditFields::new(1, 2, false),
-    )]));
-    let handler = GetWorktreeHandler::new(repository);
-
-    let response = match handler.handle(GetWorktreeRequest {
-        worktree_id: "worktree-1".to_string(),
-    }) {
-        Ok(response) => response,
-        Err(error) => panic!("get handler failed: {error}"),
-    };
-
-    assert_eq!(
-        response,
-        GetWorktreeResponse {
-            worktree: ContractWorktree {
-                id: "worktree-1".to_string(),
-                task_id: "task-1".to_string(),
-                branch_name: None,
-                activity: ContractWorktreeActivity::Inactive,
-            },
-        }
-    );
-}
-
-/// Verifies list handlers map every stored worktree into the shared contract payload.
-#[test]
-fn lists_visible_worktrees() {
-    let repository = Rc::new(FakeWorktreeRepository::with_worktrees(vec![
-        Worktree::new(
+    with_trace_logging(|| {
+        let repository = Rc::new(FakeWorktreeRepository::with_worktrees(vec![Worktree::new(
             WorktreeId::new("worktree-1"),
             TaskId::new("task-1"),
             None,
             DomainWorktreeActivity::Inactive,
             AuditFields::new(1, 2, false),
-        ),
-        Worktree::new(
-            WorktreeId::new("worktree-2"),
-            TaskId::new("task-2"),
-            Some("feature/updated-branch".to_string()),
-            DomainWorktreeActivity::Active,
-            AuditFields::new(3, 4, false),
-        ),
-    ]));
-    let handler = ListWorktreesHandler::new(repository);
+        )]));
+        let handler = GetWorktreeHandler::new(repository);
 
-    let response = match handler.handle(ListWorktreesRequest {}) {
-        Ok(response) => response,
-        Err(error) => panic!("list handler failed: {error}"),
-    };
+        let response = match handler.handle(GetWorktreeRequest {
+            worktree_id: "worktree-1".to_string(),
+        }) {
+            Ok(response) => response,
+            Err(error) => panic!("get handler failed: {error}"),
+        };
 
-    assert_eq!(
-        response,
-        ListWorktreesResponse {
-            worktrees: vec![
-                ContractWorktree {
+        assert_eq!(
+            response,
+            GetWorktreeResponse {
+                worktree: ContractWorktree {
                     id: "worktree-1".to_string(),
                     task_id: "task-1".to_string(),
                     branch_name: None,
                     activity: ContractWorktreeActivity::Inactive,
                 },
-                ContractWorktree {
-                    id: "worktree-2".to_string(),
-                    task_id: "task-2".to_string(),
-                    branch_name: Some("feature/updated-branch".to_string()),
-                    activity: ContractWorktreeActivity::Active,
-                },
-            ],
-        }
-    );
+            }
+        );
+    });
+}
+
+/// Verifies list handlers map every stored worktree into the shared contract payload.
+#[test]
+fn lists_visible_worktrees() {
+    with_trace_logging(|| {
+        let repository = Rc::new(FakeWorktreeRepository::with_worktrees(vec![
+            Worktree::new(
+                WorktreeId::new("worktree-1"),
+                TaskId::new("task-1"),
+                None,
+                DomainWorktreeActivity::Inactive,
+                AuditFields::new(1, 2, false),
+            ),
+            Worktree::new(
+                WorktreeId::new("worktree-2"),
+                TaskId::new("task-2"),
+                Some("feature/updated-branch".to_string()),
+                DomainWorktreeActivity::Active,
+                AuditFields::new(3, 4, false),
+            ),
+        ]));
+        let handler = ListWorktreesHandler::new(repository);
+
+        let response = match handler.handle(ListWorktreesRequest {}) {
+            Ok(response) => response,
+            Err(error) => panic!("list handler failed: {error}"),
+        };
+
+        assert_eq!(
+            response,
+            ListWorktreesResponse {
+                worktrees: vec![
+                    ContractWorktree {
+                        id: "worktree-1".to_string(),
+                        task_id: "task-1".to_string(),
+                        branch_name: None,
+                        activity: ContractWorktreeActivity::Inactive,
+                    },
+                    ContractWorktree {
+                        id: "worktree-2".to_string(),
+                        task_id: "task-2".to_string(),
+                        branch_name: Some("feature/updated-branch".to_string()),
+                        activity: ContractWorktreeActivity::Active,
+                    },
+                ],
+            }
+        );
+    });
 }
 
 /// Verifies update handlers preserve created timestamps while refreshing mutable fields.
 #[test]
 fn updates_worktrees_with_refreshed_timestamps() {
-    let repository = Rc::new(FakeWorktreeRepository::with_worktrees(vec![Worktree::new(
-        WorktreeId::new("worktree-1"),
-        TaskId::new("task-1"),
-        None,
-        DomainWorktreeActivity::Inactive,
-        AuditFields::new(10, 20, false),
-    )]));
-    let handler = UpdateWorktreeHandler::new(repository.clone(), FixedClock::new(30));
-
-    let response = match handler.handle(UpdateWorktreeRequest {
-        worktree_id: "worktree-1".to_string(),
-        task_id: "task-2".to_string(),
-        branch_name: Some("feature/updated-branch".to_string()),
-        activity: ContractWorktreeActivity::Active,
-    }) {
-        Ok(response) => response,
-        Err(error) => panic!("update handler failed: {error}"),
-    };
-
-    assert_eq!(
-        response,
-        UpdateWorktreeResponse {
-            worktree: ContractWorktree {
-                id: "worktree-1".to_string(),
-                task_id: "task-2".to_string(),
-                branch_name: Some("feature/updated-branch".to_string()),
-                activity: ContractWorktreeActivity::Active,
-            },
-        }
-    );
-    assert_eq!(
-        repository.visible_worktrees(),
-        vec![Worktree::new(
+    with_trace_logging(|| {
+        let repository = Rc::new(FakeWorktreeRepository::with_worktrees(vec![Worktree::new(
             WorktreeId::new("worktree-1"),
-            TaskId::new("task-2"),
-            Some("feature/updated-branch".to_string()),
-            DomainWorktreeActivity::Active,
-            AuditFields::new(10, 30, false),
-        )]
-    );
+            TaskId::new("task-1"),
+            None,
+            DomainWorktreeActivity::Inactive,
+            AuditFields::new(10, 20, false),
+        )]));
+        let handler = UpdateWorktreeHandler::new(repository.clone(), FixedClock::new(30));
+
+        let response = match handler.handle(UpdateWorktreeRequest {
+            worktree_id: "worktree-1".to_string(),
+            task_id: "task-2".to_string(),
+            branch_name: Some("feature/updated-branch".to_string()),
+            activity: ContractWorktreeActivity::Active,
+        }) {
+            Ok(response) => response,
+            Err(error) => panic!("update handler failed: {error}"),
+        };
+
+        assert_eq!(
+            response,
+            UpdateWorktreeResponse {
+                worktree: ContractWorktree {
+                    id: "worktree-1".to_string(),
+                    task_id: "task-2".to_string(),
+                    branch_name: Some("feature/updated-branch".to_string()),
+                    activity: ContractWorktreeActivity::Active,
+                },
+            }
+        );
+        assert_eq!(
+            repository.visible_worktrees(),
+            vec![Worktree::new(
+                WorktreeId::new("worktree-1"),
+                TaskId::new("task-2"),
+                Some("feature/updated-branch".to_string()),
+                DomainWorktreeActivity::Active,
+                AuditFields::new(10, 30, false),
+            )]
+        );
+    });
 }
 
 /// Verifies delete handlers keep the external CRUD contract while soft-deleting storage state.
 #[test]
 fn deletes_worktrees_through_soft_delete_repository_calls() {
-    let repository = Rc::new(FakeWorktreeRepository::with_worktrees(vec![Worktree::new(
-        WorktreeId::new("worktree-1"),
-        TaskId::new("task-1"),
-        None,
-        DomainWorktreeActivity::Inactive,
-        AuditFields::new(10, 20, false),
-    )]));
-    let handler = DeleteWorktreeHandler::new(repository.clone(), FixedClock::new(40));
-
-    let response = match handler.handle(DeleteWorktreeRequest {
-        worktree_id: "worktree-1".to_string(),
-    }) {
-        Ok(response) => response,
-        Err(error) => panic!("delete handler failed: {error}"),
-    };
-
-    assert_eq!(
-        response,
-        DeleteWorktreeResponse {
-            worktree_id: "worktree-1".to_string(),
-        }
-    );
-    assert_eq!(repository.visible_worktrees(), Vec::<Worktree>::new());
-    assert_eq!(
-        repository.all_worktrees(),
-        vec![Worktree::new(
+    with_trace_logging(|| {
+        let repository = Rc::new(FakeWorktreeRepository::with_worktrees(vec![Worktree::new(
             WorktreeId::new("worktree-1"),
             TaskId::new("task-1"),
             None,
             DomainWorktreeActivity::Inactive,
-            AuditFields::new(10, 40, true),
-        )]
-    );
+            AuditFields::new(10, 20, false),
+        )]));
+        let handler = DeleteWorktreeHandler::new(repository.clone(), FixedClock::new(40));
+
+        let response = match handler.handle(DeleteWorktreeRequest {
+            worktree_id: "worktree-1".to_string(),
+        }) {
+            Ok(response) => response,
+            Err(error) => panic!("delete handler failed: {error}"),
+        };
+
+        assert_eq!(
+            response,
+            DeleteWorktreeResponse {
+                worktree_id: "worktree-1".to_string(),
+            }
+        );
+        assert_eq!(repository.visible_worktrees(), Vec::<Worktree>::new());
+        assert_eq!(
+            repository.all_worktrees(),
+            vec![Worktree::new(
+                WorktreeId::new("worktree-1"),
+                TaskId::new("task-1"),
+                None,
+                DomainWorktreeActivity::Inactive,
+                AuditFields::new(10, 40, true),
+            )]
+        );
+    });
 }
 
 /// Verifies handlers expose stable application errors for missing worktrees and repository failures.
 #[test]
 fn reports_application_errors() {
-    let missing_repository = Rc::new(FakeWorktreeRepository::default());
-    let get_handler = GetWorktreeHandler::new(missing_repository);
-    let failing_repository = Rc::new(FakeWorktreeRepository::default());
-    failing_repository.fail_next(WorktreeRepositoryError::OperationFailed(
-        "storage unavailable".to_string(),
-    ));
-    let list_handler = ListWorktreesHandler::new(failing_repository);
+    with_trace_logging(|| {
+        let missing_repository = Rc::new(FakeWorktreeRepository::default());
+        let get_handler = GetWorktreeHandler::new(missing_repository);
+        let failing_repository = Rc::new(FakeWorktreeRepository::default());
+        failing_repository.fail_next(WorktreeRepositoryError::OperationFailed(
+            "storage unavailable".to_string(),
+        ));
+        let list_handler = ListWorktreesHandler::new(failing_repository);
 
-    let missing_error = match get_handler.handle(GetWorktreeRequest {
-        worktree_id: "missing".to_string(),
-    }) {
-        Ok(response) => panic!("expected missing error, got response: {response:?}"),
-        Err(error) => error,
-    };
-    let repository_error = match list_handler.handle(ListWorktreesRequest {}) {
-        Ok(response) => panic!("expected repository error, got response: {response:?}"),
-        Err(error) => error,
-    };
-
-    assert_eq!(
-        missing_error,
-        ApplicationError::WorktreeNotFound {
+        let missing_error = match get_handler.handle(GetWorktreeRequest {
             worktree_id: "missing".to_string(),
-        }
-    );
-    assert_eq!(
-        repository_error,
-        ApplicationError::WorktreeRepository {
-            message: "storage unavailable".to_string(),
-        }
-    );
+        }) {
+            Ok(response) => panic!("expected missing error, got response: {response:?}"),
+            Err(error) => error,
+        };
+        let repository_error = match list_handler.handle(ListWorktreesRequest {}) {
+            Ok(response) => panic!("expected repository error, got response: {response:?}"),
+            Err(error) => error,
+        };
+
+        assert_eq!(
+            missing_error,
+            ApplicationError::WorktreeNotFound {
+                worktree_id: "missing".to_string(),
+            }
+        );
+        assert_eq!(
+            repository_error,
+            ApplicationError::WorktreeRepository {
+                message: "storage unavailable".to_string(),
+            }
+        );
+    });
 }
 
 /// Verifies worktree handlers emit structured success and failure events under a scoped subscriber.
 #[test]
 fn emits_structured_operational_events() {
     let recorder = EventRecorder::default();
-    let subscriber = tracing_subscriber::registry().with(recorder.layer());
-    let create_repository = Rc::new(FakeWorktreeRepository::default());
-    let create_handler = CreateWorktreeHandler::new(
-        create_repository,
-        FixedWorktreeIdGenerator::new("worktree-42"),
-        FixedClock::new(5),
-    );
-    let get_handler = GetWorktreeHandler::new(Rc::new(FakeWorktreeRepository::default()));
+    with_recorded_trace_logging(recorder.layer(), || {
+        let create_repository = Rc::new(FakeWorktreeRepository::default());
+        let create_handler = CreateWorktreeHandler::new(
+            create_repository,
+            FixedWorktreeIdGenerator::new("worktree-42"),
+            FixedClock::new(5),
+        );
+        let get_handler = GetWorktreeHandler::new(Rc::new(FakeWorktreeRepository::default()));
 
-    tracing::subscriber::with_default(subscriber, || {
         create_handler
             .handle(CreateWorktreeRequest {
                 task_id: "task-1".to_string(),

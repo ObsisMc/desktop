@@ -8,6 +8,7 @@ use ora_domain::{
     AuditFields, Project, ProjectId, Session, SessionId, SessionStatus, Task, TaskId, TaskStatus,
     Worktree, WorktreeActivity, WorktreeId,
 };
+use ora_logging::with_trace_logging;
 use pretty_assertions::assert_eq;
 use tempfile::TempDir;
 
@@ -411,14 +412,16 @@ fn worktree_repository_reports_row_mapping_failures() {
 /// Bootstraps a file-backed SQLite database and returns the ready repository pool.
 fn bootstrapped_repository_pool() -> (TempDir, RepositoryPool) {
     let temp_dir = TempDir::new().unwrap();
-    let pool = DatabaseBootstrapper::new(FixedTimestampSource {
-        now: 1_700_000_000_000,
-    })
-    .bootstrap_repository_pool(
-        &DatabaseLocation::path(database_path(&temp_dir)),
-        &default_migration_catalog().unwrap(),
-    )
-    .unwrap();
+    let pool = with_trace_logging(|| {
+        DatabaseBootstrapper::new(FixedTimestampSource {
+            now: 1_700_000_000_000,
+        })
+        .bootstrap_repository_pool(
+            &DatabaseLocation::path(database_path(&temp_dir)),
+            &default_migration_catalog().unwrap(),
+        )
+        .unwrap()
+    });
 
     (temp_dir, pool)
 }

@@ -53,7 +53,12 @@ fn preserves_the_public_logging_api_surface() {
     assert_eq!(stdout_only.level, LogLevel::Debug);
     assert_eq!(warn_only.level, LogLevel::Warn);
     assert_eq!(file_only.rotation, RotationPolicy::Daily);
-    drop(runtime_span("bootstrap"));
+
+    let stdout = SharedBuffer::default();
+    let (dispatch, _guard) = build_dispatch(&stdout_only, stdout.make_writer()).unwrap();
+    with_default(&dispatch, || {
+        drop(runtime_span("bootstrap"));
+    });
 }
 
 /// Verifies the warn level preserves warning and error events while filtering informational ones out.

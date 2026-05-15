@@ -7,6 +7,7 @@ mod guard;
 mod init;
 mod macros;
 mod method_name;
+mod test_support;
 
 #[cfg(test)]
 mod tests;
@@ -18,6 +19,7 @@ pub use correlation::{
 pub use error::{FileSystemAction, LoggingInitError};
 pub use guard::LoggingGuard;
 pub use init::init_logging;
+pub use test_support::{with_recorded_trace_logging, with_trace_logging};
 
 #[cfg(test)]
 pub(crate) use init::build_dispatch;

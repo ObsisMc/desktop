@@ -10,284 +10,295 @@ use ora_contracts::{
     UpdateSessionResponse,
 };
 use ora_domain::{AuditFields, Session, SessionId, SessionStatus as DomainSessionStatus, TaskId};
+use ora_logging::{with_recorded_trace_logging, with_trace_logging};
 use pretty_assertions::assert_eq;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use tracing_subscriber::layer::{Context, Layer};
-use tracing_subscriber::prelude::*;
 use tracing_subscriber::registry::LookupSpan;
 
 /// Verifies create handlers build domain sessions and return the shared contract response.
 #[test]
 fn creates_sessions_with_generated_identity_and_clock_values() {
-    let repository = Rc::new(FakeSessionRepository::default());
-    let handler = CreateSessionHandler::new(
-        repository.clone(),
-        FixedSessionIdGenerator::new("session-1"),
-        FixedClock::new(1_700_000_000_000),
-    );
+    with_trace_logging(|| {
+        let repository = Rc::new(FakeSessionRepository::default());
+        let handler = CreateSessionHandler::new(
+            repository.clone(),
+            FixedSessionIdGenerator::new("session-1"),
+            FixedClock::new(1_700_000_000_000),
+        );
 
-    let response = match handler.handle(CreateSessionRequest {
-        task_id: "task-1".to_string(),
-        agent_id: "agent-1".to_string(),
-        agent_session_id: Some("provider-1".to_string()),
-        status: ContractSessionStatus::Running,
-    }) {
-        Ok(response) => response,
-        Err(error) => panic!("create handler failed: {error}"),
-    };
+        let response = match handler.handle(CreateSessionRequest {
+            task_id: "task-1".to_string(),
+            agent_id: "agent-1".to_string(),
+            agent_session_id: Some("provider-1".to_string()),
+            status: ContractSessionStatus::Running,
+        }) {
+            Ok(response) => response,
+            Err(error) => panic!("create handler failed: {error}"),
+        };
 
-    assert_eq!(
-        response,
-        CreateSessionResponse {
-            session: ContractSession {
-                id: "session-1".to_string(),
-                task_id: "task-1".to_string(),
-                agent_id: "agent-1".to_string(),
-                agent_session_id: Some("provider-1".to_string()),
-                status: ContractSessionStatus::Running,
-            },
-        }
-    );
-    assert_eq!(
-        repository.visible_sessions(),
-        vec![Session::new(
-            SessionId::new("session-1"),
-            TaskId::new("task-1"),
-            "agent-1",
-            Some("provider-1".to_string()),
-            DomainSessionStatus::Running,
-            AuditFields::new(1_700_000_000_000, 1_700_000_000_000, false),
-        )]
-    );
+        assert_eq!(
+            response,
+            CreateSessionResponse {
+                session: ContractSession {
+                    id: "session-1".to_string(),
+                    task_id: "task-1".to_string(),
+                    agent_id: "agent-1".to_string(),
+                    agent_session_id: Some("provider-1".to_string()),
+                    status: ContractSessionStatus::Running,
+                },
+            }
+        );
+        assert_eq!(
+            repository.visible_sessions(),
+            vec![Session::new(
+                SessionId::new("session-1"),
+                TaskId::new("task-1"),
+                "agent-1",
+                Some("provider-1".to_string()),
+                DomainSessionStatus::Running,
+                AuditFields::new(1_700_000_000_000, 1_700_000_000_000, false),
+            )]
+        );
+    });
 }
 
 /// Verifies get handlers return the shared contract projection for existing sessions.
 #[test]
 fn gets_sessions_by_identifier() {
-    let repository = Rc::new(FakeSessionRepository::with_sessions(vec![Session::new(
-        SessionId::new("session-1"),
-        TaskId::new("task-1"),
-        "agent-1",
-        None,
-        DomainSessionStatus::Stopped,
-        AuditFields::new(1, 2, false),
-    )]));
-    let handler = GetSessionHandler::new(repository);
-
-    let response = match handler.handle(GetSessionRequest {
-        session_id: "session-1".to_string(),
-    }) {
-        Ok(response) => response,
-        Err(error) => panic!("get handler failed: {error}"),
-    };
-
-    assert_eq!(
-        response,
-        GetSessionResponse {
-            session: ContractSession {
-                id: "session-1".to_string(),
-                task_id: "task-1".to_string(),
-                agent_id: "agent-1".to_string(),
-                agent_session_id: None,
-                status: ContractSessionStatus::Stopped,
-            },
-        }
-    );
-}
-
-/// Verifies list handlers map every stored session into the shared contract payload.
-#[test]
-fn lists_visible_sessions() {
-    let repository = Rc::new(FakeSessionRepository::with_sessions(vec![
-        Session::new(
+    with_trace_logging(|| {
+        let repository = Rc::new(FakeSessionRepository::with_sessions(vec![Session::new(
             SessionId::new("session-1"),
             TaskId::new("task-1"),
             "agent-1",
             None,
             DomainSessionStatus::Stopped,
             AuditFields::new(1, 2, false),
-        ),
-        Session::new(
-            SessionId::new("session-2"),
-            TaskId::new("task-2"),
-            "agent-2",
-            Some("provider-2".to_string()),
-            DomainSessionStatus::Running,
-            AuditFields::new(3, 4, false),
-        ),
-    ]));
-    let handler = ListSessionsHandler::new(repository);
+        )]));
+        let handler = GetSessionHandler::new(repository);
 
-    let response = match handler.handle(ListSessionsRequest {}) {
-        Ok(response) => response,
-        Err(error) => panic!("list handler failed: {error}"),
-    };
+        let response = match handler.handle(GetSessionRequest {
+            session_id: "session-1".to_string(),
+        }) {
+            Ok(response) => response,
+            Err(error) => panic!("get handler failed: {error}"),
+        };
 
-    assert_eq!(
-        response,
-        ListSessionsResponse {
-            sessions: vec![
-                ContractSession {
+        assert_eq!(
+            response,
+            GetSessionResponse {
+                session: ContractSession {
                     id: "session-1".to_string(),
                     task_id: "task-1".to_string(),
                     agent_id: "agent-1".to_string(),
                     agent_session_id: None,
                     status: ContractSessionStatus::Stopped,
                 },
-                ContractSession {
-                    id: "session-2".to_string(),
-                    task_id: "task-2".to_string(),
-                    agent_id: "agent-2".to_string(),
-                    agent_session_id: Some("provider-2".to_string()),
-                    status: ContractSessionStatus::Running,
-                },
-            ],
-        }
-    );
+            }
+        );
+    });
+}
+
+/// Verifies list handlers map every stored session into the shared contract payload.
+#[test]
+fn lists_visible_sessions() {
+    with_trace_logging(|| {
+        let repository = Rc::new(FakeSessionRepository::with_sessions(vec![
+            Session::new(
+                SessionId::new("session-1"),
+                TaskId::new("task-1"),
+                "agent-1",
+                None,
+                DomainSessionStatus::Stopped,
+                AuditFields::new(1, 2, false),
+            ),
+            Session::new(
+                SessionId::new("session-2"),
+                TaskId::new("task-2"),
+                "agent-2",
+                Some("provider-2".to_string()),
+                DomainSessionStatus::Running,
+                AuditFields::new(3, 4, false),
+            ),
+        ]));
+        let handler = ListSessionsHandler::new(repository);
+
+        let response = match handler.handle(ListSessionsRequest {}) {
+            Ok(response) => response,
+            Err(error) => panic!("list handler failed: {error}"),
+        };
+
+        assert_eq!(
+            response,
+            ListSessionsResponse {
+                sessions: vec![
+                    ContractSession {
+                        id: "session-1".to_string(),
+                        task_id: "task-1".to_string(),
+                        agent_id: "agent-1".to_string(),
+                        agent_session_id: None,
+                        status: ContractSessionStatus::Stopped,
+                    },
+                    ContractSession {
+                        id: "session-2".to_string(),
+                        task_id: "task-2".to_string(),
+                        agent_id: "agent-2".to_string(),
+                        agent_session_id: Some("provider-2".to_string()),
+                        status: ContractSessionStatus::Running,
+                    },
+                ],
+            }
+        );
+    });
 }
 
 /// Verifies update handlers preserve created timestamps while refreshing mutable fields.
 #[test]
 fn updates_sessions_with_refreshed_timestamps() {
-    let repository = Rc::new(FakeSessionRepository::with_sessions(vec![Session::new(
-        SessionId::new("session-1"),
-        TaskId::new("task-1"),
-        "agent-1",
-        None,
-        DomainSessionStatus::Stopped,
-        AuditFields::new(10, 20, false),
-    )]));
-    let handler = UpdateSessionHandler::new(repository.clone(), FixedClock::new(30));
-
-    let response = match handler.handle(UpdateSessionRequest {
-        session_id: "session-1".to_string(),
-        task_id: "task-2".to_string(),
-        agent_id: "agent-2".to_string(),
-        agent_session_id: Some("provider-2".to_string()),
-        status: ContractSessionStatus::Running,
-    }) {
-        Ok(response) => response,
-        Err(error) => panic!("update handler failed: {error}"),
-    };
-
-    assert_eq!(
-        response,
-        UpdateSessionResponse {
-            session: ContractSession {
-                id: "session-1".to_string(),
-                task_id: "task-2".to_string(),
-                agent_id: "agent-2".to_string(),
-                agent_session_id: Some("provider-2".to_string()),
-                status: ContractSessionStatus::Running,
-            },
-        }
-    );
-    assert_eq!(
-        repository.visible_sessions(),
-        vec![Session::new(
-            SessionId::new("session-1"),
-            TaskId::new("task-2"),
-            "agent-2",
-            Some("provider-2".to_string()),
-            DomainSessionStatus::Running,
-            AuditFields::new(10, 30, false),
-        )]
-    );
-}
-
-/// Verifies delete handlers keep the external CRUD contract while soft-deleting storage state.
-#[test]
-fn deletes_sessions_through_soft_delete_repository_calls() {
-    let repository = Rc::new(FakeSessionRepository::with_sessions(vec![Session::new(
-        SessionId::new("session-1"),
-        TaskId::new("task-1"),
-        "agent-1",
-        None,
-        DomainSessionStatus::Stopped,
-        AuditFields::new(10, 20, false),
-    )]));
-    let handler = DeleteSessionHandler::new(repository.clone(), FixedClock::new(40));
-
-    let response = match handler.handle(DeleteSessionRequest {
-        session_id: "session-1".to_string(),
-    }) {
-        Ok(response) => response,
-        Err(error) => panic!("delete handler failed: {error}"),
-    };
-
-    assert_eq!(
-        response,
-        DeleteSessionResponse {
-            session_id: "session-1".to_string(),
-        }
-    );
-    assert_eq!(repository.visible_sessions(), Vec::<Session>::new());
-    assert_eq!(
-        repository.all_sessions(),
-        vec![Session::new(
+    with_trace_logging(|| {
+        let repository = Rc::new(FakeSessionRepository::with_sessions(vec![Session::new(
             SessionId::new("session-1"),
             TaskId::new("task-1"),
             "agent-1",
             None,
             DomainSessionStatus::Stopped,
-            AuditFields::new(10, 40, true),
-        )]
-    );
+            AuditFields::new(10, 20, false),
+        )]));
+        let handler = UpdateSessionHandler::new(repository.clone(), FixedClock::new(30));
+
+        let response = match handler.handle(UpdateSessionRequest {
+            session_id: "session-1".to_string(),
+            task_id: "task-2".to_string(),
+            agent_id: "agent-2".to_string(),
+            agent_session_id: Some("provider-2".to_string()),
+            status: ContractSessionStatus::Running,
+        }) {
+            Ok(response) => response,
+            Err(error) => panic!("update handler failed: {error}"),
+        };
+
+        assert_eq!(
+            response,
+            UpdateSessionResponse {
+                session: ContractSession {
+                    id: "session-1".to_string(),
+                    task_id: "task-2".to_string(),
+                    agent_id: "agent-2".to_string(),
+                    agent_session_id: Some("provider-2".to_string()),
+                    status: ContractSessionStatus::Running,
+                },
+            }
+        );
+        assert_eq!(
+            repository.visible_sessions(),
+            vec![Session::new(
+                SessionId::new("session-1"),
+                TaskId::new("task-2"),
+                "agent-2",
+                Some("provider-2".to_string()),
+                DomainSessionStatus::Running,
+                AuditFields::new(10, 30, false),
+            )]
+        );
+    });
+}
+
+/// Verifies delete handlers keep the external CRUD contract while soft-deleting storage state.
+#[test]
+fn deletes_sessions_through_soft_delete_repository_calls() {
+    with_trace_logging(|| {
+        let repository = Rc::new(FakeSessionRepository::with_sessions(vec![Session::new(
+            SessionId::new("session-1"),
+            TaskId::new("task-1"),
+            "agent-1",
+            None,
+            DomainSessionStatus::Stopped,
+            AuditFields::new(10, 20, false),
+        )]));
+        let handler = DeleteSessionHandler::new(repository.clone(), FixedClock::new(40));
+
+        let response = match handler.handle(DeleteSessionRequest {
+            session_id: "session-1".to_string(),
+        }) {
+            Ok(response) => response,
+            Err(error) => panic!("delete handler failed: {error}"),
+        };
+
+        assert_eq!(
+            response,
+            DeleteSessionResponse {
+                session_id: "session-1".to_string(),
+            }
+        );
+        assert_eq!(repository.visible_sessions(), Vec::<Session>::new());
+        assert_eq!(
+            repository.all_sessions(),
+            vec![Session::new(
+                SessionId::new("session-1"),
+                TaskId::new("task-1"),
+                "agent-1",
+                None,
+                DomainSessionStatus::Stopped,
+                AuditFields::new(10, 40, true),
+            )]
+        );
+    });
 }
 
 /// Verifies handlers expose stable application errors for missing sessions and repository failures.
 #[test]
 fn reports_application_errors() {
-    let missing_repository = Rc::new(FakeSessionRepository::default());
-    let get_handler = GetSessionHandler::new(missing_repository);
-    let failing_repository = Rc::new(FakeSessionRepository::default());
-    failing_repository.fail_next(SessionRepositoryError::OperationFailed(
-        "storage unavailable".to_string(),
-    ));
-    let list_handler = ListSessionsHandler::new(failing_repository);
+    with_trace_logging(|| {
+        let missing_repository = Rc::new(FakeSessionRepository::default());
+        let get_handler = GetSessionHandler::new(missing_repository);
+        let failing_repository = Rc::new(FakeSessionRepository::default());
+        failing_repository.fail_next(SessionRepositoryError::OperationFailed(
+            "storage unavailable".to_string(),
+        ));
+        let list_handler = ListSessionsHandler::new(failing_repository);
 
-    let missing_error = match get_handler.handle(GetSessionRequest {
-        session_id: "missing".to_string(),
-    }) {
-        Ok(response) => panic!("expected missing error, got response: {response:?}"),
-        Err(error) => error,
-    };
-    let repository_error = match list_handler.handle(ListSessionsRequest {}) {
-        Ok(response) => panic!("expected repository error, got response: {response:?}"),
-        Err(error) => error,
-    };
-
-    assert_eq!(
-        missing_error,
-        ApplicationError::SessionNotFound {
+        let missing_error = match get_handler.handle(GetSessionRequest {
             session_id: "missing".to_string(),
-        }
-    );
-    assert_eq!(
-        repository_error,
-        ApplicationError::SessionRepository {
-            message: "storage unavailable".to_string(),
-        }
-    );
+        }) {
+            Ok(response) => panic!("expected missing error, got response: {response:?}"),
+            Err(error) => error,
+        };
+        let repository_error = match list_handler.handle(ListSessionsRequest {}) {
+            Ok(response) => panic!("expected repository error, got response: {response:?}"),
+            Err(error) => error,
+        };
+
+        assert_eq!(
+            missing_error,
+            ApplicationError::SessionNotFound {
+                session_id: "missing".to_string(),
+            }
+        );
+        assert_eq!(
+            repository_error,
+            ApplicationError::SessionRepository {
+                message: "storage unavailable".to_string(),
+            }
+        );
+    });
 }
 
 /// Verifies session handlers emit structured success and failure events under a scoped subscriber.
 #[test]
 fn emits_structured_operational_events() {
     let recorder = EventRecorder::default();
-    let subscriber = tracing_subscriber::registry().with(recorder.layer());
-    let create_repository = Rc::new(FakeSessionRepository::default());
-    let create_handler = CreateSessionHandler::new(
-        create_repository,
-        FixedSessionIdGenerator::new("session-42"),
-        FixedClock::new(5),
-    );
-    let get_handler = GetSessionHandler::new(Rc::new(FakeSessionRepository::default()));
+    with_recorded_trace_logging(recorder.layer(), || {
+        let create_repository = Rc::new(FakeSessionRepository::default());
+        let create_handler = CreateSessionHandler::new(
+            create_repository,
+            FixedSessionIdGenerator::new("session-42"),
+            FixedClock::new(5),
+        );
+        let get_handler = GetSessionHandler::new(Rc::new(FakeSessionRepository::default()));
 
-    tracing::subscriber::with_default(subscriber, || {
         create_handler
             .handle(CreateSessionRequest {
                 task_id: "task-1".to_string(),

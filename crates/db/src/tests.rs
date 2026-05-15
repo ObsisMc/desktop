@@ -2,11 +2,11 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
+use ora_logging::{with_recorded_trace_logging, with_trace_logging};
 use pretty_assertions::assert_eq;
 use rusqlite::{Connection, params};
 use tempfile::TempDir;
 use tracing_subscriber::layer::{Context, Layer};
-use tracing_subscriber::prelude::*;
 use tracing_subscriber::registry::LookupSpan;
 
 use crate::{
@@ -31,11 +31,13 @@ impl TimestampSource for FixedTimestampSource {
 #[test]
 fn bootstraps_empty_database_with_default_catalog() {
     let catalog = default_migration_catalog().unwrap();
-    let database = DatabaseBootstrapper::new(FixedTimestampSource {
-        now: 1_700_000_000_000,
-    })
-    .bootstrap(&DatabaseLocation::in_memory(), &catalog)
-    .unwrap();
+    let database = with_trace_logging(|| {
+        DatabaseBootstrapper::new(FixedTimestampSource {
+            now: 1_700_000_000_000,
+        })
+        .bootstrap(&DatabaseLocation::in_memory(), &catalog)
+        .unwrap()
+    });
 
     assert_eq!(
         load_table_names(database.connection()),
@@ -117,12 +119,14 @@ fn rejects_diverged_history_in_shared_prefix() {
 
     bootstrap_file_database(&database_path, diverged_catalog().unwrap(), 500);
 
-    let error = DatabaseBootstrapper::new(FixedTimestampSource { now: 600 })
-        .bootstrap(
-            &DatabaseLocation::path(&database_path),
-            &test_catalog().unwrap(),
-        )
-        .unwrap_err();
+    let error = with_trace_logging(|| {
+        DatabaseBootstrapper::new(FixedTimestampSource { now: 600 })
+            .bootstrap(
+                &DatabaseLocation::path(&database_path),
+                &test_catalog().unwrap(),
+            )
+            .unwrap_err()
+    });
 
     assert_eq!(
         match error {
@@ -149,16 +153,18 @@ fn leaves_failed_up_migration_unrecorded() {
         700,
     );
 
-    let error = DatabaseBootstrapper::new(FixedTimestampSource { now: 800 })
-        .bootstrap(
-            &DatabaseLocation::path(&database_path),
-            &MigrationCatalog::new(vec![
-                create_table_migration("0001", "alpha"),
-                broken_up_migration("0002"),
-            ])
-            .unwrap(),
-        )
-        .unwrap_err();
+    let error = with_trace_logging(|| {
+        DatabaseBootstrapper::new(FixedTimestampSource { now: 800 })
+            .bootstrap(
+                &DatabaseLocation::path(&database_path),
+                &MigrationCatalog::new(vec![
+                    create_table_migration("0001", "alpha"),
+                    broken_up_migration("0002"),
+                ])
+                .unwrap(),
+            )
+            .unwrap_err()
+    });
 
     assert_migration_step_failed(&error, "0002", MigrationDirection::Up);
 
@@ -186,19 +192,21 @@ fn leaves_failed_down_migration_recorded() {
         800,
     );
 
-    let error = DatabaseBootstrapper::new(FixedTimestampSource { now: 900 })
-        .bootstrap(
-            &DatabaseLocation::path(&database_path),
-            &MigrationCatalog::with_target_versions(
-                vec![
-                    create_table_migration("0001", "alpha"),
-                    broken_down_migration("0002"),
-                ],
-                vec!["0001"],
+    let error = with_trace_logging(|| {
+        DatabaseBootstrapper::new(FixedTimestampSource { now: 900 })
+            .bootstrap(
+                &DatabaseLocation::path(&database_path),
+                &MigrationCatalog::with_target_versions(
+                    vec![
+                        create_table_migration("0001", "alpha"),
+                        broken_down_migration("0002"),
+                    ],
+                    vec!["0001"],
+                )
+                .unwrap(),
             )
-            .unwrap(),
-        )
-        .unwrap_err();
+            .unwrap_err()
+    });
 
     assert_migration_step_failed(&error, "0002", MigrationDirection::Down);
 
@@ -217,9 +225,7 @@ fn leaves_failed_down_migration_recorded() {
 #[test]
 fn emits_structured_bootstrap_and_migration_events() {
     let success_recorder = EventRecorder::default();
-    let success_subscriber = tracing_subscriber::registry().with(success_recorder.layer());
-
-    tracing::subscriber::with_default(success_subscriber, || {
+    with_recorded_trace_logging(success_recorder.layer(), || {
         DatabaseBootstrapper::new(FixedTimestampSource { now: 42 })
             .bootstrap(
                 &DatabaseLocation::in_memory(),
@@ -244,16 +250,15 @@ fn emits_structured_bootstrap_and_migration_events() {
     );
 
     let failure_recorder = EventRecorder::default();
-    let failure_subscriber = tracing_subscriber::registry().with(failure_recorder.layer());
     let temp_dir = TempDir::new().unwrap();
     let database_path = temp_dir.path().join("failed-up.sqlite3");
 
-    bootstrap_file_database(
-        &database_path,
-        MigrationCatalog::new(vec![create_table_migration("0001", "alpha")]).unwrap(),
-        700,
-    );
-    tracing::subscriber::with_default(failure_subscriber, || {
+    with_recorded_trace_logging(failure_recorder.layer(), || {
+        bootstrap_file_database(
+            &database_path,
+            MigrationCatalog::new(vec![create_table_migration("0001", "alpha")]).unwrap(),
+            700,
+        );
         let error = DatabaseBootstrapper::new(FixedTimestampSource { now: 800 }).bootstrap(
             &DatabaseLocation::path(&database_path),
             &MigrationCatalog::new(vec![
@@ -296,9 +301,11 @@ fn emits_structured_bootstrap_and_migration_events() {
 
 /// Opens a file-backed database through the bootstrapper and drops the handle once reconciliation finishes.
 fn bootstrap_file_database(path: &Path, catalog: MigrationCatalog, now: i64) {
-    DatabaseBootstrapper::new(FixedTimestampSource { now })
-        .bootstrap(&DatabaseLocation::path(path), &catalog)
-        .unwrap();
+    with_trace_logging(|| {
+        DatabaseBootstrapper::new(FixedTimestampSource { now })
+            .bootstrap(&DatabaseLocation::path(path), &catalog)
+            .unwrap();
+    });
 }
 
 /// Loads visible user tables in alphabetical order so schema assertions remain stable across SQLite versions.

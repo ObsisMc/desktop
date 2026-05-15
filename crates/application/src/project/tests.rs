@@ -9,254 +9,265 @@ use ora_contracts::{
     Project as ContractProject, UpdateProjectRequest, UpdateProjectResponse,
 };
 use ora_domain::{AuditFields, Project, ProjectId};
+use ora_logging::{with_recorded_trace_logging, with_trace_logging};
 use pretty_assertions::assert_eq;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use tracing_subscriber::layer::{Context, Layer};
-use tracing_subscriber::prelude::*;
 use tracing_subscriber::registry::LookupSpan;
 
 /// Verifies create handlers build domain projects and return the shared contract response.
 #[test]
 fn creates_projects_with_generated_identity_and_clock_values() {
-    let repository = Rc::new(FakeProjectRepository::default());
-    let handler = CreateProjectHandler::new(
-        repository.clone(),
-        FixedProjectIdGenerator::new("project-1"),
-        FixedClock::new(1_700_000_000_000),
-    );
+    with_trace_logging(|| {
+        let repository = Rc::new(FakeProjectRepository::default());
+        let handler = CreateProjectHandler::new(
+            repository.clone(),
+            FixedProjectIdGenerator::new("project-1"),
+            FixedClock::new(1_700_000_000_000),
+        );
 
-    let response = match handler.handle(CreateProjectRequest {
-        name: "Ora".to_string(),
-        root_path: "/workspace/ora".to_string(),
-    }) {
-        Ok(response) => response,
-        Err(error) => panic!("create handler failed: {error}"),
-    };
+        let response = match handler.handle(CreateProjectRequest {
+            name: "Ora".to_string(),
+            root_path: "/workspace/ora".to_string(),
+        }) {
+            Ok(response) => response,
+            Err(error) => panic!("create handler failed: {error}"),
+        };
 
-    assert_eq!(
-        response,
-        CreateProjectResponse {
-            project: ContractProject {
-                id: "project-1".to_string(),
-                name: "Ora".to_string(),
-                root_path: "/workspace/ora".to_string(),
-            },
-        }
-    );
-    assert_eq!(
-        repository.visible_projects(),
-        vec![Project::new(
-            ProjectId::new("project-1"),
-            "Ora",
-            "/workspace/ora",
-            AuditFields::new(1_700_000_000_000, 1_700_000_000_000, false),
-        )]
-    );
+        assert_eq!(
+            response,
+            CreateProjectResponse {
+                project: ContractProject {
+                    id: "project-1".to_string(),
+                    name: "Ora".to_string(),
+                    root_path: "/workspace/ora".to_string(),
+                },
+            }
+        );
+        assert_eq!(
+            repository.visible_projects(),
+            vec![Project::new(
+                ProjectId::new("project-1"),
+                "Ora",
+                "/workspace/ora",
+                AuditFields::new(1_700_000_000_000, 1_700_000_000_000, false),
+            )]
+        );
+    });
 }
 
 /// Verifies get handlers return the shared contract projection for existing projects.
 #[test]
 fn gets_projects_by_identifier() {
-    let repository = Rc::new(FakeProjectRepository::with_projects(vec![Project::new(
-        ProjectId::new("project-1"),
-        "Ora",
-        "/workspace/ora",
-        AuditFields::new(1, 2, false),
-    )]));
-    let handler = GetProjectHandler::new(repository);
+    with_trace_logging(|| {
+        let repository = Rc::new(FakeProjectRepository::with_projects(vec![Project::new(
+            ProjectId::new("project-1"),
+            "Ora",
+            "/workspace/ora",
+            AuditFields::new(1, 2, false),
+        )]));
+        let handler = GetProjectHandler::new(repository);
 
-    let response = match handler.handle(GetProjectRequest {
-        project_id: "project-1".to_string(),
-    }) {
-        Ok(response) => response,
-        Err(error) => panic!("get handler failed: {error}"),
-    };
+        let response = match handler.handle(GetProjectRequest {
+            project_id: "project-1".to_string(),
+        }) {
+            Ok(response) => response,
+            Err(error) => panic!("get handler failed: {error}"),
+        };
 
-    assert_eq!(
-        response,
-        GetProjectResponse {
-            project: ContractProject {
-                id: "project-1".to_string(),
-                name: "Ora".to_string(),
-                root_path: "/workspace/ora".to_string(),
-            },
-        }
-    );
+        assert_eq!(
+            response,
+            GetProjectResponse {
+                project: ContractProject {
+                    id: "project-1".to_string(),
+                    name: "Ora".to_string(),
+                    root_path: "/workspace/ora".to_string(),
+                },
+            }
+        );
+    });
 }
 
 /// Verifies list handlers map every stored project into the shared contract payload.
 #[test]
 fn lists_visible_projects() {
-    let repository = Rc::new(FakeProjectRepository::with_projects(vec![
-        Project::new(
-            ProjectId::new("project-1"),
-            "Ora",
-            "/workspace/ora",
-            AuditFields::new(1, 2, false),
-        ),
-        Project::new(
-            ProjectId::new("project-2"),
-            "Ora Docs",
-            "/workspace/ora-docs",
-            AuditFields::new(3, 4, false),
-        ),
-    ]));
-    let handler = ListProjectsHandler::new(repository);
+    with_trace_logging(|| {
+        let repository = Rc::new(FakeProjectRepository::with_projects(vec![
+            Project::new(
+                ProjectId::new("project-1"),
+                "Ora",
+                "/workspace/ora",
+                AuditFields::new(1, 2, false),
+            ),
+            Project::new(
+                ProjectId::new("project-2"),
+                "Ora Docs",
+                "/workspace/ora-docs",
+                AuditFields::new(3, 4, false),
+            ),
+        ]));
+        let handler = ListProjectsHandler::new(repository);
 
-    let response = match handler.handle(ListProjectsRequest {}) {
-        Ok(response) => response,
-        Err(error) => panic!("list handler failed: {error}"),
-    };
+        let response = match handler.handle(ListProjectsRequest {}) {
+            Ok(response) => response,
+            Err(error) => panic!("list handler failed: {error}"),
+        };
 
-    assert_eq!(
-        response,
-        ListProjectsResponse {
-            projects: vec![
-                ContractProject {
-                    id: "project-1".to_string(),
-                    name: "Ora".to_string(),
-                    root_path: "/workspace/ora".to_string(),
-                },
-                ContractProject {
-                    id: "project-2".to_string(),
-                    name: "Ora Docs".to_string(),
-                    root_path: "/workspace/ora-docs".to_string(),
-                },
-            ],
-        }
-    );
+        assert_eq!(
+            response,
+            ListProjectsResponse {
+                projects: vec![
+                    ContractProject {
+                        id: "project-1".to_string(),
+                        name: "Ora".to_string(),
+                        root_path: "/workspace/ora".to_string(),
+                    },
+                    ContractProject {
+                        id: "project-2".to_string(),
+                        name: "Ora Docs".to_string(),
+                        root_path: "/workspace/ora-docs".to_string(),
+                    },
+                ],
+            }
+        );
+    });
 }
 
 /// Verifies update handlers preserve created timestamps while refreshing mutable fields.
 #[test]
 fn updates_projects_with_refreshed_timestamps() {
-    let repository = Rc::new(FakeProjectRepository::with_projects(vec![Project::new(
-        ProjectId::new("project-1"),
-        "Ora",
-        "/workspace/ora",
-        AuditFields::new(10, 20, false),
-    )]));
-    let handler = UpdateProjectHandler::new(repository.clone(), FixedClock::new(30));
-
-    let response = match handler.handle(UpdateProjectRequest {
-        project_id: "project-1".to_string(),
-        name: "Ora Updated".to_string(),
-        root_path: "/workspace/ora-next".to_string(),
-    }) {
-        Ok(response) => response,
-        Err(error) => panic!("update handler failed: {error}"),
-    };
-
-    assert_eq!(
-        response,
-        UpdateProjectResponse {
-            project: ContractProject {
-                id: "project-1".to_string(),
-                name: "Ora Updated".to_string(),
-                root_path: "/workspace/ora-next".to_string(),
-            },
-        }
-    );
-    assert_eq!(
-        repository.visible_projects(),
-        vec![Project::new(
+    with_trace_logging(|| {
+        let repository = Rc::new(FakeProjectRepository::with_projects(vec![Project::new(
             ProjectId::new("project-1"),
-            "Ora Updated",
-            "/workspace/ora-next",
-            AuditFields::new(10, 30, false),
-        )]
-    );
+            "Ora",
+            "/workspace/ora",
+            AuditFields::new(10, 20, false),
+        )]));
+        let handler = UpdateProjectHandler::new(repository.clone(), FixedClock::new(30));
+
+        let response = match handler.handle(UpdateProjectRequest {
+            project_id: "project-1".to_string(),
+            name: "Ora Updated".to_string(),
+            root_path: "/workspace/ora-next".to_string(),
+        }) {
+            Ok(response) => response,
+            Err(error) => panic!("update handler failed: {error}"),
+        };
+
+        assert_eq!(
+            response,
+            UpdateProjectResponse {
+                project: ContractProject {
+                    id: "project-1".to_string(),
+                    name: "Ora Updated".to_string(),
+                    root_path: "/workspace/ora-next".to_string(),
+                },
+            }
+        );
+        assert_eq!(
+            repository.visible_projects(),
+            vec![Project::new(
+                ProjectId::new("project-1"),
+                "Ora Updated",
+                "/workspace/ora-next",
+                AuditFields::new(10, 30, false),
+            )]
+        );
+    });
 }
 
 /// Verifies delete handlers keep the external CRUD contract while soft-deleting storage state.
 #[test]
 fn deletes_projects_through_soft_delete_repository_calls() {
-    let repository = Rc::new(FakeProjectRepository::with_projects(vec![Project::new(
-        ProjectId::new("project-1"),
-        "Ora",
-        "/workspace/ora",
-        AuditFields::new(10, 20, false),
-    )]));
-    let handler = DeleteProjectHandler::new(repository.clone(), FixedClock::new(40));
-
-    let response = match handler.handle(DeleteProjectRequest {
-        project_id: "project-1".to_string(),
-    }) {
-        Ok(response) => response,
-        Err(error) => panic!("delete handler failed: {error}"),
-    };
-
-    assert_eq!(
-        response,
-        DeleteProjectResponse {
-            project_id: "project-1".to_string(),
-        }
-    );
-    assert_eq!(repository.visible_projects(), Vec::<Project>::new());
-    assert_eq!(
-        repository.all_projects(),
-        vec![Project::new(
+    with_trace_logging(|| {
+        let repository = Rc::new(FakeProjectRepository::with_projects(vec![Project::new(
             ProjectId::new("project-1"),
             "Ora",
             "/workspace/ora",
-            AuditFields::new(10, 40, true),
-        )]
-    );
+            AuditFields::new(10, 20, false),
+        )]));
+        let handler = DeleteProjectHandler::new(repository.clone(), FixedClock::new(40));
+
+        let response = match handler.handle(DeleteProjectRequest {
+            project_id: "project-1".to_string(),
+        }) {
+            Ok(response) => response,
+            Err(error) => panic!("delete handler failed: {error}"),
+        };
+
+        assert_eq!(
+            response,
+            DeleteProjectResponse {
+                project_id: "project-1".to_string(),
+            }
+        );
+        assert_eq!(repository.visible_projects(), Vec::<Project>::new());
+        assert_eq!(
+            repository.all_projects(),
+            vec![Project::new(
+                ProjectId::new("project-1"),
+                "Ora",
+                "/workspace/ora",
+                AuditFields::new(10, 40, true),
+            )]
+        );
+    });
 }
 
 /// Verifies handlers expose stable application errors for missing projects and repository failures.
 #[test]
 fn reports_application_errors() {
-    let missing_repository = Rc::new(FakeProjectRepository::default());
-    let get_handler = GetProjectHandler::new(missing_repository);
-    let failing_repository = Rc::new(FakeProjectRepository::default());
-    failing_repository.fail_next(ProjectRepositoryError::OperationFailed(
-        "storage unavailable".to_string(),
-    ));
-    let list_handler = ListProjectsHandler::new(failing_repository);
+    with_trace_logging(|| {
+        let missing_repository = Rc::new(FakeProjectRepository::default());
+        let get_handler = GetProjectHandler::new(missing_repository);
+        let failing_repository = Rc::new(FakeProjectRepository::default());
+        failing_repository.fail_next(ProjectRepositoryError::OperationFailed(
+            "storage unavailable".to_string(),
+        ));
+        let list_handler = ListProjectsHandler::new(failing_repository);
 
-    let missing_error = match get_handler.handle(GetProjectRequest {
-        project_id: "missing".to_string(),
-    }) {
-        Ok(response) => panic!("expected missing error, got response: {response:?}"),
-        Err(error) => error,
-    };
-    let repository_error = match list_handler.handle(ListProjectsRequest {}) {
-        Ok(response) => panic!("expected repository error, got response: {response:?}"),
-        Err(error) => error,
-    };
-
-    assert_eq!(
-        missing_error,
-        ApplicationError::ProjectNotFound {
+        let missing_error = match get_handler.handle(GetProjectRequest {
             project_id: "missing".to_string(),
-        }
-    );
-    assert_eq!(
-        repository_error,
-        ApplicationError::ProjectRepository {
-            message: "storage unavailable".to_string(),
-        }
-    );
+        }) {
+            Ok(response) => panic!("expected missing error, got response: {response:?}"),
+            Err(error) => error,
+        };
+        let repository_error = match list_handler.handle(ListProjectsRequest {}) {
+            Ok(response) => panic!("expected repository error, got response: {response:?}"),
+            Err(error) => error,
+        };
+
+        assert_eq!(
+            missing_error,
+            ApplicationError::ProjectNotFound {
+                project_id: "missing".to_string(),
+            }
+        );
+        assert_eq!(
+            repository_error,
+            ApplicationError::ProjectRepository {
+                message: "storage unavailable".to_string(),
+            }
+        );
+    });
 }
 
 /// Verifies project handlers emit structured success and failure events under a scoped subscriber.
 #[test]
 fn emits_structured_operational_events() {
     let recorder = EventRecorder::default();
-    let subscriber = tracing_subscriber::registry().with(recorder.layer());
-    let create_repository = Rc::new(FakeProjectRepository::default());
-    let create_handler = CreateProjectHandler::new(
-        create_repository,
-        FixedProjectIdGenerator::new("project-42"),
-        FixedClock::new(5),
-    );
-    let get_handler = GetProjectHandler::new(Rc::new(FakeProjectRepository::default()));
+    with_recorded_trace_logging(recorder.layer(), || {
+        let create_repository = Rc::new(FakeProjectRepository::default());
+        let create_handler = CreateProjectHandler::new(
+            create_repository,
+            FixedProjectIdGenerator::new("project-42"),
+            FixedClock::new(5),
+        );
+        let get_handler = GetProjectHandler::new(Rc::new(FakeProjectRepository::default()));
 
-    tracing::subscriber::with_default(subscriber, || {
         create_handler
             .handle(CreateProjectRequest {
                 name: "Ora".to_string(),
