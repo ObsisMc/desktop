@@ -5,6 +5,7 @@ members = [
     "crates/contracts",
     "crates/db",
     "crates/domain",
+    "crates/gitlancer",
     "crates/logging",
     "xtask",
 ]
