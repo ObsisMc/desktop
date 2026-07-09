@@ -4,12 +4,42 @@
 //!
 //!     rustc --test test/test_add.rs -o /tmp/test_add && /tmp/test_add
 //!
-//! 需要从仓库根目录运行（默认按相对路径定位 fixture/main.ts），
-//! 也可以设置环境变量 ORA_MAIN_TS 指定 main.ts 的绝对路径。
+//! # 如何运行
 //!
-//! 协议（与 fixture/ora-sdk.ts 对齐，换行分隔 JSON）：
-//!   - 插件 → 宿主 (stdout)：{"type":"getNums"} / {"type":"returnNums","result":N}
-//!   - 宿主 → 插件 (stdin) ：{"a":..,"b":..}
+//! 从仓库根目录：
+//!
+//!     rustc --test test/test_add.rs -o <可写目录>/test_add && <可写目录>/test_add
+//!
+//! - 只跑某个用例：`<...>/test_add adds_with_zero`
+//! - 看插件的 stderr 调试输出（console-guard 会给它加 `[plugin]` 前缀）：加 `--nocapture`
+//!
+//! # 坑（都是踩过的）
+//!
+//! 1. 必须从**仓库根目录**运行。fixture 按相对路径 `test/fixture/main.ts` 定位；
+//!    在别处运行会找不到 main.ts。可用 `ORA_MAIN_TS=<绝对路径>` 覆盖，绕过这个约束。
+//!
+//! 2. `rustc` 需要**两处可写目录**，二者独立、缺一不可：
+//!      - `-o` 指定的产物路径所在目录（最终测试二进制要落地）；
+//!      - 编译期临时目录，存放 `.rmeta`/`.o` 等中间文件，位置由 `TMPDIR` 决定
+//!        （未设置则回退 `/tmp`）。这步发生在生成产物**之前**。
+//!    本机 `/tmp` 对当前用户不可写，只指 `-o` 仍会在临时文件那步报
+//!    `couldn't create a temp dir: Permission denied`。所以要连 `TMPDIR` 一起指到可写目录：
+//!
+//!        OUT=<可写目录>
+//!        TMPDIR=$OUT rustc --test test/test_add.rs -o "$OUT/test_add" && "$OUT/test_add"
+//!
+//!    （一般环境 `/tmp` 可写，无需设 `TMPDIR`；用 cargo 则中间文件全进 `target/`，不会遇到。）
+//!
+//! 3. 需要 `bun` 在 PATH 里——harness 内部用 `bun` 拉起 main.ts，且 main.ts 依赖真实
+//!    SDK 包 `@ora-space/plugin-sdk`（须已 `bun install`），否则子进程会启动失败。
+//!
+//! # 协议（与真实 SDK @ora-space/plugin-sdk/host 的 JSON-RPC 2.0 对齐，换行分隔）
+//!
+//!   - 宿主 → 插件 (stdin) ：{"jsonrpc":"2.0","id":"1","method":"add","params":[a,b]}
+//!   - 插件 → 宿主 (stdout)：{"jsonrpc":"2.0","id":"1","result":N}
+//!
+//! 注意方向：真实 SDK 下由**宿主先主动发请求**，插件读到后再回；这跟旧占位实现
+//! （插件先问宿主要数）是反的。
 
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
@@ -28,10 +58,10 @@ fn resolve_main_ts() -> PathBuf {
     source_dir.join("fixture").join("main.ts")
 }
 
-/// 从 {"type":"returnNums","result":15} 这类消息中抽出 result 的数值。
+/// 从 {"jsonrpc":"2.0","id":"1","result":15} 这类响应中抽出 result 的数值。
 fn parse_result(line: &str) -> i64 {
     const KEY: &str = "\"result\":";
-    let start = line.find(KEY).expect("returnNums 消息缺少 result 字段") + KEY.len();
+    let start = line.find(KEY).expect("响应消息缺少 result 字段") + KEY.len();
     let rest = &line[start..];
     // result 后面跟着 } 或 ,（本协议里是 }），取到分隔符为止。
     let end = rest
@@ -63,6 +93,14 @@ fn run_add(a: i64, b: i64) -> i64 {
     let child_stdout = child.stdout.take().expect("拿不到子进程 stdout");
     let mut reader = BufReader::new(child_stdout);
 
+    // 新协议下由宿主主动发起请求：把 add 请求以一行 JSON-RPC 写入子进程 stdin。
+    writeln!(
+        child_stdin,
+        "{{\"jsonrpc\":\"2.0\",\"id\":\"1\",\"method\":\"add\",\"params\":[{a},{b}]}}"
+    )
+    .expect("写入子进程 stdin 失败");
+    child_stdin.flush().expect("flush 子进程 stdin 失败");
+
     let mut result: Option<i64> = None;
     let mut line = String::new();
     loop {
@@ -76,18 +114,14 @@ fn run_add(a: i64, b: i64) -> i64 {
             continue;
         }
 
-        if trimmed.contains("\"getNums\"") {
-            // 回应输入：把两个整数以 JSON 写回子进程 stdin。
-            writeln!(child_stdin, "{{\"a\":{a},\"b\":{b}}}").expect("写入子进程 stdin 失败");
-            child_stdin.flush().expect("flush 子进程 stdin 失败");
-        } else if trimmed.contains("\"returnNums\"") {
+        if trimmed.contains("\"result\":") {
             result = Some(parse_result(trimmed));
             break;
         }
     }
 
     let _ = child.wait();
-    result.expect("没有收到 returnNums 结果")
+    result.expect("没有收到 result 响应")
 }
 
 #[test]

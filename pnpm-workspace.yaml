@@ -3,3 +3,5 @@ packages:
   - 'packages/*'
 allowBuilds:
   msw: true
+minimumReleaseAgeExclude:
+  - '@ora-space/plugin-sdk@0.1.3'
