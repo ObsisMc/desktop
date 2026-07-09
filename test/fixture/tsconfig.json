@@ -1,0 +1,14 @@
+{
+  "compilerOptions": {
+    "target": "esnext",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    // 引入 Node 类型，让 `process`、`node:readline` 等在类型层可被识别。
+    // 运行时用的是 bun 内置实现，这里仅为类型检查提供声明。
+    "types": ["node"]
+  },
+  "include": ["*.ts"]
+}
