@@ -8,6 +8,9 @@
     "src",
     "tsconfig.json"
   ],
+  "scripts": {
+    "test": "tsc -p tsconfig.json && node --test .test-dist/tests/*.test.js"
+  },
   "exports": {
     "./host": {
       "types": "./src/host/index.ts",

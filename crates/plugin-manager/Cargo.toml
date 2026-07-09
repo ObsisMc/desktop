@@ -1,0 +1,22 @@
+[package]
+name = "ora-plugin-manager"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "ora_plugin_manager"
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+ora-process = { workspace = true }
+ora-plugin-protocol = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["io-util", "macros", "time"] }
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }
