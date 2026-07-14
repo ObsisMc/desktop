@@ -33,10 +33,28 @@ struct StdioTransport {
     _child: Mutex<tokio::process::Child>,
 }
 
+/// Builds a command targeting the `opencode` CLI in a cross-platform way.
+///
+/// On Windows the CLI is a `opencode.cmd` shim that `Command::new` cannot launch
+/// directly, so it is invoked through `cmd /C`.
+fn opencode_command() -> tokio::process::Command {
+    #[cfg(windows)]
+    {
+        let mut command = tokio::process::Command::new("cmd");
+        command.args(["/C", "opencode"]);
+        command
+    }
+    #[cfg(not(windows))]
+    {
+        tokio::process::Command::new("opencode")
+    }
+}
+
 impl StdioTransport {
     fn spawn() -> Result<Self, AcpError> {
-        let mut child = tokio::process::Command::new("opencode")
+        let mut child = opencode_command()
             .arg("acp")
+            .kill_on_drop(true)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
