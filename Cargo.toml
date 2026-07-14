@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "apps/web/server",
+    "crates/acp",
     "crates/application",
     "crates/contracts",
     "crates/db",
@@ -25,6 +26,7 @@ edition = "2024"
 
 [workspace.dependencies]
 # Internal
+ora-acp = { path = "crates/acp" }
 ora-application = { path = "crates/application" }
 ora-contracts = { path = "crates/contracts" }
 ora-db = { path = "crates/db" }
@@ -37,6 +39,7 @@ ora-process = { path = "crates/process" }
 ora-pty = { path = "crates/pty" }
 
 # External
+agent-client-protocol-schema = "1.4"
 log = "0.4"
 portable-pty = "0.9"
 pretty_assertions = "1"
