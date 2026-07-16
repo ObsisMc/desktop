@@ -1,11 +1,9 @@
-import { Avatar } from "@ora/ui";
+import { AppShell } from "@ora/app-shell";
+import { createContractsClient } from "@ora/contracts";
+import { createMockTransport } from "@ora/mock-service";
 
-function App() {
-  return (
-    <div className="flex h-dvh items-center justify-center bg-primary">
-      <Avatar initials="EW" size="lg" />
-    </div>
-  );
+const client = createContractsClient(createMockTransport());
+
+export default function App() {
+  return <AppShell client={client} />;
 }
-
-export default App;

@@ -1,4 +1,4 @@
-import { Edit01 } from "@untitledui/icons";
+import { SquarePen } from "lucide-react";
 import { IconButton } from "../../components/icon-button";
 import { Composer } from "./composer";
 import { EmptyState } from "./empty-state";
@@ -17,18 +17,18 @@ interface ChatViewProps {
 export function ChatView({ active, userName, isResponding, onSend, onNewChat }: ChatViewProps) {
   if (!active) {
     return (
-      <main className="flex flex-1 flex-col bg-primary">
+      <main className="flex flex-1 flex-col bg-background">
         <EmptyState onSend={onSend} />
       </main>
     );
   }
 
   return (
-    <main className="flex flex-1 flex-col bg-primary">
-      <header className="flex h-14 shrink-0 items-center gap-2 border-b border-secondary px-3">
-        <span className="truncate text-sm font-semibold text-primary">{active.title}</span>
+    <main className="flex flex-1 flex-col bg-background">
+      <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border px-3">
+        <span className="truncate text-sm font-semibold text-foreground">{active.title}</span>
         <div className="flex-1" />
-        <IconButton icon={Edit01} label="New chat" onClick={onNewChat} />
+        <IconButton icon={SquarePen} label="New chat" onClick={onNewChat} />
       </header>
 
       <MessageList messages={active.messages} userName={userName} isResponding={isResponding} />

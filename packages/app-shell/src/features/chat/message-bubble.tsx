@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Check, Copy07, ThumbsDown, ThumbsUp } from "@untitledui/icons";
+import { Check, Copy, ThumbsDown, ThumbsUp } from "lucide-react";
 import { Button } from "@ora/ui";
 import { ColoredAvatar } from "../../components/colored-avatar";
 import { OraMark } from "../../components/ora-mark";
@@ -37,28 +37,28 @@ export function MessageBubble({ message, userName }: MessageBubbleProps) {
       <div className="flex min-w-0 flex-1 flex-col gap-1.5">
         {isUser ? (
           <div className="w-fit max-w-full rounded-2xl bg-secondary px-3.5 py-2.5">
-            <p className="whitespace-pre-wrap break-words text-md text-primary">{message.content}</p>
+            <p className="whitespace-pre-wrap break-words text-sm text-foreground">{message.content}</p>
           </div>
         ) : (
-          <p className="whitespace-pre-wrap break-words text-md text-primary">{message.content}</p>
+          <p className="whitespace-pre-wrap break-words text-sm text-foreground">{message.content}</p>
         )}
 
         <div className="flex items-center gap-2">
-          <span className="text-xs text-quaternary">{formatClock(message.createdAt)}</span>
+          <span className="text-xs text-muted-foreground">{formatClock(message.createdAt)}</span>
           {!isUser && (
             <div className="flex items-center gap-0.5 opacity-0 transition duration-100 group-hover/message:opacity-100">
-              <Button color="tertiary" size="sm" aria-label="Copy" noTextPadding className="size-6 p-0" onClick={copy}>
+              <Button variant="ghost" size="icon-xs" aria-label="Copy" onClick={copy}>
                 {copied ? (
-                  <Check className="size-3.5 text-fg-success-secondary" />
+                  <Check className="size-3.5 text-emerald-600" />
                 ) : (
-                  <Copy07 className="size-3.5 text-fg-quaternary transition-inherit-all group-hover/message:text-fg-tertiary_hover" />
+                  <Copy className="size-3.5 text-muted-foreground" />
                 )}
               </Button>
-              <Button color="tertiary" size="sm" aria-label="Good response" noTextPadding className="size-6 p-0">
-                <ThumbsUp className="size-3.5 text-fg-quaternary transition-inherit-all group-hover/message:text-fg-tertiary_hover" />
+              <Button variant="ghost" size="icon-xs" aria-label="Good response">
+                <ThumbsUp className="size-3.5 text-muted-foreground" />
               </Button>
-              <Button color="tertiary" size="sm" aria-label="Bad response" noTextPadding className="size-6 p-0">
-                <ThumbsDown className="size-3.5 text-fg-quaternary transition-inherit-all group-hover/message:text-fg-tertiary_hover" />
+              <Button variant="ghost" size="icon-xs" aria-label="Bad response">
+                <ThumbsDown className="size-3.5 text-muted-foreground" />
               </Button>
             </div>
           )}

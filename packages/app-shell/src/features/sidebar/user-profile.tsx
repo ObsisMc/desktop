@@ -1,5 +1,11 @@
-import { ChevronDown, Settings04, UserLeft01 } from "@untitledui/icons";
-import { Button, Dropdown } from "@ora/ui";
+import { ChevronDown, LogOut, Settings } from "lucide-react";
+import {
+  Button,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@ora/ui";
 import { ColoredAvatar } from "../../components/colored-avatar";
 import type { CurrentUser } from "../../lib/types";
 
@@ -17,29 +23,38 @@ interface UserProfileProps {
  */
 export function UserProfile({ user, compact = false, onSignOut }: UserProfileProps) {
   const trigger = compact ? (
-    <Button color="tertiary" size="sm" aria-label={`${user.name} account`} noTextPadding className="size-9 p-0 rounded-full">
+    <Button variant="ghost" size="icon" aria-label={`${user.name} account`} className="rounded-full">
       <ColoredAvatar name={user.name} size="sm" />
     </Button>
   ) : (
-    <Button color="tertiary" size="sm" aria-label={`${user.name} account`} noTextPadding className="w-full justify-start gap-2 p-1.5">
+    <Button
+      variant="ghost"
+      size="sm"
+      aria-label={`${user.name} account`}
+      className="h-auto w-full justify-start gap-2 px-1.5 py-1.5"
+    >
       <ColoredAvatar name={user.name} size="sm" />
       <span className="flex min-w-0 flex-1 flex-col text-left">
-        <span className="truncate text-sm font-semibold text-primary">{user.name}</span>
-        <span className="truncate text-xs text-tertiary">{user.email}</span>
+        <span className="truncate text-sm font-semibold text-foreground">{user.name}</span>
+        <span className="truncate text-xs text-muted-foreground">{user.email}</span>
       </span>
-      <ChevronDown className="size-4 shrink-0 text-fg-quaternary" />
+      <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
     </Button>
   );
 
   return (
-    <Dropdown.Root>
-      {trigger}
-      <Dropdown.Popover className="w-60">
-        <Dropdown.Menu>
-          <Dropdown.Item label="Settings" icon={Settings04} />
-          <Dropdown.Item label="Log out" icon={UserLeft01} onAction={onSignOut} />
-        </Dropdown.Menu>
-      </Dropdown.Popover>
-    </Dropdown.Root>
+    <DropdownMenu>
+      <DropdownMenuTrigger render={trigger} />
+      <DropdownMenuContent className="w-60" align="start" side="top">
+        <DropdownMenuItem>
+          <Settings />
+          Settings
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={onSignOut}>
+          <LogOut />
+          Log out
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

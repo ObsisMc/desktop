@@ -14,7 +14,6 @@
     "@ora/contracts": "workspace:*",
     "@ora/mock-service": "workspace:*",
     "@ora/ui": "workspace:*",
-    "@untitledui/icons": "^0.0.22",
     "@tailwindcss/typography": "^0.5.19",
     "@tailwindcss/vite": "^4.2.4",
     "react": "^19.2.5",

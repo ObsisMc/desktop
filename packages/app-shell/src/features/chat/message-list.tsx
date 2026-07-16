@@ -38,9 +38,9 @@ function TypingIndicator() {
     <div className="flex gap-3 py-4" aria-label="Assistant is typing">
       <OraMark size="sm" />
       <div className="flex items-center gap-1 py-2.5">
-        <span className="size-2 animate-bounce rounded-full bg-fg-quaternary" style={{ animationDelay: "0ms" }} />
-        <span className="size-2 animate-bounce rounded-full bg-fg-quaternary" style={{ animationDelay: "150ms" }} />
-        <span className="size-2 animate-bounce rounded-full bg-fg-quaternary" style={{ animationDelay: "300ms" }} />
+        <span className="size-2 animate-bounce rounded-full bg-muted-foreground" style={{ animationDelay: "0ms" }} />
+        <span className="size-2 animate-bounce rounded-full bg-muted-foreground" style={{ animationDelay: "150ms" }} />
+        <span className="size-2 animate-bounce rounded-full bg-muted-foreground" style={{ animationDelay: "300ms" }} />
       </div>
     </div>
   );

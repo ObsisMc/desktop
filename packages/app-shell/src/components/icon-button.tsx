@@ -1,14 +1,14 @@
 import type { FC } from "react";
-import { Button, cx } from "@ora/ui";
+import { Button, cn } from "@ora/ui";
 
 interface IconButtonProps {
   icon: FC<{ className?: string }>;
   /** Accessible label for the button (it has no visible text). */
   label: string;
   onClick?: () => void;
-  color?: "tertiary" | "secondary" | "primary";
+  variant?: "ghost" | "secondary" | "default";
   className?: string;
-  isDisabled?: boolean;
+  disabled?: boolean;
 }
 
 /**
@@ -16,18 +16,24 @@ interface IconButtonProps {
  * toolbar actions (new chat, toggle sidebar, copy, etc.) where a labeled
  * button would be too heavy.
  */
-export function IconButton({ icon: Icon, label, onClick, color = "tertiary", className, isDisabled }: IconButtonProps) {
+export function IconButton({
+  icon: Icon,
+  label,
+  onClick,
+  variant = "ghost",
+  className,
+  disabled,
+}: IconButtonProps) {
   return (
     <Button
-      color={color}
-      size="sm"
+      variant={variant}
+      size="icon-sm"
       aria-label={label}
       onClick={onClick}
-      isDisabled={isDisabled}
-      noTextPadding
-      className={cx("size-8 shrink-0 p-0", className)}
+      disabled={disabled}
+      className={cn("shrink-0", className)}
     >
-      <Icon className="size-[18px] text-fg-quaternary transition-inherit-all group-hover:text-fg-quaternary_hover" />
+      <Icon className="size-[18px] text-muted-foreground" />
     </Button>
   );
 }

@@ -1,15 +1,12 @@
-import { Avatar, cx } from "@ora/ui";
-import { AnnotationDots } from "@untitledui/icons";
+import { Avatar, AvatarFallback, cn } from "@ora/ui";
+import { MessageCircle } from "lucide-react";
 
-type AvatarSize = "xs" | "sm" | "md" | "lg" | "xl" | "2xl";
+type AvatarSize = "sm" | "default" | "lg";
 
 const ICON_SIZE: Record<AvatarSize, string> = {
-  xs: "size-4",
-  sm: "size-5",
-  md: "size-6",
-  lg: "size-7",
-  xl: "size-8",
-  "2xl": "size-8",
+  sm: "size-3.5",
+  default: "size-4",
+  lg: "size-5",
 };
 
 interface OraMarkProps {
@@ -17,15 +14,13 @@ interface OraMarkProps {
   className?: string;
 }
 
-/** The Ora brand mark: a brand-colored rounded square with a chat glyph. */
-export function OraMark({ size = "md", className }: OraMarkProps) {
+/** The Ora brand mark: a primary-colored circle with a chat glyph. */
+export function OraMark({ size = "default", className }: OraMarkProps) {
   return (
-    <Avatar
-      size={size}
-      rounded={false}
-      className={className}
-      contentClassName="bg-brand-solid"
-      placeholder={<AnnotationDots className={cx("text-white", ICON_SIZE[size])} />}
-    />
+    <Avatar size={size} className={cn("rounded-lg", className)}>
+      <AvatarFallback className="rounded-lg bg-primary text-primary-foreground">
+        <MessageCircle className={ICON_SIZE[size]} />
+      </AvatarFallback>
+    </Avatar>
   );
 }

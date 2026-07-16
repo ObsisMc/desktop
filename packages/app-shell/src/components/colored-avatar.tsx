@@ -1,18 +1,7 @@
-import { Avatar, cx } from "@ora/ui";
+import { Avatar, AvatarFallback, cn } from "@ora/ui";
 import { getAvatarColor, getInitials } from "../lib/avatar";
 
-type AvatarSize = "xs" | "sm" | "md" | "lg" | "xl" | "2xl";
-
-// Mirrors the @ora/ui Avatar's internal initials text sizing so the colored
-// initials match the shell's scale when rendered via the `placeholder` slot.
-const INITIALS_TEXT: Record<AvatarSize, string> = {
-  xs: "text-xs",
-  sm: "text-sm",
-  md: "text-md",
-  lg: "text-lg",
-  xl: "text-xl",
-  "2xl": "text-display-xs",
-};
+type AvatarSize = "sm" | "default" | "lg";
 
 interface ColoredAvatarProps {
   name: string;
@@ -25,15 +14,13 @@ interface ColoredAvatarProps {
  * the @ora/ui Avatar shell. The background hue is picked deterministically
  * from the name, and the initials use a darker shade of the same hue.
  */
-export function ColoredAvatar({ name, size = "md", className }: ColoredAvatarProps) {
+export function ColoredAvatar({ name, size = "default", className }: ColoredAvatarProps) {
   const { bg, fg } = getAvatarColor(name);
   return (
-    <Avatar
-      size={size}
-      rounded
-      className={className}
-      contentClassName={bg}
-      placeholder={<span className={cx("font-semibold", INITIALS_TEXT[size], fg)}>{getInitials(name)}</span>}
-    />
+    <Avatar size={size} className={className}>
+      <AvatarFallback className={cn("font-semibold", bg, fg)}>
+        {getInitials(name)}
+      </AvatarFallback>
+    </Avatar>
   );
 }

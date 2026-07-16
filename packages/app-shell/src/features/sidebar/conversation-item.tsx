@@ -1,6 +1,14 @@
 import { useEffect, useRef, useState } from "react";
-import { DotsVertical, MessageSquare02, Pencil01, Trash01 } from "@untitledui/icons";
-import { Button, Dropdown, Input, cx } from "@ora/ui";
+import { EllipsisVertical, MessageSquare, Pencil, Trash2 } from "lucide-react";
+import {
+  Button,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  Input,
+  cn,
+} from "@ora/ui";
 import type { Conversation } from "../../lib/types";
 
 interface ConversationItemProps {
@@ -15,7 +23,13 @@ interface ConversationItemProps {
  * A single sidebar conversation row: title, active highlight, and a hover
  * affordance to rename or delete. Double-clicking the title enters rename mode.
  */
-export function ConversationItem({ conversation, active, onSelect, onRename, onRemove }: ConversationItemProps) {
+export function ConversationItem({
+  conversation,
+  active,
+  onSelect,
+  onRename,
+  onRemove,
+}: ConversationItemProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(conversation.title);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -46,10 +60,9 @@ export function ConversationItem({ conversation, active, onSelect, onRename, onR
     return (
       <Input
         ref={inputRef}
-        size="sm"
         aria-label="Rename conversation"
         value={draft}
-        onChange={setDraft}
+        onChange={(event) => setDraft(event.target.value)}
         onKeyDown={(event) => {
           if (event.key === "Enter") {
             event.preventDefault();
@@ -71,27 +84,37 @@ export function ConversationItem({ conversation, active, onSelect, onRename, onR
         onClick={onSelect}
         onDoubleClick={startEdit}
         aria-current={active ? "true" : undefined}
-        className={cx(
+        className={cn(
           "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm font-medium transition duration-100 ease-linear",
-          active ? "bg-quaternary text-primary" : "text-secondary hover:bg-primary_hover hover:text-secondary_hover",
+          active
+            ? "bg-accent text-accent-foreground"
+            : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
         )}
       >
-        <MessageSquare02 className="size-[18px] shrink-0 stroke-[1.75px] text-fg-quaternary" />
+        <MessageSquare className="size-[18px] shrink-0 stroke-[1.75px] text-muted-foreground" />
         <span className="flex-1 truncate">{conversation.title}</span>
       </button>
 
-      <div className={cx("absolute right-1 top-1/2 -translate-y-1/2", !active && "opacity-0 group-hover:opacity-100")}>
-        <Dropdown.Root>
-          <Button color="tertiary" size="sm" aria-label="Conversation options" noTextPadding className="size-7 p-0">
-            <DotsVertical className="size-4 text-fg-quaternary transition-inherit-all group-hover:text-fg-quaternary_hover" />
-          </Button>
-          <Dropdown.Popover className="w-48">
-            <Dropdown.Menu>
-              <Dropdown.Item label="Rename" icon={Pencil01} onAction={startEdit} />
-              <Dropdown.Item label="Delete" icon={Trash01} onAction={onRemove} />
-            </Dropdown.Menu>
-          </Dropdown.Popover>
-        </Dropdown.Root>
+      <div className={cn("absolute right-1 top-1/2 -translate-y-1/2", !active && "opacity-0 group-hover:opacity-100")}>
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <Button variant="ghost" size="icon-xs" aria-label="Conversation options">
+                <EllipsisVertical className="size-4 text-muted-foreground" />
+              </Button>
+            }
+          />
+          <DropdownMenuContent className="w-48" align="end">
+            <DropdownMenuItem onClick={startEdit}>
+              <Pencil />
+              Rename
+            </DropdownMenuItem>
+            <DropdownMenuItem variant="destructive" onClick={onRemove}>
+              <Trash2 />
+              Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </div>
   );

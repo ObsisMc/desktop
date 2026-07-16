@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Edit01, Menu04, SearchMd } from "@untitledui/icons";
+import { Menu, Search, SquarePen } from "lucide-react";
 import { Input } from "@ora/ui";
 import { IconButton } from "../../components/icon-button";
 import { ConversationItem } from "./conversation-item";
@@ -45,9 +45,9 @@ export function Sidebar({
 
   if (collapsed) {
     return (
-      <aside className="flex h-dvh w-16 shrink-0 flex-col items-center gap-2 border-r border-secondary bg-secondary py-2">
-        <IconButton icon={Edit01} label="New chat" onClick={onNewChat} />
-        <IconButton icon={Menu04} label="Open sidebar" onClick={onToggleCollapsed} />
+      <aside className="flex h-dvh w-16 shrink-0 flex-col items-center gap-2 border-r border-border bg-muted/40 py-2">
+        <IconButton icon={SquarePen} label="New chat" onClick={onNewChat} />
+        <IconButton icon={Menu} label="Open sidebar" onClick={onToggleCollapsed} />
         <div className="flex-1" />
         <UserProfile user={user} compact onSignOut={onSignOut} />
       </aside>
@@ -55,23 +55,31 @@ export function Sidebar({
   }
 
   return (
-    <aside className="flex h-dvh w-72 shrink-0 flex-col border-r border-secondary bg-secondary">
+    <aside className="flex h-dvh w-72 shrink-0 flex-col border-r border-border bg-muted/40">
       <div className="flex items-center justify-between px-2 pt-2">
-        <IconButton icon={Edit01} label="New chat" onClick={onNewChat} />
-        <IconButton icon={Menu04} label="Collapse sidebar" onClick={onToggleCollapsed} />
+        <IconButton icon={SquarePen} label="New chat" onClick={onNewChat} />
+        <IconButton icon={Menu} label="Collapse sidebar" onClick={onToggleCollapsed} />
       </div>
 
       <div className="px-2 pt-2">
-        <Input size="sm" icon={SearchMd} placeholder="Search conversations" value={query} onChange={setQuery} />
+        <div className="relative">
+          <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="Search conversations"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            className="pl-8"
+          />
+        </div>
       </div>
 
       <nav className="scrollbar-hide mt-1 flex-1 overflow-y-auto px-2 py-1">
         {groups.length === 0 ? (
-          <p className="px-2 py-6 text-center text-sm text-tertiary">No conversations found.</p>
+          <p className="px-2 py-6 text-center text-sm text-muted-foreground">No conversations found.</p>
         ) : (
           groups.map((group) => (
             <section key={group.label} className="mb-1">
-              <p className="px-2 py-1 text-xs font-semibold text-quaternary">{group.label}</p>
+              <p className="px-2 py-1 text-xs font-semibold text-muted-foreground">{group.label}</p>
               <div className="space-y-px">
                 {group.conversations.map((conversation) => (
                   <ConversationItem
@@ -89,7 +97,7 @@ export function Sidebar({
         )}
       </nav>
 
-      <div className="border-t border-secondary p-2">
+      <div className="border-t border-border p-2">
         <UserProfile user={user} onSignOut={onSignOut} />
       </div>
     </aside>

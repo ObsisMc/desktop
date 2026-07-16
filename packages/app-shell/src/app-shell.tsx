@@ -39,7 +39,7 @@ export function AppShell({ client, user = CURRENT_USER }: AppShellProps) {
 
   return (
     <ContractsClientContext.Provider value={client}>
-      <div className="flex h-dvh bg-primary text-primary">
+      <div className="flex h-dvh bg-background text-foreground">
         <Sidebar
           user={user}
           conversations={conversations}

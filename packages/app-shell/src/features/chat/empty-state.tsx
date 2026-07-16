@@ -18,9 +18,9 @@ export function EmptyState({ onSend }: EmptyStateProps) {
     <div className="flex flex-1 items-center justify-center overflow-y-auto px-4 py-10">
       <div className="w-full max-w-2xl">
         <div className="mb-6 flex flex-col items-center text-center">
-          <OraMark size="xl" className="mb-5" />
-          <h1 className="text-display-sm font-semibold text-primary">How can I help you today?</h1>
-          <p className="mt-2 text-md text-tertiary">Ask anything, or start from one of these.</p>
+          <OraMark size="lg" className="mb-5" />
+          <h1 className="text-2xl font-semibold text-foreground">How can I help you today?</h1>
+          <p className="mt-2 text-sm text-muted-foreground">Ask anything, or start from one of these.</p>
         </div>
         <Composer autoFocus onSend={onSend} isResponding={false} />
         <div className="mt-4 flex flex-wrap justify-center gap-2">
@@ -29,7 +29,7 @@ export function EmptyState({ onSend }: EmptyStateProps) {
               key={suggestion}
               type="button"
               onClick={() => onSend(suggestion)}
-              className="rounded-full border border-secondary bg-primary px-3 py-1.5 text-sm text-secondary transition duration-100 hover:bg-primary_hover hover:text-secondary_hover"
+              className="rounded-full border border-border bg-background px-3 py-1.5 text-sm text-muted-foreground transition duration-100 hover:bg-accent hover:text-accent-foreground"
             >
               {suggestion}
             </button>

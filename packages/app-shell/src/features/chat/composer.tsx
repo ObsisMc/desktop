@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
-import { ArrowUp } from "@untitledui/icons";
-import { Button, TextArea } from "@ora/ui";
+import { ArrowUp } from "lucide-react";
+import { Button, Textarea } from "@ora/ui";
 
 interface ComposerProps {
   onSend: (text: string) => void;
@@ -11,11 +11,16 @@ interface ComposerProps {
 }
 
 /**
- * The chat composer: a rounded input shell wrapping the @ora/ui TextArea with
+ * The chat composer: a rounded input shell wrapping the @ora/ui Textarea with
  * an inline send button. Enter sends, Shift+Enter inserts a newline, and the
  * textarea auto-grows up to a max height.
  */
-export function Composer({ onSend, isResponding, placeholder = "Message Ora…", autoFocus = false }: ComposerProps) {
+export function Composer({
+  onSend,
+  isResponding,
+  placeholder = "Message Ora…",
+  autoFocus = false,
+}: ComposerProps) {
   const [value, setValue] = useState("");
   const textAreaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -28,7 +33,7 @@ export function Composer({ onSend, isResponding, placeholder = "Message Ora…",
     setValue("");
   };
 
-  const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+  const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
       event.preventDefault();
       submit();
@@ -44,30 +49,28 @@ export function Composer({ onSend, isResponding, placeholder = "Message Ora…",
   }, [value]);
 
   return (
-    <div className="flex flex-col rounded-2xl bg-primary p-2 shadow-xs ring-1 ring-secondary transition focus-within:ring-2 focus-within:ring-brand">
-      <TextArea
-        textAreaRef={textAreaRef}
+    <div className="flex flex-col rounded-2xl border border-border bg-background p-2 shadow-xs transition focus-within:ring-2 focus-within:ring-ring">
+      <Textarea
+        ref={textAreaRef}
         autoFocus={autoFocus}
         placeholder={placeholder}
         value={value}
-        onChange={setValue}
+        onChange={(event) => setValue(event.target.value)}
         onKeyDown={handleKeyDown}
-        textAreaClassName="resize-none rounded-none bg-transparent px-2 py-1.5 shadow-none ring-0 min-h-[28px] max-h-[200px]"
+        className="min-h-[28px] max-h-[200px] resize-none rounded-none border-0 bg-transparent px-2 py-1.5 shadow-none focus-visible:ring-0"
       />
       <div className="flex items-center justify-between pt-1">
-        <p className="px-2 text-xs text-quaternary">
-          Enter to send · <span className="text-tertiary">Shift+Enter for newline</span>
+        <p className="px-2 text-xs text-muted-foreground">
+          Enter to send · <span className="text-foreground/70">Shift+Enter for newline</span>
         </p>
         <Button
-          color="primary"
-          size="sm"
+          size="icon-sm"
           aria-label="Send message"
-          isDisabled={!canSend}
+          disabled={!canSend}
           onClick={submit}
-          noTextPadding
-          className="size-8 rounded-full p-0"
+          className="rounded-full"
         >
-          <ArrowUp className="size-[18px] text-white" />
+          <ArrowUp className="size-[18px]" />
         </Button>
       </div>
     </div>
