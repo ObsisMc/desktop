@@ -1,0 +1,41 @@
+[package]
+name = "ora-acp"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "ora_acp"
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[features]
+# Exposes `FakeAcpTransport`, the in-memory test double. Off by default so it
+# never ships in a production build; enabled for this crate's own tests/examples
+# via the self dev-dependency below, and available to downstream test code that
+# opts in.
+test-util = []
+
+[dependencies]
+# Stable ACP v1 wire types. No `unstable_*` features: the crate exposes only
+# the stable protocol surface (see specs/acp-protocol).
+agent-client-protocol-schema = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["sync"] }
+
+[dev-dependencies]
+# Self dev-dependency: turns on `test-util` when building this crate's own tests
+# and examples, so `cargo test` needs no extra flags.
+ora-acp = { path = ".", features = ["test-util"] }
+pretty_assertions = { workspace = true }
+tokio = { workspace = true, features = [
+    "macros",
+    "rt",
+    "sync",
+    "process",
+    "io-util",
+    "time",
+] }
