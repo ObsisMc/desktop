@@ -92,7 +92,101 @@ test("normalizes structured server errors from fetch responses", async () => {
         method: "GET",
         headers: {},
         body: undefined,
+        signal: undefined,
       },
     },
   ]);
+});
+
+/**
+ * Serves one fixed set of raw response chunks as a streaming fetch response.
+ */
+function eventStreamTransport(chunks: string[]) {
+  return createFetchTransport({
+    fetch: async () =>
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            const encoder = new TextEncoder();
+
+            for (const chunk of chunks) {
+              controller.enqueue(encoder.encode(chunk));
+            }
+
+            controller.close();
+          },
+        }),
+        {
+          status: 200,
+          headers: {
+            "content-type": "text/event-stream",
+          },
+        },
+      ),
+  });
+}
+
+const subscribeRequest: ContractTransportRequest = {
+  operationName: "subscribeSessionEvents",
+  method: "POST",
+  path: "/api/sessions/session-1/events",
+  body: { afterEventId: null },
+  headers: {
+    "content-type": "application/json",
+    accept: "text/event-stream",
+  },
+};
+
+test("decodes server-sent events split across chunk boundaries", async () => {
+  const transport = eventStreamTransport([
+    "data: {\"kind\":\"agentMessageChunk\",\"id\":\"event-1\",\"te",
+    "xt\":\"hel\"}\n\n: keep-alive\n\ndata: {\"kind\":\"statusChanged\",",
+    "\"id\":\"event-2\",\"status\":\"stopped\"}\n\n",
+  ]);
+  const received: unknown[] = [];
+
+  for await (const event of transport.stream(subscribeRequest)) {
+    received.push(event);
+  }
+
+  assert.deepEqual(received, [
+    { kind: "agentMessageChunk", id: "event-1", text: "hel" },
+    { kind: "statusChanged", id: "event-2", status: "stopped" },
+  ]);
+});
+
+test("stops reading a server-sent event stream once the consumer breaks", async () => {
+  const transport = eventStreamTransport([
+    "data: {\"kind\":\"agentMessageChunk\",\"id\":\"event-1\",\"text\":\"hel\"}\n\n",
+    "data: {\"kind\":\"agentMessageChunk\",\"id\":\"event-2\",\"text\":\"lo\"}\n\n",
+  ]);
+  const received: unknown[] = [];
+
+  for await (const event of transport.stream(subscribeRequest)) {
+    received.push(event);
+    break;
+  }
+
+  assert.deepEqual(received, [{ kind: "agentMessageChunk", id: "event-1", text: "hel" }]);
+});
+
+test("surfaces error frames sent inside a server-sent event stream", async () => {
+  const transport = eventStreamTransport([
+    "data: {\"error\":{\"code\":\"session_stopped\",\"message\":\"session stopped: session-1\"}}\n\n",
+  ]);
+
+  await assert.rejects(
+    (async () => {
+      for await (const event of transport.stream(subscribeRequest)) {
+        void event;
+      }
+    })(),
+    (error: unknown) => {
+      assert.ok(error instanceof ContractTransportError);
+      assert.equal((error as ContractTransportError).code, "session_stopped");
+      assert.equal((error as ContractTransportError).status, null);
+
+      return true;
+    },
+  );
 });

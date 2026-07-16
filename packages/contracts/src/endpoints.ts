@@ -2,7 +2,7 @@
 import type { CreateAgentRequest, CreateAgentResponse, DeleteAgentRequest, DeleteAgentResponse, GetAgentRequest, GetAgentResponse, ListAgentsRequest, ListAgentsResponse, UpdateAgentRequest, UpdateAgentResponse } from "./agent.js";
 import type { CreateProjectRequest, CreateProjectResponse, DeleteProjectRequest, DeleteProjectResponse, GetProjectRequest, GetProjectResponse, ListProjectsRequest, ListProjectsResponse, UpdateProjectRequest, UpdateProjectResponse } from "./project.js";
 import type { OpenProjectWorkContextRequest, OpenProjectWorkContextResponse, RenewProjectWorkContextRequest, RenewProjectWorkContextResponse } from "./project-work-context.js";
-import type { CreateSessionRequest, CreateSessionResponse, DeleteSessionRequest, DeleteSessionResponse, GetSessionRequest, GetSessionResponse, ListSessionsRequest, ListSessionsResponse, UpdateSessionRequest, UpdateSessionResponse } from "./session.js";
+import type { CreateSessionRequest, CreateSessionResponse, DeleteSessionRequest, DeleteSessionResponse, GetSessionRequest, GetSessionResponse, ListSessionsRequest, ListSessionsResponse, SessionEvent, SubscribeSessionEventsRequest, UpdateSessionRequest, UpdateSessionResponse } from "./session.js";
 import type { CreateSkillRequest, CreateSkillResponse, DeleteSkillRequest, DeleteSkillResponse, GetSkillRequest, GetSkillResponse, ListSkillsRequest, ListSkillsResponse, UpdateSkillRequest, UpdateSkillResponse } from "./skill.js";
 import type { CreateTaskRequest, CreateTaskResponse, DeleteTaskRequest, DeleteTaskResponse, GetTaskRequest, GetTaskResponse, ListTasksRequest, ListTasksResponse, UpdateTaskRequest, UpdateTaskResponse } from "./task.js";
 import type { HttpMethod } from "./transport.js";
@@ -329,3 +329,35 @@ export const endpoints = {
     hasJsonBody: false,
   },
 } satisfies Record<EndpointOperation, FrontendEndpointDefinition>;
+
+export type StreamEndpointDefinition = {
+  operationName: string;
+  method: HttpMethod;
+  pathTemplate: string;
+  requestType: string;
+  eventType: string;
+  pathParams: readonly EndpointPathParam[];
+  hasJsonBody: boolean;
+};
+
+export type RequestByStreamOperation = {
+  subscribeSessionEvents: SubscribeSessionEventsRequest;
+};
+
+export type EventByStreamOperation = {
+  subscribeSessionEvents: SessionEvent;
+};
+
+export type StreamEndpointOperation = keyof RequestByStreamOperation;
+
+export const streamEndpoints = {
+  subscribeSessionEvents: {
+    operationName: "subscribeSessionEvents",
+    method: "POST",
+    pathTemplate: "/api/sessions/{sessionId}/events",
+    requestType: "SubscribeSessionEventsRequest",
+    eventType: "SessionEvent",
+    pathParams: [{ rustFieldName: "session_id", wireName: "sessionId" }],
+    hasJsonBody: true,
+  },
+} satisfies Record<StreamEndpointOperation, StreamEndpointDefinition>;

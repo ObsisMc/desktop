@@ -57,9 +57,32 @@ export type Session = {
 };
 
 /**
+ * Carries one server-pushed session event frame.
+ *
+ * Every variant repeats `id` so a reconnecting client can resume from the last
+ * frame it handled without tracking the envelope separately.
+ */
+export type SessionEvent = {
+  "kind": "agentMessageChunk";
+  id: string;
+  text: string;
+} | { "kind": "statusChanged"; id: string; status: SessionStatus };
+
+/**
  * Describes whether the public session view is still running.
  */
 export type SessionStatus = "running" | "stopped";
+
+/**
+ * Subscribes to the event stream of one session.
+ *
+ * `after_event_id` replays the events the client missed while disconnected; it
+ * carries the last id the client observed, or `None` to start from the tail.
+ */
+export type SubscribeSessionEventsRequest = {
+  sessionId: string;
+  afterEventId: string | null;
+};
 
 /**
  * Carries the full replacement payload for session updates in the first slice.

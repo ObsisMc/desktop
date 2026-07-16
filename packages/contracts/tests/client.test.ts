@@ -3,14 +3,19 @@ import test from "node:test";
 
 import { createContractsClient } from "../src/client.js";
 import { endpoints } from "../src/endpoints.js";
+import type { SessionEvent } from "../src/session.js";
 import type { ContractTransport, ContractTransportRequest } from "../src/transport.js";
 
 /**
  * Builds a transport double that records requests and returns a fixed response.
+ *
+ * Streaming operations replay `events` so the client's stream wiring can be
+ * asserted without an HTTP server.
  */
 function recordingTransport<TResponse>(
   requests: ContractTransportRequest[],
   response: TResponse,
+  events: unknown[] = [],
 ): ContractTransport {
   return {
     async send<TTransportResponse>(
@@ -19,6 +24,14 @@ function recordingTransport<TResponse>(
       requests.push(request);
 
       return response as unknown as TTransportResponse;
+    },
+
+    async *stream<TEvent>(request: ContractTransportRequest): AsyncGenerator<TEvent> {
+      requests.push(request);
+
+      for (const event of events) {
+        yield event as TEvent;
+      }
     },
   };
 }
@@ -125,6 +138,43 @@ test("uses a skill id in PUT paths while leaving editable fields in JSON", async
         "content-type": "application/json",
       },
     },
+  ]);
+});
+
+test("subscribes to session events over a streaming operation", async () => {
+  const requests: ContractTransportRequest[] = [];
+  const client = createContractsClient(
+    recordingTransport(requests, null, [
+      { kind: "agentMessageChunk", id: "event-2", text: "hello" },
+      { kind: "statusChanged", id: "event-3", status: "stopped" },
+    ]),
+  );
+  const received: SessionEvent[] = [];
+
+  for await (const event of client.session.subscribe({
+    sessionId: "session-1",
+    afterEventId: "event-1",
+  })) {
+    received.push(event);
+  }
+
+  assert.deepEqual(requests, [
+    {
+      operationName: "subscribeSessionEvents",
+      method: "POST",
+      path: "/api/sessions/session-1/events",
+      body: {
+        afterEventId: "event-1",
+      },
+      headers: {
+        "content-type": "application/json",
+        accept: "text/event-stream",
+      },
+    },
+  ]);
+  assert.deepEqual(received, [
+    { kind: "agentMessageChunk", id: "event-2", text: "hello" },
+    { kind: "statusChanged", id: "event-3", status: "stopped" },
   ]);
 });
 

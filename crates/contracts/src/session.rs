@@ -91,6 +91,32 @@ pub struct UpdateSessionResponse {
     pub session: Session,
 }
 
+/// Subscribes to the event stream of one session.
+///
+/// `after_event_id` replays the events the client missed while disconnected; it
+/// carries the last id the client observed, or `None` to start from the tail.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "session.ts")]
+pub struct SubscribeSessionEventsRequest {
+    pub session_id: String,
+    pub after_event_id: Option<String>,
+}
+
+/// Carries one server-pushed session event frame.
+///
+/// Every variant repeats `id` so a reconnecting client can resume from the last
+/// frame it handled without tracking the envelope separately.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", tag = "kind")]
+#[ts(export_to = "session.ts")]
+pub enum SessionEvent {
+    #[serde(rename_all = "camelCase")]
+    AgentMessageChunk { id: String, text: String },
+    #[serde(rename_all = "camelCase")]
+    StatusChanged { id: String, status: SessionStatus },
+}
+
 /// Identifies which session to delete.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]

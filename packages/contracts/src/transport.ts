@@ -9,8 +9,13 @@ export type ContractTransportRequest = {
   headers: Record<string, string>;
 };
 
+export type ContractCallOptions = {
+  signal?: AbortSignal;
+};
+
 export interface ContractTransport {
-  send<TResponse>(request: ContractTransportRequest): Promise<TResponse>;
+  send<TResponse>(request: ContractTransportRequest, options?: ContractCallOptions): Promise<TResponse>;
+  stream<TEvent>(request: ContractTransportRequest, options?: ContractCallOptions): AsyncIterable<TEvent>;
 }
 
 export type ContractErrorPayload = {

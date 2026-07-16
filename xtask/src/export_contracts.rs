@@ -1,5 +1,6 @@
 use ora_contracts::{
-    FrontendEndpoint, FrontendPathParam, export_typescript_bindings_to, frontend_endpoints,
+    FrontendEndpoint, FrontendPathParam, FrontendStreamEndpoint, export_typescript_bindings_to,
+    frontend_endpoints, frontend_stream_endpoints,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -12,7 +13,11 @@ pub fn run_export_contracts(workspace_root: &Path) -> Result<(), Box<dyn std::er
     let contracts_source_directory = workspace_root.join("packages/contracts/src");
 
     export_typescript_bindings_to(&contracts_source_directory)?;
-    write_contract_runtime_files(&contracts_source_directory, frontend_endpoints())?;
+    write_contract_runtime_files(
+        &contracts_source_directory,
+        frontend_endpoints(),
+        frontend_stream_endpoints(),
+    )?;
     remove_stale_generated_file(&contracts_source_directory.join("worktree.ts"))?;
 
     Ok(())
@@ -22,10 +27,11 @@ pub fn run_export_contracts(workspace_root: &Path) -> Result<(), Box<dyn std::er
 fn write_contract_runtime_files(
     contracts_source_directory: &Path,
     endpoints: &[FrontendEndpoint],
+    stream_endpoints: &[FrontendStreamEndpoint],
 ) -> Result<(), Box<dyn std::error::Error>> {
     write_generated_file(
         &contracts_source_directory.join("endpoints.ts"),
-        &render_endpoints_module(endpoints),
+        &render_endpoints_module(endpoints, stream_endpoints),
     )?;
     write_generated_file(
         &contracts_source_directory.join("transport.ts"),
@@ -33,7 +39,7 @@ fn write_contract_runtime_files(
     )?;
     write_generated_file(
         &contracts_source_directory.join("client.ts"),
-        &render_client_module(endpoints),
+        &render_client_module(endpoints, stream_endpoints),
     )?;
     write_generated_file(
         &contracts_source_directory.join("fetch.ts"),
@@ -71,9 +77,12 @@ fn remove_stale_generated_file(output_path: &Path) -> Result<(), Box<dyn std::er
 }
 
 /// Renders the endpoint manifest and operation type maps consumed by the generated client.
-fn render_endpoints_module(endpoints: &[FrontendEndpoint]) -> String {
+fn render_endpoints_module(
+    endpoints: &[FrontendEndpoint],
+    stream_endpoints: &[FrontendStreamEndpoint],
+) -> String {
     let mut source = String::from(GENERATED_FILE_HEADER);
-    let imports = collect_contract_type_imports(endpoints);
+    let imports = collect_contract_type_imports(endpoints, stream_endpoints);
 
     for (module_name, types) in imports {
         source.push_str("import type { ");
@@ -154,7 +163,74 @@ fn render_endpoints_module(endpoints: &[FrontendEndpoint]) -> String {
         source.push_str("  },\n");
     }
 
-    source.push_str("} satisfies Record<EndpointOperation, FrontendEndpointDefinition>;\n");
+    source.push_str("} satisfies Record<EndpointOperation, FrontendEndpointDefinition>;\n\n");
+    source.push_str("export type StreamEndpointDefinition = {\n");
+    source.push_str("  operationName: string;\n");
+    source.push_str("  method: HttpMethod;\n");
+    source.push_str("  pathTemplate: string;\n");
+    source.push_str("  requestType: string;\n");
+    source.push_str("  eventType: string;\n");
+    source.push_str("  pathParams: readonly EndpointPathParam[];\n");
+    source.push_str("  hasJsonBody: boolean;\n");
+    source.push_str("};\n\n");
+    source.push_str("export type RequestByStreamOperation = {\n");
+
+    for stream_endpoint in stream_endpoints {
+        source.push_str("  ");
+        source.push_str(stream_endpoint.operation_name);
+        source.push_str(": ");
+        source.push_str(stream_endpoint.request_type);
+        source.push_str(";\n");
+    }
+
+    source.push_str("};\n\n");
+    source.push_str("export type EventByStreamOperation = {\n");
+
+    for stream_endpoint in stream_endpoints {
+        source.push_str("  ");
+        source.push_str(stream_endpoint.operation_name);
+        source.push_str(": ");
+        source.push_str(stream_endpoint.event_type);
+        source.push_str(";\n");
+    }
+
+    source.push_str("};\n\n");
+    source.push_str("export type StreamEndpointOperation = keyof RequestByStreamOperation;\n\n");
+    source.push_str("export const streamEndpoints = {\n");
+
+    for stream_endpoint in stream_endpoints {
+        source.push_str("  ");
+        source.push_str(stream_endpoint.operation_name);
+        source.push_str(": {\n");
+        source.push_str("    operationName: \"");
+        source.push_str(stream_endpoint.operation_name);
+        source.push_str("\",\n");
+        source.push_str("    method: \"");
+        source.push_str(render_stream_http_method(stream_endpoint));
+        source.push_str("\",\n");
+        source.push_str("    pathTemplate: \"");
+        source.push_str(stream_endpoint.path_template);
+        source.push_str("\",\n");
+        source.push_str("    requestType: \"");
+        source.push_str(stream_endpoint.request_type);
+        source.push_str("\",\n");
+        source.push_str("    eventType: \"");
+        source.push_str(stream_endpoint.event_type);
+        source.push_str("\",\n");
+        source.push_str("    pathParams: ");
+        source.push_str(&render_path_params(stream_endpoint.path_params));
+        source.push_str(",\n");
+        source.push_str("    hasJsonBody: ");
+        source.push_str(if stream_endpoint.has_json_body {
+            "true"
+        } else {
+            "false"
+        });
+        source.push_str(",\n");
+        source.push_str("  },\n");
+    }
+
+    source.push_str("} satisfies Record<StreamEndpointOperation, StreamEndpointDefinition>;\n");
 
     source
 }
@@ -171,8 +247,16 @@ fn render_transport_module() -> String {
     source.push_str("  body: unknown | undefined;\n");
     source.push_str("  headers: Record<string, string>;\n");
     source.push_str("};\n\n");
+    source.push_str("export type ContractCallOptions = {\n");
+    source.push_str("  signal?: AbortSignal;\n");
+    source.push_str("};\n\n");
     source.push_str("export interface ContractTransport {\n");
-    source.push_str("  send<TResponse>(request: ContractTransportRequest): Promise<TResponse>;\n");
+    source.push_str(
+        "  send<TResponse>(request: ContractTransportRequest, options?: ContractCallOptions): Promise<TResponse>;\n",
+    );
+    source.push_str(
+        "  stream<TEvent>(request: ContractTransportRequest, options?: ContractCallOptions): AsyncIterable<TEvent>;\n",
+    );
     source.push_str("}\n\n");
     source.push_str("export type ContractErrorPayload = {\n");
     source.push_str("  code: string;\n");
@@ -208,31 +292,42 @@ fn render_transport_module() -> String {
 }
 
 /// Renders the runtime-agnostic typed client that delegates HTTP execution to a transport.
-fn render_client_module(endpoints: &[FrontendEndpoint]) -> String {
+fn render_client_module(
+    endpoints: &[FrontendEndpoint],
+    stream_endpoints: &[FrontendStreamEndpoint],
+) -> String {
     let mut source = String::from(GENERATED_FILE_HEADER);
 
     source.push_str(
-        "import { endpoints, type EndpointOperation, type EndpointPathParam, type RequestByOperation, type ResponseByOperation } from \"./endpoints.js\";\n",
+        "import { endpoints, streamEndpoints, type EndpointOperation, type EndpointPathParam, type EventByStreamOperation, type RequestByOperation, type RequestByStreamOperation, type ResponseByOperation, type StreamEndpointOperation } from \"./endpoints.js\";\n",
     );
     source.push_str(
-        "import type { ContractTransport, ContractTransportRequest } from \"./transport.js\";\n\n",
+        "import type { ContractCallOptions, ContractTransport, ContractTransportRequest, HttpMethod } from \"./transport.js\";\n\n",
     );
     source.push_str("type ClientRequestShape = object;\n\n");
     source.push_str("type ClientOperation<Operation extends EndpointOperation> = (\n");
     source.push_str("  request: RequestByOperation[Operation],\n");
+    source.push_str("  options?: ContractCallOptions,\n");
     source.push_str(") => Promise<ResponseByOperation[Operation]>;\n\n");
+    source.push_str("type ClientStreamOperation<Operation extends StreamEndpointOperation> = (\n");
+    source.push_str("  request: RequestByStreamOperation[Operation],\n");
+    source.push_str("  options?: ContractCallOptions,\n");
+    source.push_str(") => AsyncIterable<EventByStreamOperation[Operation]>;\n\n");
     source.push_str("export type ContractsClient = {\n");
 
-    for (namespace, namespace_endpoints) in group_endpoints_by_namespace(endpoints) {
+    for (namespace, members) in group_client_members(endpoints, stream_endpoints) {
         source.push_str("  ");
         source.push_str(namespace);
         source.push_str(": {\n");
 
-        for endpoint in namespace_endpoints {
+        for member in members {
             source.push_str("    ");
-            source.push_str(endpoint.member_name);
-            source.push_str(": ClientOperation<\"");
-            source.push_str(endpoint.operation_name);
+            source.push_str(member.member_name());
+            source.push_str(match member {
+                ClientMember::Unary(_) => ": ClientOperation<\"",
+                ClientMember::Stream(_) => ": ClientStreamOperation<\"",
+            });
+            source.push_str(member.operation_name());
             source.push_str("\">;\n");
         }
 
@@ -245,17 +340,20 @@ fn render_client_module(endpoints: &[FrontendEndpoint]) -> String {
     );
     source.push_str("  return {\n");
 
-    for (namespace, namespace_endpoints) in group_endpoints_by_namespace(endpoints) {
+    for (namespace, members) in group_client_members(endpoints, stream_endpoints) {
         source.push_str("    ");
         source.push_str(namespace);
         source.push_str(": {\n");
 
-        for endpoint in namespace_endpoints {
+        for member in members {
             source.push_str("      ");
-            source.push_str(endpoint.member_name);
-            source.push_str(": (request) => executeOperation(\"");
-            source.push_str(endpoint.operation_name);
-            source.push_str("\", request, transport),\n");
+            source.push_str(member.member_name());
+            source.push_str(match member {
+                ClientMember::Unary(_) => ": (request, options) => executeOperation(\"",
+                ClientMember::Stream(_) => ": (request, options) => executeStreamOperation(\"",
+            });
+            source.push_str(member.operation_name());
+            source.push_str("\", request, transport, options),\n");
         }
 
         source.push_str("    },\n");
@@ -267,18 +365,50 @@ fn render_client_module(endpoints: &[FrontendEndpoint]) -> String {
     source.push_str("  operation: Operation,\n");
     source.push_str("  request: RequestByOperation[Operation],\n");
     source.push_str("  transport: ContractTransport,\n");
+    source.push_str("  options: ContractCallOptions | undefined,\n");
     source.push_str("): Promise<ResponseByOperation[Operation]> {\n");
     source.push_str("  const endpoint = endpoints[operation];\n");
-    source.push_str("  const path = buildPath(endpoint.pathTemplate, endpoint.pathParams, request as ClientRequestShape);\n");
-    source.push_str("  const body = buildJsonBody(endpoint.pathParams, endpoint.hasJsonBody, request as ClientRequestShape);\n");
-    source.push_str("  const transportRequest: ContractTransportRequest = {\n");
+    source.push_str(
+        "  const transportRequest = buildTransportRequest(endpoint, request, false);\n\n",
+    );
+    source.push_str(
+        "  return transport.send<ResponseByOperation[Operation]>(transportRequest, options);\n",
+    );
+    source.push_str("}\n\n");
+    source
+        .push_str("function executeStreamOperation<Operation extends StreamEndpointOperation>(\n");
+    source.push_str("  operation: Operation,\n");
+    source.push_str("  request: RequestByStreamOperation[Operation],\n");
+    source.push_str("  transport: ContractTransport,\n");
+    source.push_str("  options: ContractCallOptions | undefined,\n");
+    source.push_str("): AsyncIterable<EventByStreamOperation[Operation]> {\n");
+    source.push_str("  const endpoint = streamEndpoints[operation];\n");
+    source
+        .push_str("  const transportRequest = buildTransportRequest(endpoint, request, true);\n\n");
+    source.push_str(
+        "  return transport.stream<EventByStreamOperation[Operation]>(transportRequest, options);\n",
+    );
+    source.push_str("}\n\n");
+    source.push_str("type TransportRequestEndpoint = {\n");
+    source.push_str("  operationName: string;\n");
+    source.push_str("  method: HttpMethod;\n");
+    source.push_str("  pathTemplate: string;\n");
+    source.push_str("  pathParams: readonly EndpointPathParam[];\n");
+    source.push_str("  hasJsonBody: boolean;\n");
+    source.push_str("};\n\n");
+    source.push_str("function buildTransportRequest(\n");
+    source.push_str("  endpoint: TransportRequestEndpoint,\n");
+    source.push_str("  request: ClientRequestShape,\n");
+    source.push_str("  acceptsEventStream: boolean,\n");
+    source.push_str("): ContractTransportRequest {\n");
+    source.push_str("  return {\n");
     source.push_str("    operationName: endpoint.operationName,\n");
     source.push_str("    method: endpoint.method,\n");
-    source.push_str("    path,\n");
-    source.push_str("    body,\n");
-    source.push_str("    headers: buildHeaders(endpoint.hasJsonBody),\n");
-    source.push_str("  };\n\n");
-    source.push_str("  return transport.send<ResponseByOperation[Operation]>(transportRequest);\n");
+    source.push_str("    path: buildPath(endpoint.pathTemplate, endpoint.pathParams, request),\n");
+    source
+        .push_str("    body: buildJsonBody(endpoint.pathParams, endpoint.hasJsonBody, request),\n");
+    source.push_str("    headers: buildHeaders(endpoint.hasJsonBody, acceptsEventStream),\n");
+    source.push_str("  };\n");
     source.push_str("}\n\n");
     source.push_str("function buildPath(\n");
     source.push_str("  pathTemplate: string,\n");
@@ -314,13 +444,18 @@ fn render_client_module(endpoints: &[FrontendEndpoint]) -> String {
     source.push_str("    Object.entries(requestRecord).filter(([fieldName]) => !pathParamNames.has(fieldName)),\n");
     source.push_str("  );\n");
     source.push_str("}\n\n");
-    source.push_str("function buildHeaders(hasJsonBody: boolean): Record<string, string> {\n");
-    source.push_str("  if (!hasJsonBody) {\n");
-    source.push_str("    return {};\n");
+    source.push_str("function buildHeaders(\n");
+    source.push_str("  hasJsonBody: boolean,\n");
+    source.push_str("  acceptsEventStream: boolean,\n");
+    source.push_str("): Record<string, string> {\n");
+    source.push_str("  const headers: Record<string, string> = {};\n\n");
+    source.push_str("  if (hasJsonBody) {\n");
+    source.push_str("    headers[\"content-type\"] = \"application/json\";\n");
     source.push_str("  }\n\n");
-    source.push_str("  return {\n");
-    source.push_str("    \"content-type\": \"application/json\",\n");
-    source.push_str("  };\n");
+    source.push_str("  if (acceptsEventStream) {\n");
+    source.push_str("    headers[\"accept\"] = \"text/event-stream\";\n");
+    source.push_str("  }\n\n");
+    source.push_str("  return headers;\n");
     source.push_str("}\n");
 
     source
@@ -331,7 +466,7 @@ fn render_fetch_module() -> String {
     let mut source = String::from(GENERATED_FILE_HEADER);
 
     source.push_str(
-        "import { ContractTransportError, type ContractErrorPayload, type ContractTransport, type ContractTransportRequest } from \"./transport.js\";\n\n",
+        "import { ContractTransportError, type ContractCallOptions, type ContractErrorPayload, type ContractTransport, type ContractTransportRequest } from \"./transport.js\";\n\n",
     );
     source.push_str("export type FetchTransportOptions = {\n");
     source.push_str("  baseUrl?: string;\n");
@@ -344,22 +479,51 @@ fn render_fetch_module() -> String {
     source.push_str("  if (fetchImplementation === undefined) {\n");
     source.push_str("    throw new Error(\"global fetch is not available\");\n");
     source.push_str("  }\n\n");
+    source.push_str("  const baseUrl = options.baseUrl ?? \"\";\n\n");
+    source.push_str("  async function execute(\n");
+    source.push_str("    request: ContractTransportRequest,\n");
+    source.push_str("    callOptions: ContractCallOptions | undefined,\n");
+    source.push_str("  ): Promise<Response> {\n");
+    source.push_str("    return fetchImplementation(resolveUrl(baseUrl, request.path), {\n");
+    source.push_str("      method: request.method,\n");
+    source.push_str("      headers: request.headers,\n");
+    source.push_str(
+        "      body: request.body === undefined ? undefined : JSON.stringify(request.body),\n",
+    );
+    source.push_str("      signal: callOptions?.signal,\n");
+    source.push_str("    });\n");
+    source.push_str("  }\n\n");
     source.push_str("  return {\n");
     source.push_str(
-        "    async send<TResponse>(request: ContractTransportRequest): Promise<TResponse> {\n",
+        "    async send<TResponse>(request: ContractTransportRequest, callOptions?: ContractCallOptions): Promise<TResponse> {\n",
     );
-    source.push_str("      const response = await fetchImplementation(resolveUrl(options.baseUrl ?? \"\", request.path), {\n");
-    source.push_str("        method: request.method,\n");
-    source.push_str("        headers: request.headers,\n");
-    source.push_str(
-        "        body: request.body === undefined ? undefined : JSON.stringify(request.body),\n",
-    );
-    source.push_str("      });\n");
+    source.push_str("      const response = await execute(request, callOptions);\n");
     source.push_str("      const responseBody = await readResponseBody(response);\n\n");
     source.push_str("      if (!response.ok) {\n");
     source.push_str("        throw toTransportError(response.status, responseBody);\n");
     source.push_str("      }\n\n");
     source.push_str("      return responseBody as TResponse;\n");
+    source.push_str("    },\n\n");
+    source.push_str(
+        "    async *stream<TEvent>(request: ContractTransportRequest, callOptions?: ContractCallOptions): AsyncGenerator<TEvent> {\n",
+    );
+    source.push_str("      const response = await execute(request, callOptions);\n\n");
+    source.push_str("      if (!response.ok) {\n");
+    source.push_str(
+        "        throw toTransportError(response.status, await readResponseBody(response));\n",
+    );
+    source.push_str("      }\n\n");
+    source.push_str("      if (response.body === null) {\n");
+    source.push_str("        throw new ContractTransportError({\n");
+    source.push_str("          code: \"stream_unavailable\",\n");
+    source.push_str(
+        "          message: `operation ${request.operationName} returned no response stream`,\n",
+    );
+    source.push_str("          status: response.status,\n");
+    source.push_str("          responseBody: null,\n");
+    source.push_str("        });\n");
+    source.push_str("      }\n\n");
+    source.push_str("      yield* readEventStream<TEvent>(response.body, request);\n");
     source.push_str("    },\n");
     source.push_str("  };\n");
     source.push_str("}\n\n");
@@ -383,6 +547,99 @@ fn render_fetch_module() -> String {
     source.push_str("    code: error.code,\n");
     source.push_str("    message: error.message,\n");
     source.push_str("  };\n");
+    source.push_str("}\n\n");
+    source.push_str(
+        "/** Yields one decoded event per server-sent frame until the response stream ends. */\n",
+    );
+    source.push_str("async function* readEventStream<TEvent>(\n");
+    source.push_str("  body: ReadableStream<Uint8Array>,\n");
+    source.push_str("  request: ContractTransportRequest,\n");
+    source.push_str("): AsyncGenerator<TEvent> {\n");
+    source.push_str("  const reader = body.getReader();\n");
+    source.push_str("  const decoder = new TextDecoder();\n");
+    source.push_str("  let buffer = \"\";\n\n");
+    source.push_str("  try {\n");
+    source.push_str("    for (;;) {\n");
+    source.push_str("      const { done, value } = await reader.read();\n\n");
+    source.push_str("      if (done) {\n");
+    source.push_str("        return;\n");
+    source.push_str("      }\n\n");
+    source.push_str("      buffer += decoder.decode(value, { stream: true });\n\n");
+    source.push_str("      for (;;) {\n");
+    source.push_str("        const frame = takeEventFrame(buffer);\n\n");
+    source.push_str("        if (frame === null) {\n");
+    source.push_str("          break;\n");
+    source.push_str("        }\n\n");
+    source.push_str("        buffer = frame.rest;\n");
+    source.push_str("        const event = decodeEventFrame<TEvent>(frame.frame, request);\n\n");
+    source.push_str("        if (event !== null) {\n");
+    source.push_str("          yield event;\n");
+    source.push_str("        }\n");
+    source.push_str("      }\n");
+    source.push_str("    }\n");
+    source.push_str("  } finally {\n");
+    source.push_str("    await reader.cancel();\n");
+    source.push_str("  }\n");
+    source.push_str("}\n\n");
+    source.push_str("/** Splits off the first complete frame, leaving any partial trailing frame buffered. */\n");
+    source.push_str(
+        "function takeEventFrame(buffer: string): { frame: string; rest: string } | null {\n",
+    );
+    source.push_str("  const separator = /\\r?\\n\\r?\\n/.exec(buffer);\n\n");
+    source.push_str("  if (separator === null) {\n");
+    source.push_str("    return null;\n");
+    source.push_str("  }\n\n");
+    source.push_str("  return {\n");
+    source.push_str("    frame: buffer.slice(0, separator.index),\n");
+    source.push_str("    rest: buffer.slice(separator.index + separator[0].length),\n");
+    source.push_str("  };\n");
+    source.push_str("}\n\n");
+    source.push_str("/** Decodes one frame's `data` lines, returning null for comment-only keep-alive frames. */\n");
+    source.push_str("function decodeEventFrame<TEvent>(\n");
+    source.push_str("  frame: string,\n");
+    source.push_str("  request: ContractTransportRequest,\n");
+    source.push_str("): TEvent | null {\n");
+    source.push_str("  const dataLines: string[] = [];\n\n");
+    source.push_str("  for (const line of frame.split(/\\r?\\n/)) {\n");
+    source.push_str("    if (line.startsWith(\":\")) {\n");
+    source.push_str("      continue;\n");
+    source.push_str("    }\n\n");
+    source.push_str("    const separatorIndex = line.indexOf(\":\");\n\n");
+    source.push_str(
+        "    if (separatorIndex === -1 || line.slice(0, separatorIndex) !== \"data\") {\n",
+    );
+    source.push_str("      continue;\n");
+    source.push_str("    }\n\n");
+    source.push_str("    const value = line.slice(separatorIndex + 1);\n");
+    source.push_str("    dataLines.push(value.startsWith(\" \") ? value.slice(1) : value);\n");
+    source.push_str("  }\n\n");
+    source.push_str("  if (dataLines.length === 0) {\n");
+    source.push_str("    return null;\n");
+    source.push_str("  }\n\n");
+    source.push_str("  const payload = dataLines.join(\"\\n\");\n\n");
+    source.push_str("  let decoded: unknown;\n\n");
+    source.push_str("  try {\n");
+    source.push_str("    decoded = JSON.parse(payload) as unknown;\n");
+    source.push_str("  } catch {\n");
+    source.push_str("    throw new ContractTransportError({\n");
+    source.push_str("      code: \"stream_decode_error\",\n");
+    source.push_str(
+        "      message: `operation ${request.operationName} sent an event that is not valid JSON`,\n",
+    );
+    source.push_str("      status: null,\n");
+    source.push_str("      responseBody: payload,\n");
+    source.push_str("    });\n");
+    source.push_str("  }\n\n");
+    source.push_str("  const errorPayload = decodeErrorEnvelope(decoded);\n\n");
+    source.push_str("  if (errorPayload !== null) {\n");
+    source.push_str("    throw new ContractTransportError({\n");
+    source.push_str("      code: errorPayload.code,\n");
+    source.push_str("      message: errorPayload.message,\n");
+    source.push_str("      status: null,\n");
+    source.push_str("      responseBody: decoded,\n");
+    source.push_str("    });\n");
+    source.push_str("  }\n\n");
+    source.push_str("  return decoded as TEvent;\n");
     source.push_str("}\n\n");
     source.push_str("async function readResponseBody(response: Response): Promise<unknown> {\n");
     source.push_str("  const bodyText = await response.text();\n\n");
@@ -436,19 +693,61 @@ fn render_index_module() -> String {
     source
 }
 
-/// Groups endpoints into their client namespaces, preserving the manifest declaration order.
-fn group_endpoints_by_namespace(
-    endpoints: &[FrontendEndpoint],
-) -> Vec<(&'static str, Vec<&FrontendEndpoint>)> {
-    let mut grouped: Vec<(&'static str, Vec<&FrontendEndpoint>)> = Vec::new();
+/// Places one unary or streaming operation on the generated client.
+#[derive(Clone, Copy)]
+enum ClientMember<'a> {
+    Unary(&'a FrontendEndpoint),
+    Stream(&'a FrontendStreamEndpoint),
+}
 
-    for endpoint in endpoints {
+impl ClientMember<'_> {
+    /// Returns the member name this operation takes on its client namespace.
+    fn member_name(&self) -> &'static str {
+        match self {
+            ClientMember::Unary(endpoint) => endpoint.member_name,
+            ClientMember::Stream(stream_endpoint) => stream_endpoint.member_name,
+        }
+    }
+
+    /// Returns the flat wire-level operation name this member dispatches to.
+    fn operation_name(&self) -> &'static str {
+        match self {
+            ClientMember::Unary(endpoint) => endpoint.operation_name,
+            ClientMember::Stream(stream_endpoint) => stream_endpoint.operation_name,
+        }
+    }
+
+    /// Returns the client namespace that owns this member.
+    fn namespace(&self) -> &'static str {
+        match self {
+            ClientMember::Unary(endpoint) => endpoint.namespace,
+            ClientMember::Stream(stream_endpoint) => stream_endpoint.namespace,
+        }
+    }
+}
+
+/// Groups unary and streaming operations into their client namespaces.
+///
+/// Unary operations keep the manifest declaration order and streams follow them
+/// inside the namespace they share, so adding a stream never reorders the
+/// generated client surface.
+fn group_client_members<'a>(
+    endpoints: &'a [FrontendEndpoint],
+    stream_endpoints: &'a [FrontendStreamEndpoint],
+) -> Vec<(&'static str, Vec<ClientMember<'a>>)> {
+    let members = endpoints
+        .iter()
+        .map(ClientMember::Unary)
+        .chain(stream_endpoints.iter().map(ClientMember::Stream));
+    let mut grouped: Vec<(&'static str, Vec<ClientMember<'a>>)> = Vec::new();
+
+    for member in members {
         match grouped
             .iter_mut()
-            .find(|(namespace, _)| *namespace == endpoint.namespace)
+            .find(|(namespace, _)| *namespace == member.namespace())
         {
-            Some((_, namespace_endpoints)) => namespace_endpoints.push(endpoint),
-            None => grouped.push((endpoint.namespace, vec![endpoint])),
+            Some((_, namespace_members)) => namespace_members.push(member),
+            None => grouped.push((member.namespace(), vec![member])),
         }
     }
 
@@ -458,18 +757,22 @@ fn group_endpoints_by_namespace(
 /// Collects the TypeScript DTO imports needed by the generated endpoint manifest.
 fn collect_contract_type_imports(
     endpoints: &[FrontendEndpoint],
+    stream_endpoints: &[FrontendStreamEndpoint],
 ) -> BTreeMap<&'static str, BTreeSet<&'static str>> {
-    let mut imports = BTreeMap::new();
+    let mut imports: BTreeMap<&'static str, BTreeSet<&'static str>> = BTreeMap::new();
 
-    for endpoint in endpoints {
+    for type_name in
+        endpoints
+            .iter()
+            .flat_map(|endpoint| [endpoint.request_type, endpoint.response_type])
+            .chain(stream_endpoints.iter().flat_map(|stream_endpoint| {
+                [stream_endpoint.request_type, stream_endpoint.event_type]
+            }))
+    {
         imports
-            .entry(contract_module_for_type(endpoint.request_type))
-            .or_insert_with(BTreeSet::new)
-            .insert(endpoint.request_type);
-        imports
-            .entry(contract_module_for_type(endpoint.response_type))
-            .or_insert_with(BTreeSet::new)
-            .insert(endpoint.response_type);
+            .entry(contract_module_for_type(type_name))
+            .or_default()
+            .insert(type_name);
     }
 
     imports
@@ -504,6 +807,8 @@ fn contract_module_for_type(type_name: &str) -> &'static str {
         | "GetSessionResponse"
         | "ListSessionsRequest"
         | "ListSessionsResponse"
+        | "SessionEvent"
+        | "SubscribeSessionEventsRequest"
         | "UpdateSessionRequest"
         | "UpdateSessionResponse" => "session",
         "CreateSkillRequest"
@@ -533,6 +838,16 @@ fn contract_module_for_type(type_name: &str) -> &'static str {
 /// Renders one HTTP method enum value as the wire-level string used by the generated SDK.
 fn render_http_method(endpoint: &FrontendEndpoint) -> &'static str {
     match endpoint.method {
+        ora_contracts::FrontendHttpMethod::Get => "GET",
+        ora_contracts::FrontendHttpMethod::Post => "POST",
+        ora_contracts::FrontendHttpMethod::Put => "PUT",
+        ora_contracts::FrontendHttpMethod::Delete => "DELETE",
+    }
+}
+
+/// Renders one streaming endpoint's HTTP method as the wire-level string used by the generated SDK.
+fn render_stream_http_method(stream_endpoint: &FrontendStreamEndpoint) -> &'static str {
+    match stream_endpoint.method {
         ora_contracts::FrontendHttpMethod::Get => "GET",
         ora_contracts::FrontendHttpMethod::Post => "POST",
         ora_contracts::FrontendHttpMethod::Put => "PUT",
@@ -577,7 +892,7 @@ mod tests {
         render_client_module, render_endpoints_module, render_fetch_module, render_index_module,
         run_export_contracts,
     };
-    use ora_contracts::frontend_endpoints;
+    use ora_contracts::{frontend_endpoints, frontend_stream_endpoints};
     use pretty_assertions::assert_eq;
     use std::fs;
     use tempfile::TempDir;
@@ -585,7 +900,7 @@ mod tests {
     /// Verifies the generated endpoint manifest preserves update-route path metadata.
     #[test]
     fn renders_endpoint_manifest_with_update_path_params() {
-        let module = render_endpoints_module(frontend_endpoints());
+        let module = render_endpoints_module(frontend_endpoints(), frontend_stream_endpoints());
 
         assert!(module.contains("updateTask"));
         assert!(module.contains("pathTemplate: \"/api/tasks/{taskId}\""));
@@ -595,7 +910,7 @@ mod tests {
     /// Verifies the generated client strips path params from JSON request bodies.
     #[test]
     fn renders_client_with_path_body_split_helper() {
-        let module = render_client_module(frontend_endpoints());
+        let module = render_client_module(frontend_endpoints(), frontend_stream_endpoints());
 
         assert!(module.contains("Object.entries(requestRecord).filter"));
         assert!(module.contains("missing path parameter"));
@@ -604,14 +919,48 @@ mod tests {
     /// Verifies the generated client groups operations into namespaces over the flat wire names.
     #[test]
     fn renders_client_with_namespaced_operations() {
-        let module = render_client_module(frontend_endpoints());
+        let module = render_client_module(frontend_endpoints(), frontend_stream_endpoints());
 
         assert!(module.contains("  project: {\n"));
         assert!(module.contains("    create: ClientOperation<\"createProject\">;\n"));
         assert!(module.contains(
-            "      update: (request) => executeOperation(\"updateTask\", request, transport),\n"
+            "      update: (request, options) => executeOperation(\"updateTask\", request, transport, options),\n"
         ));
         assert!(module.contains("  projectWorkContext: {\n"));
+    }
+
+    /// Verifies streaming operations land on the namespace they share with unary operations.
+    #[test]
+    fn renders_client_with_streaming_operations() {
+        let module = render_client_module(frontend_endpoints(), frontend_stream_endpoints());
+
+        assert!(
+            module.contains("    subscribe: ClientStreamOperation<\"subscribeSessionEvents\">;\n")
+        );
+        assert!(module.contains(
+            "      subscribe: (request, options) => executeStreamOperation(\"subscribeSessionEvents\", request, transport, options),\n"
+        ));
+        assert!(module.contains("    delete: ClientOperation<\"deleteSession\">;\n"));
+    }
+
+    /// Verifies the streaming manifest exports the event type separately from unary responses.
+    #[test]
+    fn renders_stream_endpoint_manifest_with_event_types() {
+        let module = render_endpoints_module(frontend_endpoints(), frontend_stream_endpoints());
+
+        assert!(module.contains("export const streamEndpoints = {"));
+        assert!(module.contains("  subscribeSessionEvents: SessionEvent;\n"));
+        assert!(module.contains("    pathTemplate: \"/api/sessions/{sessionId}/events\",\n"));
+    }
+
+    /// Verifies the fetch transport decodes server-sent frames rather than buffering the body.
+    #[test]
+    fn renders_fetch_transport_with_event_stream_reader() {
+        let module = render_fetch_module();
+
+        assert!(module.contains("readEventStream"));
+        assert!(module.contains("text/event-stream") || module.contains("takeEventFrame"));
+        assert!(module.contains("stream_decode_error"));
     }
 
     /// Verifies the fetch transport module includes the shared error-decoding helpers.

@@ -36,6 +36,25 @@ pub struct FrontendEndpoint {
     pub has_json_body: bool,
 }
 
+/// Describes one frontend-facing server-streaming operation exported from `ora-contracts`.
+///
+/// Streams are placed on the generated client exactly like unary operations, but
+/// they replace the single response type with the event type carried by each
+/// server-sent frame. Client-to-server messages stay on unary endpoints.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FrontendStreamEndpoint {
+    pub operation_name: &'static str,
+    pub namespace: &'static str,
+    pub member_name: &'static str,
+    pub method: FrontendHttpMethod,
+    pub path_template: &'static str,
+    pub request_type: &'static str,
+    pub event_type: &'static str,
+    pub path_params: &'static [FrontendPathParam],
+    pub has_json_body: bool,
+}
+
 pub const PROJECTS_PATH: &str = "/api/projects";
 pub const PROJECT_PATH: &str = "/api/projects/{projectId}";
 pub const PROJECT_WORK_CONTEXT_OPEN_PATH: &str = "/api/project-work-contexts/open";
@@ -44,6 +63,7 @@ pub const TASKS_PATH: &str = "/api/tasks";
 pub const TASK_PATH: &str = "/api/tasks/{taskId}";
 pub const SESSIONS_PATH: &str = "/api/sessions";
 pub const SESSION_PATH: &str = "/api/sessions/{sessionId}";
+pub const SESSION_EVENTS_PATH: &str = "/api/sessions/{sessionId}/events";
 pub const SKILLS_PATH: &str = "/api/skills";
 pub const SKILL_PATH: &str = "/api/skills/{skillId}";
 pub const AGENTS_PATH: &str = "/api/agents";
@@ -384,9 +404,26 @@ const FRONTEND_ENDPOINTS: &[FrontendEndpoint] = &[
     },
 ];
 
+const FRONTEND_STREAM_ENDPOINTS: &[FrontendStreamEndpoint] = &[FrontendStreamEndpoint {
+    operation_name: "subscribeSessionEvents",
+    namespace: SESSION_NAMESPACE,
+    member_name: "subscribe",
+    method: FrontendHttpMethod::Post,
+    path_template: SESSION_EVENTS_PATH,
+    request_type: "SubscribeSessionEventsRequest",
+    event_type: "SessionEvent",
+    path_params: SESSION_PATH_PARAMS,
+    has_json_body: true,
+}];
+
 /// Returns the Rust-owned endpoint metadata exported to the generated frontend SDK.
 pub fn frontend_endpoints() -> &'static [FrontendEndpoint] {
     FRONTEND_ENDPOINTS
+}
+
+/// Returns the Rust-owned server-streaming endpoint metadata exported to the generated frontend SDK.
+pub fn frontend_stream_endpoints() -> &'static [FrontendStreamEndpoint] {
+    FRONTEND_STREAM_ENDPOINTS
 }
 
 #[cfg(test)]

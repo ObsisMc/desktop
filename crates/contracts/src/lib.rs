@@ -12,9 +12,11 @@ pub use agent::{
     UpdateAgentResponse,
 };
 pub use frontend::{
-    AGENT_PATH, AGENTS_PATH, FrontendEndpoint, FrontendHttpMethod, FrontendPathParam, PROJECT_PATH,
-    PROJECT_WORK_CONTEXT_OPEN_PATH, PROJECT_WORK_CONTEXT_RENEW_PATH, PROJECTS_PATH, SESSION_PATH,
+    AGENT_PATH, AGENTS_PATH, FrontendEndpoint, FrontendHttpMethod, FrontendPathParam,
+    FrontendStreamEndpoint, PROJECT_PATH, PROJECT_WORK_CONTEXT_OPEN_PATH,
+    PROJECT_WORK_CONTEXT_RENEW_PATH, PROJECTS_PATH, SESSION_EVENTS_PATH, SESSION_PATH,
     SESSIONS_PATH, SKILL_PATH, SKILLS_PATH, TASK_PATH, TASKS_PATH, frontend_endpoints,
+    frontend_stream_endpoints,
 };
 pub use project::{
     CreateProjectRequest, CreateProjectResponse, DeleteProjectRequest, DeleteProjectResponse,
@@ -28,7 +30,8 @@ pub use project_work_context::{
 pub use session::{
     CreateSessionRequest, CreateSessionResponse, DeleteSessionRequest, DeleteSessionResponse,
     GetSessionRequest, GetSessionResponse, ListSessionsRequest, ListSessionsResponse, Session,
-    SessionStatus, UpdateSessionRequest, UpdateSessionResponse,
+    SessionEvent, SessionStatus, SubscribeSessionEventsRequest, UpdateSessionRequest,
+    UpdateSessionResponse,
 };
 pub use skill::{
     CreateSkillRequest, CreateSkillResponse, DeleteSkillRequest, DeleteSkillResponse,
@@ -90,6 +93,8 @@ pub fn export_typescript_bindings_to(
     UpdateSessionResponse::export(&config)?;
     DeleteSessionRequest::export(&config)?;
     DeleteSessionResponse::export(&config)?;
+    SubscribeSessionEventsRequest::export(&config)?;
+    SessionEvent::export(&config)?;
 
     Skill::export(&config)?;
     CreateSkillRequest::export(&config)?;
