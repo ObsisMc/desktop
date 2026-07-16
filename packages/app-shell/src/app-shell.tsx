@@ -1,9 +1,13 @@
 import { useState } from "react";
+import { TooltipProvider } from "@ora/ui";
+import { useTranslation } from "react-i18next";
 import type { ContractsClient } from "@ora/contracts";
 import { ContractsClientContext } from "./contracts-client-context";
-import { ChatView } from "./features/chat/chat-view";
-import { Sidebar } from "./features/sidebar/sidebar";
+import { WorkspaceSidebar } from "./features/workspace/workspace-sidebar";
+import { WorkspaceView } from "./features/workspace/workspace-view";
 import { CONVERSATIONS_STORAGE_KEY, useConversations } from "./hooks/use-conversations";
+import { useWorkspace } from "./hooks/use-workspace";
+import { AppI18nProvider, type Locale } from "./i18n/i18n";
 import { CURRENT_USER } from "./lib/mock-data";
 import type { CurrentUser } from "./lib/types";
 
@@ -14,17 +18,24 @@ interface AppShellProps {
 
 /** The main Ora application shell: sidebar + chat view with conversation state. */
 export function AppShell({ client, user = CURRENT_USER }: AppShellProps) {
+  return (
+    <AppI18nProvider>
+      <AppShellContent client={client} user={user} />
+    </AppI18nProvider>
+  );
+}
+
+/** Renders the shell inside providers so stateful hooks can consume the active locale. */
+function AppShellContent({ client, user }: Required<AppShellProps>) {
+  const { i18n } = useTranslation();
+  const locale: Locale = i18n.resolvedLanguage === "en-US" ? "en-US" : "zh-CN";
   const {
-    conversations,
-    activeId,
     activeConversation,
     isResponding,
     newChat,
-    selectConversation,
     sendMessage,
-    renameConversation,
-    removeConversation,
-  } = useConversations();
+  } = useConversations(locale);
+  const workspace = useWorkspace(client);
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
@@ -39,27 +50,28 @@ export function AppShell({ client, user = CURRENT_USER }: AppShellProps) {
 
   return (
     <ContractsClientContext.Provider value={client}>
-      <div className="flex h-dvh bg-background text-foreground">
-        <Sidebar
-          user={user}
-          conversations={conversations}
-          activeId={activeId}
-          collapsed={sidebarCollapsed}
-          onToggleCollapsed={() => setSidebarCollapsed((collapsed) => !collapsed)}
-          onNewChat={newChat}
-          onSelectConversation={selectConversation}
-          onRenameConversation={renameConversation}
-          onRemoveConversation={removeConversation}
-          onSignOut={handleSignOut}
-        />
-        <ChatView
-          active={activeConversation}
-          userName={user.name}
-          isResponding={isResponding}
-          onSend={sendMessage}
-          onNewChat={newChat}
-        />
-      </div>
+      <TooltipProvider>
+        <div className="flex h-dvh overflow-hidden bg-background text-foreground">
+          {!sidebarCollapsed && (
+            <WorkspaceSidebar
+              user={user}
+              workspace={workspace}
+              onCollapse={() => setSidebarCollapsed(true)}
+              onSignOut={handleSignOut}
+            />
+          )}
+          <WorkspaceView
+            workspace={workspace}
+            sidebarCollapsed={sidebarCollapsed}
+            activeConversation={activeConversation}
+            userName={user.name}
+            isResponding={isResponding}
+            onExpandSidebar={() => setSidebarCollapsed(false)}
+            onSend={sendMessage}
+            onNewChat={newChat}
+          />
+        </div>
+      </TooltipProvider>
     </ContractsClientContext.Provider>
   );
 }

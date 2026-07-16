@@ -1,4 +1,5 @@
 import type { ChatMessage, Conversation, CurrentUser, Role } from "./types";
+import type { Locale } from "../i18n/i18n";
 
 /** The signed-in user rendered in the sidebar footer. */
 export const CURRENT_USER: CurrentUser = {
@@ -96,9 +97,18 @@ const ASSISTANT_REPLIES: ReadonlyArray<(prompt: string) => string> = [
   () => "Here's a first pass. It keeps the public API the same and moves the tricky bit into a small pure function so it's easy to unit-test in isolation.",
 ];
 
+const ZH_ASSISTANT_REPLIES: ReadonlyArray<(prompt: string) => string> = [
+  (prompt) => `明白。对于“${truncate(prompt, 80)}”，我会先拆成最小、可回退的一步，完成验证后再继续迭代。需要我先起草第一项改动吗？`,
+  () => "可以。我会先用一个小测试复现当前行为，再围绕这个测试实现修改，以便端到端确认结果。",
+  () => "好问题。简而言之，应把传输逻辑移出编排层：接收一个事件出口，由调用方决定如何展示。需要我画一下接口结构吗？",
+  () => "我可以处理。我会创建工作树、完成修改并运行完整测试，然后汇报结果。还有需要重点关注的地方吗？",
+  () => "这是第一版思路：保持公共 API 清晰，把复杂逻辑放进一个小型纯函数，方便独立测试。",
+];
+
 /** Returns a deterministic-ish canned reply for a user prompt (prototype only). */
-export function createAssistantReply(prompt: string): string {
-  const reply = ASSISTANT_REPLIES[Math.floor(prompt.length % ASSISTANT_REPLIES.length)]!;
+export function createAssistantReply(prompt: string, locale: Locale): string {
+  const replies = locale === "zh-CN" ? ZH_ASSISTANT_REPLIES : ASSISTANT_REPLIES;
+  const reply = replies[Math.floor(prompt.length % replies.length)]!;
   return reply(prompt);
 }
 

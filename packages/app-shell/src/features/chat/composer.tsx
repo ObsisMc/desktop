@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 import { IconArrowUp } from "@tabler/icons-react";
 import { Button, Textarea } from "@ora/ui";
+import { useTranslation } from "react-i18next";
 
 interface ComposerProps {
   onSend: (text: string) => void;
@@ -18,9 +19,10 @@ interface ComposerProps {
 export function Composer({
   onSend,
   isResponding,
-  placeholder = "Message Ora...",
+  placeholder,
   autoFocus = false,
 }: ComposerProps) {
+  const { t } = useTranslation();
   const [value, setValue] = useState("");
   const textAreaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -53,7 +55,7 @@ export function Composer({
       <Textarea
         ref={textAreaRef}
         autoFocus={autoFocus}
-        placeholder={placeholder}
+        placeholder={placeholder ?? t("chat.placeholder")}
         value={value}
         onChange={(event) => setValue(event.target.value)}
         onKeyDown={handleKeyDown}
@@ -61,11 +63,11 @@ export function Composer({
       />
       <div className="flex items-center justify-between pt-1">
         <p className="px-2 text-xs text-muted-foreground">
-          Enter to send / <span className="text-foreground/70">Shift+Enter for newline</span>
+          {t("chat.sendHint")}
         </p>
         <Button
           size="icon-sm"
-          aria-label="Send message"
+          aria-label={t("chat.send")}
           disabled={!canSend}
           onClick={submit}
           className="rounded-full"

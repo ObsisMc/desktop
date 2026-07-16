@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChatMessage, Conversation } from "../lib/types";
+import type { Locale } from "../i18n/i18n";
 import { createAssistantReply, createId, createSeedConversations, deriveTitle } from "../lib/mock-data";
 
 /** localStorage key under which the prototype persists its conversation state. */
@@ -42,7 +43,7 @@ export interface UseConversations {
  * Owns the conversation list and active selection for the prototype, mirroring
  * state to `localStorage` and simulating an assistant reply after a short delay.
  */
-export function useConversations(): UseConversations {
+export function useConversations(locale: Locale): UseConversations {
   // Load once per mount; refs reset between StrictMode remounts, which is harmless.
   const persistedRef = useRef<PersistedState | null>(null);
   if (persistedRef.current === null) persistedRef.current = loadPersisted(Date.now());
@@ -125,7 +126,7 @@ export function useConversations(): UseConversations {
       const assistantMessage: ChatMessage = {
         id: createId(),
         role: "assistant",
-        content: createAssistantReply(content),
+        content: createAssistantReply(content, locale),
         createdAt: replyAt,
       };
       setConversations((prev) =>
@@ -135,7 +136,7 @@ export function useConversations(): UseConversations {
       isRespondingRef.current = false;
       replyTimeoutRef.current = null;
     }, REPLY_DELAY_MS);
-  }, []);
+  }, [locale]);
 
   const renameConversation = useCallback((id: string, title: string) => {
     const next = title.trim();

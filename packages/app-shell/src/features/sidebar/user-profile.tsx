@@ -1,4 +1,4 @@
-import { IconChevronDown, IconLogout, IconSettings } from "@tabler/icons-react";
+import { IconChevronDown, IconLanguage, IconLogout, IconSettings } from "@tabler/icons-react";
 import {
   Button,
   DropdownMenu,
@@ -6,6 +6,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@ora/ui";
+import { useTranslation } from "react-i18next";
 import { ColoredAvatar } from "../../components/colored-avatar";
 import type { CurrentUser } from "../../lib/types";
 
@@ -22,15 +23,18 @@ interface UserProfileProps {
  * menu (Settings / Log out).
  */
 export function UserProfile({ user, compact = false, onSignOut }: UserProfileProps) {
+  const { i18n, t } = useTranslation();
+  const locale = i18n.resolvedLanguage === "en-US" ? "en-US" : "zh-CN";
+  const accountLabel = t("account.label", { name: user.name });
   const trigger = compact ? (
-    <Button variant="ghost" size="icon" aria-label={`${user.name} account`} className="rounded-full">
+    <Button variant="ghost" size="icon" aria-label={accountLabel} className="rounded-full">
       <ColoredAvatar name={user.name} size="sm" />
     </Button>
   ) : (
     <Button
       variant="ghost"
       size="sm"
-      aria-label={`${user.name} account`}
+      aria-label={accountLabel}
       className="h-auto w-full justify-start gap-2 px-1.5 py-1.5"
     >
       <ColoredAvatar name={user.name} size="sm" />
@@ -48,11 +52,15 @@ export function UserProfile({ user, compact = false, onSignOut }: UserProfilePro
       <DropdownMenuContent className="w-60" align="start" side="top">
         <DropdownMenuItem>
           <IconSettings />
-          Settings
+          {t("common.settings")}
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => void i18n.changeLanguage(locale === "zh-CN" ? "en-US" : "zh-CN")}>
+          <IconLanguage />
+          {t("account.language")}: {locale === "zh-CN" ? t("account.switchEnglish") : t("account.switchChinese")}
         </DropdownMenuItem>
         <DropdownMenuItem onClick={onSignOut}>
           <IconLogout />
-          Log out
+          {t("account.logout")}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

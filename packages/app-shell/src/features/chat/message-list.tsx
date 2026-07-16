@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { OraMark } from "../../components/ora-mark";
+import { useTranslation } from "react-i18next";
 import { MessageBubble } from "./message-bubble";
 import type { ChatMessage } from "../../lib/types";
 
@@ -34,8 +35,9 @@ export function MessageList({ messages, userName, isResponding }: MessageListPro
 
 /** Three bouncing dots shown while the assistant prepares a reply. */
 function TypingIndicator() {
+  const { t } = useTranslation();
   return (
-    <div className="flex gap-3 py-4" aria-label="Assistant is typing">
+    <div className="flex gap-3 py-4" aria-label={t("chat.typing")}>
       <OraMark size="sm" />
       <div className="flex items-center gap-1 py-2.5">
         <span className="size-2 animate-bounce rounded-full bg-muted-foreground" style={{ animationDelay: "0ms" }} />

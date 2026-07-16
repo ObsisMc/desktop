@@ -7,9 +7,12 @@ import * as path from 'node:path'
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: {
-    alias: {
-      "@": path.resolve(__dirname, "./src"),
-    },
+    alias: [
+      { find: "@", replacement: path.resolve(__dirname, "./src") },
+      { find: /^@ora\/app-shell$/, replacement: path.resolve(__dirname, "../../../packages/app-shell/src/index.ts") },
+      { find: /^@ora\/contracts$/, replacement: path.resolve(__dirname, "../../../packages/contracts/src/index.ts") },
+      { find: /^@ora\/ui$/, replacement: path.resolve(__dirname, "../../../packages/ui/src/index.ts") },
+    ],
   },
   server: {
     host: "0.0.0.0",
