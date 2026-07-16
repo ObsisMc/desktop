@@ -54,11 +54,12 @@ interface WorkspaceSidebarProps {
   user: CurrentUser;
   workspace: WorkspaceData;
   onCollapse: () => void;
+  onOpenSettings: () => void;
   onSignOut: () => void;
 }
 
 /** Renders projects, worktree tasks, and agent sessions as a dense three-level navigation tree. */
-export function WorkspaceSidebar({ user, workspace, onCollapse, onSignOut }: WorkspaceSidebarProps) {
+export function WorkspaceSidebar({ user, workspace, onCollapse, onOpenSettings, onSignOut }: WorkspaceSidebarProps) {
   const { t } = useTranslation();
   const [query, setQuery] = useState("");
   const [dialog, setDialog] = useState<DialogState | null>(null);
@@ -228,7 +229,7 @@ export function WorkspaceSidebar({ user, workspace, onCollapse, onSignOut }: Wor
 
         {workspace.error && <p className="border-t border-destructive/20 bg-destructive/10 px-3 py-2 text-xs text-destructive">{workspace.error}</p>}
         <div className="border-t border-sidebar-border p-2">
-          <UserProfile user={user} onSignOut={onSignOut} />
+          <UserProfile user={user} onOpenSettings={onOpenSettings} onSignOut={onSignOut} />
         </div>
       </aside>
       {dialog && (

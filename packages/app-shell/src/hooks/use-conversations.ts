@@ -37,6 +37,7 @@ export interface UseConversations {
   sendMessage: (text: string) => void;
   renameConversation: (id: string, title: string) => void;
   removeConversation: (id: string) => void;
+  clearConversations: () => void;
 }
 
 /**
@@ -152,6 +153,17 @@ export function useConversations(locale: Locale): UseConversations {
     }
   }, []);
 
+  /** Clears local conversation data while keeping the current application session open. */
+  const clearConversations = useCallback(() => {
+    if (replyTimeoutRef.current !== null) window.clearTimeout(replyTimeoutRef.current);
+    replyTimeoutRef.current = null;
+    activeIdRef.current = null;
+    isRespondingRef.current = false;
+    setConversations([]);
+    setActiveId(null);
+    setIsResponding(false);
+  }, []);
+
   const activeConversation = useMemo(
     () => conversations.find((c) => c.id === activeId) ?? null,
     [conversations, activeId],
@@ -167,5 +179,6 @@ export function useConversations(locale: Locale): UseConversations {
     sendMessage,
     renameConversation,
     removeConversation,
+    clearConversations,
   };
 }

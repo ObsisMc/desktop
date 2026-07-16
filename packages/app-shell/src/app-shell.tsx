@@ -5,6 +5,8 @@ import type { ContractsClient } from "@ora/contracts";
 import { ContractsClientContext } from "./contracts-client-context";
 import { WorkspaceSidebar } from "./features/workspace/workspace-sidebar";
 import { WorkspaceView } from "./features/workspace/workspace-view";
+import { SettingsDialog } from "./features/settings/settings-dialog";
+import { useSettingsPreferences } from "./features/settings/use-settings-preferences";
 import { CONVERSATIONS_STORAGE_KEY, useConversations } from "./hooks/use-conversations";
 import { useWorkspace } from "./hooks/use-workspace";
 import { AppI18nProvider, type Locale } from "./i18n/i18n";
@@ -31,13 +33,16 @@ function AppShellContent({ client, user }: Required<AppShellProps>) {
   const locale: Locale = i18n.resolvedLanguage === "en-US" ? "en-US" : "zh-CN";
   const {
     activeConversation,
+    clearConversations,
     isResponding,
     newChat,
     sendMessage,
   } = useConversations(locale);
   const workspace = useWorkspace(client);
+  const { settings, updateSettings } = useSettingsPreferences();
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const handleSignOut = () => {
     try {
@@ -57,6 +62,7 @@ function AppShellContent({ client, user }: Required<AppShellProps>) {
               user={user}
               workspace={workspace}
               onCollapse={() => setSidebarCollapsed(true)}
+              onOpenSettings={() => setSettingsOpen(true)}
               onSignOut={handleSignOut}
             />
           )}
@@ -69,6 +75,13 @@ function AppShellContent({ client, user }: Required<AppShellProps>) {
             onExpandSidebar={() => setSidebarCollapsed(false)}
             onSend={sendMessage}
             onNewChat={newChat}
+          />
+          <SettingsDialog
+            open={settingsOpen}
+            settings={settings}
+            onOpenChange={setSettingsOpen}
+            onUpdateSettings={updateSettings}
+            onClearHistory={clearConversations}
           />
         </div>
       </TooltipProvider>

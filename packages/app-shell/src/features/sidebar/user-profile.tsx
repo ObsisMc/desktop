@@ -1,9 +1,10 @@
-import { IconChevronDown, IconLanguage, IconLogout } from "@tabler/icons-react";
+import { IconChevronDown, IconLogout, IconSettings } from "@tabler/icons-react";
 import {
   Button,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@ora/ui";
 import { useTranslation } from "react-i18next";
@@ -14,17 +15,17 @@ interface UserProfileProps {
   user: CurrentUser;
   /** Renders only the avatar - used when the sidebar is collapsed. */
   compact?: boolean;
+  onOpenSettings?: () => void;
   onSignOut?: () => void;
 }
 
 /**
  * The sidebar footer user chip. Expanded it shows the colored avatar, name,
  * and email; collapsed it shows just the avatar. Both open a small account
- * menu (language / log out).
+ * menu for application settings and sign-out.
  */
-export function UserProfile({ user, compact = false, onSignOut }: UserProfileProps) {
-  const { i18n, t } = useTranslation();
-  const locale = i18n.resolvedLanguage === "en-US" ? "en-US" : "zh-CN";
+export function UserProfile({ user, compact = false, onOpenSettings, onSignOut }: UserProfileProps) {
+  const { t } = useTranslation();
   const accountLabel = t("account.label", { name: user.name });
   const trigger = compact ? (
     <Button variant="ghost" size="icon" aria-label={accountLabel} className="rounded-full">
@@ -50,10 +51,15 @@ export function UserProfile({ user, compact = false, onSignOut }: UserProfilePro
     <DropdownMenu>
       <DropdownMenuTrigger render={trigger} />
       <DropdownMenuContent className="w-60" align="start" side="top">
-        <DropdownMenuItem onClick={() => void i18n.changeLanguage(locale === "zh-CN" ? "en-US" : "zh-CN")}>
-          <IconLanguage />
-          {t("account.language")}: {locale === "zh-CN" ? t("account.switchEnglish") : t("account.switchChinese")}
-        </DropdownMenuItem>
+        {onOpenSettings && (
+          <>
+            <DropdownMenuItem onClick={onOpenSettings}>
+              <IconSettings />
+              {t("common.settings")}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+          </>
+        )}
         <DropdownMenuItem onClick={onSignOut}>
           <IconLogout />
           {t("account.logout")}
