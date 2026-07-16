@@ -60,7 +60,7 @@ export function useWorkspace(client: ContractsClient): WorkspaceData {
 
   useEffect(() => {
     let active = true;
-    Promise.all([client.listProjects({}), client.listTasks({}), client.listSessions({})])
+    Promise.all([client.project.list({}), client.task.list({}), client.session.list({})])
       .then(([projectResponse, taskResponse, sessionResponse]) => {
         if (!active) return;
         setProjects(projectResponse.projects);
@@ -97,7 +97,7 @@ export function useWorkspace(client: ContractsClient): WorkspaceData {
 
   const createProject = useCallback(async (name: string, rootPath: string) => {
     await runMutation(async () => {
-      const { project } = await client.createProject({ name, rootPath });
+      const { project } = await client.project.create({ name, rootPath });
       setProjects((current) => [...current, project]);
       setSelection({ projectId: project.id, taskId: null, sessionId: null });
     });
@@ -105,14 +105,14 @@ export function useWorkspace(client: ContractsClient): WorkspaceData {
 
   const updateProject = useCallback(async (current: Project, name: string, rootPath: string) => {
     await runMutation(async () => {
-      const { project } = await client.updateProject({ projectId: current.id, name, rootPath });
+      const { project } = await client.project.update({ projectId: current.id, name, rootPath });
       setProjects((items) => items.map((item) => item.id === project.id ? project : item));
     });
   }, [client, runMutation]);
 
   const deleteSession = useCallback(async (sessionId: string) => {
     await runMutation(async () => {
-      await client.deleteSession({ sessionId });
+      await client.session.delete({ sessionId });
       setSessions((items) => items.filter((item) => item.id !== sessionId));
       setSelection((current) => current.sessionId === sessionId ? { ...current, sessionId: null } : current);
     });
@@ -121,8 +121,8 @@ export function useWorkspace(client: ContractsClient): WorkspaceData {
   const deleteTask = useCallback(async (taskId: string) => {
     await runMutation(async () => {
       const childSessions = sessions.filter((session) => session.taskId === taskId);
-      await Promise.all(childSessions.map((session) => client.deleteSession({ sessionId: session.id })));
-      await client.deleteTask({ taskId });
+      await Promise.all(childSessions.map((session) => client.session.delete({ sessionId: session.id })));
+      await client.task.delete({ taskId });
       setSessions((items) => items.filter((item) => item.taskId !== taskId));
       setTasks((items) => items.filter((item) => item.id !== taskId));
       setSelection((current) => current.taskId === taskId
@@ -136,9 +136,9 @@ export function useWorkspace(client: ContractsClient): WorkspaceData {
       const childTasks = tasks.filter((task) => task.projectId === projectId);
       const childTaskIds = new Set(childTasks.map((task) => task.id));
       const childSessions = sessions.filter((session) => childTaskIds.has(session.taskId));
-      await Promise.all(childSessions.map((session) => client.deleteSession({ sessionId: session.id })));
-      await Promise.all(childTasks.map((task) => client.deleteTask({ taskId: task.id })));
-      await client.deleteProject({ projectId });
+      await Promise.all(childSessions.map((session) => client.session.delete({ sessionId: session.id })));
+      await Promise.all(childTasks.map((task) => client.task.delete({ taskId: task.id })));
+      await client.project.delete({ projectId });
       setSessions((items) => items.filter((item) => !childTaskIds.has(item.taskId)));
       setTasks((items) => items.filter((item) => item.projectId !== projectId));
       setProjects((items) => items.filter((item) => item.id !== projectId));
@@ -148,7 +148,7 @@ export function useWorkspace(client: ContractsClient): WorkspaceData {
 
   const createTask = useCallback(async (projectId: string, title: string, status: TaskStatus) => {
     await runMutation(async () => {
-      const { task } = await client.createTask({ projectId, title, status });
+      const { task } = await client.task.create({ projectId, title, status });
       setTasks((items) => [...items, task]);
       setSelection({ projectId, taskId: task.id, sessionId: null });
     });
@@ -156,14 +156,14 @@ export function useWorkspace(client: ContractsClient): WorkspaceData {
 
   const updateTask = useCallback(async (current: Task, title: string, status: TaskStatus) => {
     await runMutation(async () => {
-      const { task } = await client.updateTask({ taskId: current.id, projectId: current.projectId, title, status });
+      const { task } = await client.task.update({ taskId: current.id, projectId: current.projectId, title, status });
       setTasks((items) => items.map((item) => item.id === task.id ? task : item));
     });
   }, [client, runMutation]);
 
   const createSession = useCallback(async (taskId: string, agentId: string, status: SessionStatus) => {
     await runMutation(async () => {
-      const { session } = await client.createSession({ taskId, agentId, agentSessionId: null, status });
+      const { session } = await client.session.create({ taskId, agentId, agentSessionId: null, status });
       const task = tasks.find((candidate) => candidate.id === taskId);
       setSessions((items) => [...items, session]);
       if (task) setSelection({ projectId: task.projectId, taskId, sessionId: session.id });
@@ -172,7 +172,7 @@ export function useWorkspace(client: ContractsClient): WorkspaceData {
 
   const updateSession = useCallback(async (current: Session, agentId: string, status: SessionStatus) => {
     await runMutation(async () => {
-      const { session } = await client.updateSession({
+      const { session } = await client.session.update({
         sessionId: current.id,
         taskId: current.taskId,
         agentId,

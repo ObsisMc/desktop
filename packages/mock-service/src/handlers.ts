@@ -1,13 +1,17 @@
 import type {
+  CreateAgentRequest,
   CreateProjectRequest,
   CreateSessionRequest,
+  CreateSkillRequest,
   CreateTaskRequest,
   EndpointOperation,
   OpenProjectWorkContextRequest,
   ProjectWorkContext,
   RenewProjectWorkContextRequest,
+  UpdateAgentRequest,
   UpdateProjectRequest,
   UpdateSessionRequest,
+  UpdateSkillRequest,
   UpdateTaskRequest,
 } from "@ora/contracts";
 import { HttpResponse, http, type HttpHandler } from "msw";
@@ -267,6 +271,100 @@ export function createMockHandlers(state: MockState = mockState): HttpHandler[] 
       state.sessions.splice(sessionIndex, 1);
 
       return HttpResponse.json({ sessionId });
+    }),
+
+    createSkill: http.post("*/api/skills", async ({ request }) => {
+      const body = (await request.json()) as CreateSkillRequest;
+      const skill = { id: createId("skill"), name: body.name, description: body.description };
+      state.skills.push(skill);
+
+      return HttpResponse.json({ skill }, { status: 201 });
+    }),
+
+    getSkill: http.get("*/api/skills/:skillId", ({ params }) => {
+      const skillId = String(params.skillId);
+      const skill = state.skills.find((candidate) => candidate.id === skillId);
+      if (skill === undefined) {
+        return errorResponse("skill_not_found", `skill not found: ${skillId}`, 404);
+      }
+
+      return HttpResponse.json({ skill });
+    }),
+
+    listSkills: http.get("*/api/skills", () => {
+      return HttpResponse.json({ skills: state.skills });
+    }),
+
+    updateSkill: http.put("*/api/skills/:skillId", async ({ params, request }) => {
+      const skillId = String(params.skillId);
+      const skillIndex = state.skills.findIndex((candidate) => candidate.id === skillId);
+      if (skillIndex === -1) {
+        return errorResponse("skill_not_found", `skill not found: ${skillId}`, 404);
+      }
+
+      const body = (await request.json()) as Omit<UpdateSkillRequest, "skillId">;
+      const skill = { id: skillId, name: body.name, description: body.description };
+      state.skills[skillIndex] = skill;
+
+      return HttpResponse.json({ skill });
+    }),
+
+    deleteSkill: http.delete("*/api/skills/:skillId", ({ params }) => {
+      const skillId = String(params.skillId);
+      const skillIndex = state.skills.findIndex((candidate) => candidate.id === skillId);
+      if (skillIndex === -1) {
+        return errorResponse("skill_not_found", `skill not found: ${skillId}`, 404);
+      }
+
+      state.skills.splice(skillIndex, 1);
+      return HttpResponse.json({ skillId });
+    }),
+
+    createAgent: http.post("*/api/agents", async ({ request }) => {
+      const body = (await request.json()) as CreateAgentRequest;
+      const agent = { id: createId("agent"), name: body.name, description: body.description };
+      state.agents.push(agent);
+
+      return HttpResponse.json({ agent }, { status: 201 });
+    }),
+
+    getAgent: http.get("*/api/agents/:agentId", ({ params }) => {
+      const agentId = String(params.agentId);
+      const agent = state.agents.find((candidate) => candidate.id === agentId);
+      if (agent === undefined) {
+        return errorResponse("agent_not_found", `agent not found: ${agentId}`, 404);
+      }
+
+      return HttpResponse.json({ agent });
+    }),
+
+    listAgents: http.get("*/api/agents", () => {
+      return HttpResponse.json({ agents: state.agents });
+    }),
+
+    updateAgent: http.put("*/api/agents/:agentId", async ({ params, request }) => {
+      const agentId = String(params.agentId);
+      const agentIndex = state.agents.findIndex((candidate) => candidate.id === agentId);
+      if (agentIndex === -1) {
+        return errorResponse("agent_not_found", `agent not found: ${agentId}`, 404);
+      }
+
+      const body = (await request.json()) as Omit<UpdateAgentRequest, "agentId">;
+      const agent = { id: agentId, name: body.name, description: body.description };
+      state.agents[agentIndex] = agent;
+
+      return HttpResponse.json({ agent });
+    }),
+
+    deleteAgent: http.delete("*/api/agents/:agentId", ({ params }) => {
+      const agentId = String(params.agentId);
+      const agentIndex = state.agents.findIndex((candidate) => candidate.id === agentId);
+      if (agentIndex === -1) {
+        return errorResponse("agent_not_found", `agent not found: ${agentId}`, 404);
+      }
+
+      state.agents.splice(agentIndex, 1);
+      return HttpResponse.json({ agentId });
     }),
   } satisfies Record<EndpointOperation, HttpHandler>;
 

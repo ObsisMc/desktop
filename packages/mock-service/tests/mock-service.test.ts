@@ -27,36 +27,50 @@ after(() => server.close());
 test("defines one Service Worker handler for every contracts endpoint", () => {
   assert.equal(handlers.length, Object.keys(endpoints).length);
   assert.deepEqual(Object.keys(endpoints).sort(), [
+    "createAgent",
     "createProject",
     "createSession",
+    "createSkill",
     "createTask",
+    "deleteAgent",
     "deleteProject",
     "deleteSession",
+    "deleteSkill",
     "deleteTask",
+    "getAgent",
     "getProject",
     "getSession",
+    "getSkill",
     "getTask",
+    "listAgents",
     "listProjects",
     "listSessions",
+    "listSkills",
     "listTasks",
     "openProjectWorkContext",
     "renewProjectWorkContext",
+    "updateAgent",
     "updateProject",
     "updateSession",
+    "updateSkill",
     "updateTask",
   ]);
 });
 
 test("starts every entity collection with representative in-memory data", async () => {
-  const [projects, tasks, sessions] = await Promise.all([
-    client.listProjects({}),
-    client.listTasks({}),
-    client.listSessions({}),
+  const [projects, tasks, sessions, skills, agents] = await Promise.all([
+    client.project.list({}),
+    client.task.list({}),
+    client.session.list({}),
+    client.skill.list({}),
+    client.agent.list({}),
   ]);
 
   assert.deepEqual(projects, { projects: state.projects });
   assert.deepEqual(tasks, { tasks: state.tasks });
   assert.deepEqual(sessions, { sessions: state.sessions });
+  assert.deepEqual(skills, { skills: state.skills });
+  assert.deepEqual(agents, { agents: state.agents });
   assert.deepEqual(state.projectWorkContexts, [
     {
       id: "project-work-context-web",
@@ -68,15 +82,45 @@ test("starts every entity collection with representative in-memory data", async 
   ]);
 });
 
+test("supports skill CRUD within one runtime", async () => {
+  const created = await client.skill.create({ name: "testing", description: "Runs focused tests." });
+  assert.match(created.skill.id, /^skill-/);
+  assert.deepEqual(await client.skill.get({ skillId: created.skill.id }), created);
+
+  const updated = await client.skill.update({
+    skillId: created.skill.id,
+    name: "test-runner",
+    description: "Runs the relevant test suite.",
+  });
+  assert.equal(updated.skill.name, "test-runner");
+  assert.deepEqual(await client.skill.delete({ skillId: created.skill.id }), { skillId: created.skill.id });
+  await assertNotFound(client.skill.get({ skillId: created.skill.id }), "skill_not_found");
+});
+
+test("supports agent CRUD within one runtime", async () => {
+  const created = await client.agent.create({ name: "Reviewer", description: "Reviews a change." });
+  assert.match(created.agent.id, /^agent-/);
+  assert.deepEqual(await client.agent.get({ agentId: created.agent.id }), created);
+
+  const updated = await client.agent.update({
+    agentId: created.agent.id,
+    name: "Code Reviewer",
+    description: "Reviews code and tests.",
+  });
+  assert.equal(updated.agent.name, "Code Reviewer");
+  assert.deepEqual(await client.agent.delete({ agentId: created.agent.id }), { agentId: created.agent.id });
+  await assertNotFound(client.agent.get({ agentId: created.agent.id }), "agent_not_found");
+});
+
 test("supports project create, get, update, and delete within one runtime", async () => {
-  const created = await client.createProject({
+  const created = await client.project.create({
     name: "Mock Service",
     rootPath: "C:\\workspace\\mock-service",
   });
   assert.match(created.project.id, /^project-/);
-  assert.deepEqual(await client.getProject({ projectId: created.project.id }), created);
+  assert.deepEqual(await client.project.get({ projectId: created.project.id }), created);
 
-  const updated = await client.updateProject({
+  const updated = await client.project.update({
     projectId: created.project.id,
     name: "Mock Service Package",
     rootPath: "C:\\workspace\\ora\\packages\\mock-service",
@@ -88,25 +132,25 @@ test("supports project create, get, update, and delete within one runtime", asyn
       rootPath: "C:\\workspace\\ora\\packages\\mock-service",
     },
   });
-  assert.deepEqual(await client.deleteProject({ projectId: created.project.id }), {
+  assert.deepEqual(await client.project.delete({ projectId: created.project.id }), {
     projectId: created.project.id,
   });
   await assertNotFound(
-    client.getProject({ projectId: created.project.id }),
+    client.project.get({ projectId: created.project.id }),
     "project_not_found",
   );
 });
 
 test("supports task create, get, update, and delete within one runtime", async () => {
-  const created = await client.createTask({
+  const created = await client.task.create({
     projectId: "project-ora-desktop",
     title: "Cover every task endpoint",
     status: "todo",
   });
   assert.match(created.task.id, /^task-/);
-  assert.deepEqual(await client.getTask({ taskId: created.task.id }), created);
+  assert.deepEqual(await client.task.get({ taskId: created.task.id }), created);
 
-  const updated = await client.updateTask({
+  const updated = await client.task.update({
     taskId: created.task.id,
     projectId: created.task.projectId,
     title: "Every task endpoint is covered",
@@ -119,23 +163,23 @@ test("supports task create, get, update, and delete within one runtime", async (
       status: "done",
     },
   });
-  assert.deepEqual(await client.deleteTask({ taskId: created.task.id }), {
+  assert.deepEqual(await client.task.delete({ taskId: created.task.id }), {
     taskId: created.task.id,
   });
-  await assertNotFound(client.getTask({ taskId: created.task.id }), "task_not_found");
+  await assertNotFound(client.task.get({ taskId: created.task.id }), "task_not_found");
 });
 
 test("supports session create, get, update, and delete within one runtime", async () => {
-  const created = await client.createSession({
+  const created = await client.session.create({
     taskId: "task-agent-runtime",
     agentId: "codex",
     agentSessionId: null,
     status: "running",
   });
   assert.match(created.session.id, /^session-/);
-  assert.deepEqual(await client.getSession({ sessionId: created.session.id }), created);
+  assert.deepEqual(await client.session.get({ sessionId: created.session.id }), created);
 
-  const updated = await client.updateSession({
+  const updated = await client.session.update({
     sessionId: created.session.id,
     taskId: created.session.taskId,
     agentId: created.session.agentId,
@@ -149,17 +193,17 @@ test("supports session create, get, update, and delete within one runtime", asyn
       status: "stopped",
     },
   });
-  assert.deepEqual(await client.deleteSession({ sessionId: created.session.id }), {
+  assert.deepEqual(await client.session.delete({ sessionId: created.session.id }), {
     sessionId: created.session.id,
   });
   await assertNotFound(
-    client.getSession({ sessionId: created.session.id }),
+    client.session.get({ sessionId: created.session.id }),
     "session_not_found",
   );
 });
 
 test("opens, switches, and renews project work contexts in memory", async () => {
-  const opened = await client.openProjectWorkContext({
+  const opened = await client.projectWorkContext.open({
     surface: "web",
     windowId: "test-window",
     projectId: "project-ora-desktop",
@@ -167,7 +211,7 @@ test("opens, switches, and renews project work contexts in memory", async () => 
   assert.equal(opened.context.windowId, "test-window");
   assert.equal(typeof opened.context.leaseExpiresAt, "number");
 
-  const switched = await client.openProjectWorkContext({
+  const switched = await client.projectWorkContext.open({
     surface: "web",
     windowId: "test-window",
     projectId: "project-design-system",
@@ -175,7 +219,7 @@ test("opens, switches, and renews project work contexts in memory", async () => 
   assert.equal(switched.context.id, opened.context.id);
   assert.equal(switched.context.projectId, "project-design-system");
 
-  const renewed = await client.renewProjectWorkContext({
+  const renewed = await client.projectWorkContext.renew({
     surface: "web",
     windowId: "test-window",
   });
@@ -184,13 +228,13 @@ test("opens, switches, and renews project work contexts in memory", async () => 
 });
 
 test("matches backend work-context conflict and not-found errors", async () => {
-  await client.openProjectWorkContext({
+  await client.projectWorkContext.open({
     surface: "tauri",
     windowId: "tauri-window-1",
     projectId: "project-ora-desktop",
   });
   await assertTransportError(
-    client.openProjectWorkContext({
+    client.projectWorkContext.open({
       surface: "tauri",
       windowId: "tauri-window-2",
       projectId: "project-ora-desktop",
@@ -199,14 +243,14 @@ test("matches backend work-context conflict and not-found errors", async () => {
     409,
   );
   await assertNotFound(
-    client.renewProjectWorkContext({
+    client.projectWorkContext.renew({
       surface: "web",
       windowId: "missing-window",
     }),
     "project_work_context_not_found",
   );
   await assertNotFound(
-    client.openProjectWorkContext({
+    client.projectWorkContext.open({
       surface: "web",
       windowId: "another-window",
       projectId: "missing-project",

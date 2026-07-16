@@ -1,7 +1,9 @@
 import type {
+  Agent,
   Project,
   ProjectWorkContext,
   Session,
+  Skill,
   Task,
 } from "@ora/contracts";
 
@@ -9,6 +11,8 @@ export interface MockState {
   projects: Project[];
   tasks: Task[];
   sessions: Session[];
+  skills: Skill[];
+  agents: Agent[];
   projectWorkContexts: ProjectWorkContext[];
 }
 
@@ -61,6 +65,20 @@ export function createInitialMockState(now = Date.now()): MockState {
         agentId: "codex",
         agentSessionId: null,
         status: "stopped",
+      },
+    ],
+    skills: [
+      {
+        id: "skill-code-review",
+        name: "code-review",
+        description: "Reviews changes for correctness and maintainability.",
+      },
+    ],
+    agents: [
+      {
+        id: "agent-codex",
+        name: "Codex",
+        description: "General-purpose coding agent.",
       },
     ],
     projectWorkContexts: [
