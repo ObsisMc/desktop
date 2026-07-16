@@ -166,7 +166,7 @@ function AppearanceSettings({ settings, onUpdate }: { settings: SettingsPreferen
       </SettingsGroup>
       <SettingsRow icon={IconLanguage} title={t("settings.appearance.language")} description={t("settings.appearance.languageDescription")}>
         <Select value={locale} onValueChange={(value) => void i18n.changeLanguage(value as Locale)}>
-          <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+          <SelectTrigger className="w-40"><span className="flex-1 text-left">{locale === "zh-CN" ? "简体中文" : "English"}</span></SelectTrigger>
           <SelectContent><SelectItem value="zh-CN">简体中文</SelectItem><SelectItem value="en-US">English</SelectItem></SelectContent>
         </Select>
       </SettingsRow>
