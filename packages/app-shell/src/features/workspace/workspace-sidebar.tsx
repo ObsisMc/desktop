@@ -28,6 +28,7 @@ import {
   IconFolder,
   IconGitBranch,
   IconLayoutSidebarLeftCollapse,
+  IconPencil,
   IconPlus,
   IconSearch,
   IconSparkles,
@@ -323,8 +324,8 @@ function EntityMenu({ onAdd, addLabel, onEdit, onDelete }: { onAdd?: () => void;
       <DropdownMenuContent align="end" className="w-40">
         {onAdd && <DropdownMenuItem onClick={onAdd}><IconPlus />{addLabel}</DropdownMenuItem>}
         {onAdd && <DropdownMenuSeparator />}
-        <DropdownMenuItem onClick={onEdit}>{t("common.edit")}</DropdownMenuItem>
-        <DropdownMenuItem variant="destructive" onClick={onDelete}>{t("common.delete")}</DropdownMenuItem>
+        <DropdownMenuItem onClick={onEdit}><IconPencil />{t("common.edit")}</DropdownMenuItem>
+        <DropdownMenuItem variant="destructive" onClick={onDelete}><IconTrash />{t("common.delete")}</DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );
