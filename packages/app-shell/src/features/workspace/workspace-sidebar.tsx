@@ -68,9 +68,10 @@ export function WorkspaceSidebar({ user, onSignOut }: WorkspaceSidebarProps) {
   const projectsQuery = useProjects();
   const tasksQuery = useTasks();
   const sessionsQuery = useSessions();
-  const projects = projectsQuery.data ?? [];
-  const tasks = tasksQuery.data ?? [];
-  const sessions = sessionsQuery.data ?? [];
+  // Stabilise the array references so useMemo dependencies don't change every render.
+  const projects = useMemo(() => projectsQuery.data ?? [], [projectsQuery.data]);
+  const tasks = useMemo(() => tasksQuery.data ?? [], [tasksQuery.data]);
+  const sessions = useMemo(() => sessionsQuery.data ?? [], [sessionsQuery.data]);
   const loading = projectsQuery.isPending || tasksQuery.isPending || sessionsQuery.isPending;
   const error = projectsQuery.error ?? tasksQuery.error ?? sessionsQuery.error;
 
@@ -418,5 +419,7 @@ function WorkspaceDialog({ dialog, onOpenChange }: { dialog: DialogState; onOpen
     };
   }
 
-  return <EntityDialog open title={title} description={description} submitLabel={submitLabel} fields={fields} onOpenChange={onOpenChange} onSubmit={submit} />;
+  const dialogKey = `${dialog.kind}-${dialog.entity?.id ?? "new"}`;
+
+  return <EntityDialog key={dialogKey} open title={title} description={description} submitLabel={submitLabel} fields={fields} onOpenChange={onOpenChange} onSubmit={submit} />;
 }
