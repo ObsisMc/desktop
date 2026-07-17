@@ -1,3 +1,4 @@
+mod acp;
 mod agent;
 mod frontend;
 mod project;
@@ -6,6 +7,13 @@ mod session;
 mod skill;
 mod task;
 
+pub use acp::{
+    CreateTerminalRequest, CreateTerminalResponse, EnvVariable, KillTerminalRequest,
+    KillTerminalResponse, Plan, PlanEntry, PlanEntryPriority, PlanEntryStatus, ReadTextFileRequest,
+    ReadTextFileResponse, ReleaseTerminalRequest, ReleaseTerminalResponse, TerminalExitStatus,
+    TerminalOutputRequest, TerminalOutputResponse, WaitForTerminalExitRequest,
+    WaitForTerminalExitResponse, WriteTextFileRequest, WriteTextFileResponse,
+};
 pub use agent::{
     Agent, CreateAgentRequest, CreateAgentResponse, DeleteAgentRequest, DeleteAgentResponse,
     GetAgentRequest, GetAgentResponse, ListAgentsRequest, ListAgentsResponse, UpdateAgentRequest,
@@ -48,6 +56,27 @@ pub fn export_typescript_bindings_to(
     output_directory: impl AsRef<Path>,
 ) -> Result<(), ExportError> {
     let config = Config::new().with_out_dir(output_directory.as_ref());
+
+    ReadTextFileRequest::export(&config)?;
+    ReadTextFileResponse::export(&config)?;
+    WriteTextFileRequest::export(&config)?;
+    WriteTextFileResponse::export(&config)?;
+    EnvVariable::export(&config)?;
+    TerminalExitStatus::export(&config)?;
+    CreateTerminalRequest::export(&config)?;
+    CreateTerminalResponse::export(&config)?;
+    TerminalOutputRequest::export(&config)?;
+    TerminalOutputResponse::export(&config)?;
+    WaitForTerminalExitRequest::export(&config)?;
+    WaitForTerminalExitResponse::export(&config)?;
+    KillTerminalRequest::export(&config)?;
+    KillTerminalResponse::export(&config)?;
+    ReleaseTerminalRequest::export(&config)?;
+    ReleaseTerminalResponse::export(&config)?;
+    PlanEntryPriority::export(&config)?;
+    PlanEntryStatus::export(&config)?;
+    PlanEntry::export(&config)?;
+    Plan::export(&config)?;
 
     Agent::export(&config)?;
     CreateAgentRequest::export(&config)?;
