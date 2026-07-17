@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { TooltipProvider } from "@ora/ui";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import type { ContractsClient } from "@ora/contracts";
 import { ContractsClientContext } from "./contracts-client-context";
@@ -12,6 +13,7 @@ import { useWorkspace } from "./hooks/use-workspace";
 import { AppI18nProvider, type Locale } from "./i18n/i18n";
 import { CURRENT_USER } from "./lib/mock-data";
 import type { CurrentUser } from "./lib/types";
+import { createAppQueryClient } from "./state/query-client";
 
 interface AppShellProps {
   client: ContractsClient;
@@ -20,10 +22,14 @@ interface AppShellProps {
 
 /** The main Ora application shell: sidebar + chat view with conversation state. */
 export function AppShell({ client, user = CURRENT_USER }: AppShellProps) {
+  // One client per shell instance so HMR or multiple mounted shells never share cache.
+  const [queryClient] = useState(() => createAppQueryClient());
   return (
-    <AppI18nProvider>
-      <AppShellContent client={client} user={user} />
-    </AppI18nProvider>
+    <QueryClientProvider client={queryClient}>
+      <AppI18nProvider>
+        <AppShellContent client={client} user={user} />
+      </AppI18nProvider>
+    </QueryClientProvider>
   );
 }
 
