@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { Agent, Skill } from "@ora/contracts";
 import {
@@ -152,7 +152,7 @@ export function AtomsSettings() {
         ))}
       </div>
 
-      <AtomEditorDialog editor={editor} onOpenChange={(open) => !open && setEditor(null)} onSave={saveItem} />
+      <AtomEditorDialog key={`${editor?.kind}-${editor?.item?.id ?? "new"}`} editor={editor} onOpenChange={(open) => !open && setEditor(null)} onSave={saveItem} />
       <DeleteAtomDialog target={deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)} onDelete={deleteItem} />
     </div>
   );
@@ -161,16 +161,11 @@ export function AtomsSettings() {
 /** Provides a compact form for both agent and skill mutations because their current contracts share one shape. */
 function AtomEditorDialog({ editor, onOpenChange, onSave }: { editor: EditorState | null; onOpenChange: (open: boolean) => void; onSave: (kind: AtomKind, item: AtomRecord | null, name: string, description: string) => Promise<void> }) {
   const { t } = useTranslation();
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
+  // Lazy-init from editor; caller passes a `key` to remount when the editor target changes.
+  const [name, setName] = useState(() => editor?.item?.name ?? "");
+  const [description, setDescription] = useState(() => editor?.item?.description ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    setName(editor?.item?.name ?? "");
-    setDescription(editor?.item?.description ?? "");
-    setError(null);
-  }, [editor]);
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();

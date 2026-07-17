@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import {
   Button,
   Dialog,
@@ -46,16 +46,12 @@ export function EntityDialog({
   onSubmit,
 }: EntityDialogProps) {
   const { t } = useTranslation();
-  const [values, setValues] = useState<Record<string, string>>({});
+  // Lazy-init from fields; callers pass a `key` to remount when the entity changes.
+  const [values, setValues] = useState<Record<string, string>>(() =>
+    Object.fromEntries(fields.map((field) => [field.name, field.value])),
+  );
   const [submitting, setSubmitting] = useState(false);
   const [validationError, setValidationError] = useState(false);
-
-  useEffect(() => {
-    if (open) {
-      setValues(Object.fromEntries(fields.map((field) => [field.name, field.value])));
-      setValidationError(false);
-    }
-  }, [fields, open]);
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
