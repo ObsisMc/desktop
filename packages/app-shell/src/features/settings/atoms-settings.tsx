@@ -28,13 +28,21 @@ import {
 import {
   IconPencil,
   IconPlus,
-  IconRefresh,
   IconRobot,
   IconSearch,
   IconSparkles,
   IconTrash,
 } from "@tabler/icons-react";
-import { useContractsClient } from "../../contracts-client-context";
+import { useAgents } from "../../state/hooks/use-agents";
+import { useSkills } from "../../state/hooks/use-skills";
+import {
+  useCreateAgent,
+  useUpdateAgent,
+  useDeleteAgent,
+  useCreateSkill,
+  useUpdateSkill,
+  useDeleteSkill,
+} from "../../state/hooks/use-atom-mutations";
 
 type AtomKind = "agent" | "skill";
 type AtomRecord = Agent | Skill;
@@ -49,39 +57,27 @@ interface DeleteState {
   item: AtomRecord;
 }
 
-/** Manages configurable agents and skills through the shared typed contracts client. */
+/** Manages configurable agents and skills through react-query backed mutations. */
 export function AtomsSettings() {
   const { t } = useTranslation();
-  const client = useContractsClient();
+  const agentsQuery = useAgents();
+  const skillsQuery = useSkills();
+  const agents = agentsQuery.data ?? [];
+  const skills = skillsQuery.data ?? [];
+  const loading = agentsQuery.isPending || skillsQuery.isPending;
+  const error = agentsQuery.error ?? skillsQuery.error;
+
+  const createAgent = useCreateAgent();
+  const updateAgent = useUpdateAgent();
+  const deleteAgent = useDeleteAgent();
+  const createSkill = useCreateSkill();
+  const updateSkill = useUpdateSkill();
+  const deleteSkill = useDeleteSkill();
+
   const [kind, setKind] = useState<AtomKind>("agent");
-  const [agents, setAgents] = useState<Agent[]>([]);
-  const [skills, setSkills] = useState<Skill[]>([]);
   const [query, setQuery] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [editor, setEditor] = useState<EditorState | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<DeleteState | null>(null);
-
-  const loadAtoms = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const [agentResponse, skillResponse] = await Promise.all([
-        client.agent.list({}),
-        client.skill.list({}),
-      ]);
-      setAgents(agentResponse.agents);
-      setSkills(skillResponse.skills);
-    } catch {
-      setError(t("settings.atoms.loadError"));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    void loadAtoms();
-  }, []);
 
   const source = kind === "agent" ? agents : skills;
   const needle = query.trim().toLowerCase();
@@ -94,31 +90,17 @@ export function AtomsSettings() {
 
   const saveItem = async (editorKind: AtomKind, item: AtomRecord | null, name: string, description: string) => {
     if (editorKind === "agent") {
-      const response = item
-        ? await client.agent.update({ agentId: item.id, name, description })
-        : await client.agent.create({ name, description });
-      setAgents((current) => item
-        ? current.map((candidate) => candidate.id === item.id ? response.agent : candidate)
-        : [...current, response.agent]);
+      if (item) await updateAgent.mutateAsync({ agent: item, name, description });
+      else await createAgent.mutateAsync({ name, description });
       return;
     }
-
-    const response = item
-      ? await client.skill.update({ skillId: item.id, name, description })
-      : await client.skill.create({ name, description });
-    setSkills((current) => item
-      ? current.map((candidate) => candidate.id === item.id ? response.skill : candidate)
-      : [...current, response.skill]);
+    if (item) await updateSkill.mutateAsync({ skill: item, name, description });
+    else await createSkill.mutateAsync({ name, description });
   };
 
   const deleteItem = async (target: DeleteState) => {
-    if (target.kind === "agent") {
-      await client.agent.delete({ agentId: target.item.id });
-      setAgents((current) => current.filter((item) => item.id !== target.item.id));
-    } else {
-      await client.skill.delete({ skillId: target.item.id });
-      setSkills((current) => current.filter((item) => item.id !== target.item.id));
-    }
+    if (target.kind === "agent") await deleteAgent.mutateAsync({ agentId: target.item.id });
+    else await deleteSkill.mutateAsync({ skillId: target.item.id });
   };
 
   return (
@@ -132,7 +114,7 @@ export function AtomsSettings() {
             <TabsTrigger value="skill"><IconSparkles />{t("settings.atoms.skills")}<Badge variant="secondary" className="ml-1 h-4 px-1.5 text-[10px]">{skills.length}</Badge></TabsTrigger>
           </TabsList>
           <div className="relative min-w-0 flex-1">
-            <IconSearch className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <IconSearch className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("settings.atoms.search")} className="pl-8" />
           </div>
           <Button onClick={() => setEditor({ kind, item: null })}><IconPlus />{kind === "agent" ? t("settings.atoms.newAgent") : t("settings.atoms.newSkill")}</Button>
@@ -147,8 +129,7 @@ export function AtomsSettings() {
         {loading && <p className="px-4 py-10 text-center text-sm text-muted-foreground">{t("settings.atoms.loading")}</p>}
         {!loading && error && (
           <div className="flex flex-col items-center gap-3 px-4 py-10 text-center">
-            <p className="text-sm text-destructive">{error}</p>
-            <Button variant="outline" onClick={() => void loadAtoms()}><IconRefresh />{t("settings.atoms.retry")}</Button>
+            <p className="text-sm text-destructive">{t("settings.atoms.loadError")}</p>
           </div>
         )}
         {!loading && !error && visibleItems.length === 0 && <p className="px-4 py-10 text-center text-sm text-muted-foreground">{t("settings.atoms.empty")}</p>}

@@ -1,19 +1,18 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { TooltipProvider } from "@ora/ui";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { useTranslation } from "react-i18next";
 import type { ContractsClient } from "@ora/contracts";
 import { ContractsClientContext } from "./contracts-client-context";
 import { WorkspaceSidebar } from "./features/workspace/workspace-sidebar";
 import { WorkspaceView } from "./features/workspace/workspace-view";
 import { SettingsDialog } from "./features/settings/settings-dialog";
-import { useSettingsPreferences } from "./features/settings/use-settings-preferences";
-import { CONVERSATIONS_STORAGE_KEY, useConversations } from "./hooks/use-conversations";
-import { useWorkspace } from "./hooks/use-workspace";
-import { AppI18nProvider, type Locale } from "./i18n/i18n";
+import { AppI18nProvider } from "./i18n/i18n";
 import { CURRENT_USER } from "./lib/mock-data";
 import type { CurrentUser } from "./lib/types";
 import { createAppQueryClient } from "./state/query-client";
+import { useUiStore } from "./state/stores/ui-store";
+import { startThemeSubscription } from "./state/stores/settings-store";
+import { useConversationsStore } from "./state/stores/conversations-store";
 
 interface AppShellProps {
   client: ContractsClient;
@@ -35,27 +34,14 @@ export function AppShell({ client, user = CURRENT_USER }: AppShellProps) {
 
 /** Renders the shell inside providers so stateful hooks can consume the active locale. */
 function AppShellContent({ client, user }: Required<AppShellProps>) {
-  const { i18n } = useTranslation();
-  const locale: Locale = i18n.resolvedLanguage === "en-US" ? "en-US" : "zh-CN";
-  const {
-    activeConversation,
-    clearConversations,
-    isResponding,
-    newChat,
-    sendMessage,
-  } = useConversations(locale);
-  const workspace = useWorkspace(client);
-  const { settings, updateSettings } = useSettingsPreferences();
+  // Mirror theme/density onto <html> for the shell's lifetime.
+  useEffect(() => startThemeSubscription(), []);
 
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const sidebarCollapsed = useUiStore((s) => s.sidebarCollapsed);
 
   const handleSignOut = () => {
-    try {
-      window.localStorage.removeItem(CONVERSATIONS_STORAGE_KEY);
-    } catch {
-      /* Storage may be unavailable; reload anyway. */
-    }
+    // Clear persisted conversations so a reload reseeds the prototype shell.
+    useConversationsStore.persist.clearStorage();
     window.location.reload();
   };
 
@@ -64,31 +50,10 @@ function AppShellContent({ client, user }: Required<AppShellProps>) {
       <TooltipProvider>
         <div className="flex h-dvh overflow-hidden bg-background text-foreground">
           {!sidebarCollapsed && (
-            <WorkspaceSidebar
-              user={user}
-              workspace={workspace}
-              onCollapse={() => setSidebarCollapsed(true)}
-              onOpenSettings={() => setSettingsOpen(true)}
-              onSignOut={handleSignOut}
-            />
+            <WorkspaceSidebar user={user} onSignOut={handleSignOut} />
           )}
-          <WorkspaceView
-            workspace={workspace}
-            sidebarCollapsed={sidebarCollapsed}
-            activeConversation={activeConversation}
-            userName={user.name}
-            isResponding={isResponding}
-            onExpandSidebar={() => setSidebarCollapsed(false)}
-            onSend={sendMessage}
-            onNewChat={newChat}
-          />
-          <SettingsDialog
-            open={settingsOpen}
-            settings={settings}
-            onOpenChange={setSettingsOpen}
-            onUpdateSettings={updateSettings}
-            onClearHistory={clearConversations}
-          />
+          <WorkspaceView userName={user.name} />
+          <SettingsDialog />
         </div>
       </TooltipProvider>
     </ContractsClientContext.Provider>

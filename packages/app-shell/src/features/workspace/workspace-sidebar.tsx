@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { Project, Session, SessionStatus, Task, TaskStatus } from "@ora/contracts";
+import type { SessionStatus, TaskStatus } from "@ora/contracts";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -36,70 +36,87 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import type { CurrentUser } from "../../lib/types";
-import type { WorkspaceData } from "../../hooks/use-workspace";
 import { UserProfile } from "../sidebar/user-profile";
 import { EntityDialog, type EntityField } from "./entity-dialog";
-
-type DialogState =
-  | { kind: "project"; entity?: Project }
-  | { kind: "task"; projectId: string; entity?: Task }
-  | { kind: "session"; taskId: string; entity?: Session };
-
-type DeleteTarget =
-  | { kind: "project"; id: string; name: string }
-  | { kind: "task"; id: string; name: string }
-  | { kind: "session"; id: string; name: string };
+import { useProjects } from "../../state/hooks/use-projects";
+import { useTasks } from "../../state/hooks/use-tasks";
+import { useSessions } from "../../state/hooks/use-sessions";
+import {
+  useCreateProject,
+  useUpdateProject,
+  useDeleteProject,
+  useCreateTask,
+  useUpdateTask,
+  useDeleteTask,
+  useCreateSession,
+  useUpdateSession,
+  useDeleteSession,
+} from "../../state/hooks/use-workspace-mutations";
+import { useUiStore, type DialogState, type DeleteTarget } from "../../state/stores/ui-store";
+import { useWorkspaceSelectionStore } from "../../state/stores/workspace-selection-store";
 
 interface WorkspaceSidebarProps {
   user: CurrentUser;
-  workspace: WorkspaceData;
-  onCollapse: () => void;
-  onOpenSettings: () => void;
   onSignOut: () => void;
 }
 
 /** Renders projects, worktree tasks, and agent sessions as a dense three-level navigation tree. */
-export function WorkspaceSidebar({ user, workspace, onCollapse, onOpenSettings, onSignOut }: WorkspaceSidebarProps) {
+export function WorkspaceSidebar({ user, onSignOut }: WorkspaceSidebarProps) {
   const { t } = useTranslation();
   const [query, setQuery] = useState("");
-  const [dialog, setDialog] = useState<DialogState | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
-  const [expandedProjects, setExpandedProjects] = useState(() => new Set<string>());
-  const [expandedTasks, setExpandedTasks] = useState(() => new Set<string>());
+
+  const projectsQuery = useProjects();
+  const tasksQuery = useTasks();
+  const sessionsQuery = useSessions();
+  const projects = projectsQuery.data ?? [];
+  const tasks = tasksQuery.data ?? [];
+  const sessions = sessionsQuery.data ?? [];
+  const loading = projectsQuery.isPending || tasksQuery.isPending || sessionsQuery.isPending;
+  const error = projectsQuery.error ?? tasksQuery.error ?? sessionsQuery.error;
+
+  const selection = useWorkspaceSelectionStore((s) => s.selection);
+  const selectProject = useWorkspaceSelectionStore((s) => s.selectProject);
+  const selectTask = useWorkspaceSelectionStore((s) => s.selectTask);
+  const selectSession = useWorkspaceSelectionStore((s) => s.selectSession);
+
+  const expandedProjects = useUiStore((s) => s.expandedProjects);
+  const expandedTasks = useUiStore((s) => s.expandedTasks);
+  const toggleProjectExpand = useUiStore((s) => s.toggleProjectExpand);
+  const toggleTaskExpand = useUiStore((s) => s.toggleTaskExpand);
+  const setSidebarCollapsed = useUiStore((s) => s.setSidebarCollapsed);
+  const setSettingsOpen = useUiStore((s) => s.setSettingsOpen);
+  const dialog = useUiStore((s) => s.dialog);
+  const setDialog = useUiStore((s) => s.setDialog);
+  const deleteTarget = useUiStore((s) => s.deleteTarget);
+  const setDeleteTarget = useUiStore((s) => s.setDeleteTarget);
+
   const needle = query.trim().toLowerCase();
 
-  const visibleProjects = useMemo(() => workspace.projects.filter((project) => {
+  const visibleProjects = useMemo(() => projects.filter((project) => {
     if (!needle) return true;
-    const projectTasks = workspace.tasks.filter((task) => task.projectId === project.id);
+    const projectTasks = tasks.filter((task) => task.projectId === project.id);
     return project.name.toLowerCase().includes(needle)
       || projectTasks.some((task) => task.title.toLowerCase().includes(needle)
-        || workspace.sessions.some((session) => session.taskId === task.id && session.agentId.toLowerCase().includes(needle)));
-  }), [needle, workspace.projects, workspace.sessions, workspace.tasks]);
+        || sessions.some((session) => session.taskId === task.id && session.agentId.toLowerCase().includes(needle)));
+  }), [needle, projects, sessions, tasks]);
 
   // Mutations select their new child. Expand its ancestors once without preventing a later manual collapse.
   useEffect(() => {
-    const projectId = workspace.selection.projectId;
-    const taskId = workspace.selection.taskId;
-    if (taskId) setExpandedTasks((current) => current.has(taskId) ? current : new Set(current).add(taskId));
-    if (projectId) setExpandedProjects((current) => current.has(projectId) ? current : new Set(current).add(projectId));
-  }, [workspace.selection.projectId, workspace.selection.taskId]);
-
-  const toggleSet = (setter: React.Dispatch<React.SetStateAction<Set<string>>>, id: string) => {
-    setter((current) => {
-      const next = new Set(current);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
-  };
+    if (selection.taskId) useUiStore.getState().expandTask(selection.taskId);
+    if (selection.projectId) useUiStore.getState().expandProject(selection.projectId);
+  }, [selection.projectId, selection.taskId]);
 
   const openProject = (projectId: string) => {
-    toggleSet(setExpandedProjects, projectId);
-    workspace.selectProject(projectId);
+    toggleProjectExpand(projectId);
+    selectProject(projectId);
   };
 
   const openTask = (taskId: string) => {
-    toggleSet(setExpandedTasks, taskId);
-    workspace.selectTask(taskId);
+    const task = tasks.find((candidate) => candidate.id === taskId);
+    if (task) {
+      toggleTaskExpand(taskId);
+      selectTask(taskId, task.projectId);
+    }
   };
 
   return (
@@ -112,7 +129,7 @@ export function WorkspaceSidebar({ user, workspace, onCollapse, onOpenSettings, 
           <span className="text-sm font-semibold">Ora Agent</span>
           <div className="flex-1" />
           <Tooltip>
-            <TooltipTrigger render={<Button variant="ghost" size="icon-sm" onClick={onCollapse} aria-label={t("sidebar.collapse")} />}>
+            <TooltipTrigger render={<Button variant="ghost" size="icon-sm" onClick={() => setSidebarCollapsed(true)} aria-label={t("sidebar.collapse")} />}>
               <IconLayoutSidebarLeftCollapse />
             </TooltipTrigger>
             <TooltipContent>{t("sidebar.collapse")}</TooltipContent>
@@ -150,22 +167,22 @@ export function WorkspaceSidebar({ user, workspace, onCollapse, onOpenSettings, 
         </div>
 
         <div className="flex items-center px-3 pb-1 text-[11px] font-semibold uppercase text-muted-foreground">
-          <span>{t("sidebar.workspace")}</span><span className="ml-auto">{t("sidebar.projectCount", { count: workspace.projects.length })}</span>
+          <span>{t("sidebar.workspace")}</span><span className="ml-auto">{t("sidebar.projectCount", { count: projects.length })}</span>
         </div>
 
         <nav className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
-          {workspace.loading && <p className="px-2 py-6 text-center text-xs text-muted-foreground">{t("sidebar.loading")}</p>}
-          {!workspace.loading && visibleProjects.length === 0 && (
+          {loading && <p className="px-2 py-6 text-center text-xs text-muted-foreground">{t("sidebar.loading")}</p>}
+          {!loading && visibleProjects.length === 0 && (
             <p className="px-2 py-6 text-center text-xs text-muted-foreground">{t("sidebar.empty")}</p>
           )}
           {visibleProjects.map((project) => {
-            const projectTasks = workspace.tasks.filter((task) => task.projectId === project.id);
+            const projectTasks = tasks.filter((task) => task.projectId === project.id);
             const projectOpen = expandedProjects.has(project.id) || Boolean(needle);
             return (
               <div key={project.id} className="mt-1">
                 <TreeRow
                   depth={0}
-                  active={workspace.selection.projectId === project.id && workspace.selection.taskId === null}
+                  active={selection.projectId === project.id && selection.taskId === null}
                   icon={<IconFolder className="size-4 text-amber-600" />}
                   label={project.name}
                   meta={`${projectTasks.length}`}
@@ -181,13 +198,13 @@ export function WorkspaceSidebar({ user, workspace, onCollapse, onOpenSettings, 
                   )}
                 />
                 {projectOpen && projectTasks.map((task) => {
-                  const taskSessions = workspace.sessions.filter((session) => session.taskId === task.id);
+                  const taskSessions = sessions.filter((session) => session.taskId === task.id);
                   const taskOpen = expandedTasks.has(task.id) || Boolean(needle);
                   return (
                     <div key={task.id}>
                       <TreeRow
                         depth={1}
-                        active={workspace.selection.taskId === task.id && workspace.selection.sessionId === null}
+                        active={selection.taskId === task.id && selection.sessionId === null}
                         icon={<IconGitBranch className="size-3.5 text-sky-600" />}
                         label={task.title}
                         meta={t(`common.${task.status}`)}
@@ -206,11 +223,11 @@ export function WorkspaceSidebar({ user, workspace, onCollapse, onOpenSettings, 
                         <TreeRow
                           key={session.id}
                           depth={2}
-                          active={workspace.selection.sessionId === session.id}
+                          active={selection.sessionId === session.id}
                           icon={<span className={`size-2 rounded-full ${session.status === "running" ? "bg-emerald-500" : "bg-zinc-400"}`} />}
                           label={session.agentId}
                           meta={t(`common.${session.status}`)}
-                          onClick={() => workspace.selectSession(session.id)}
+                          onClick={() => selectSession(session.id, task.id, project.id)}
                           menu={(
                             <EntityMenu
                               onEdit={() => setDialog({ kind: "session", taskId: task.id, entity: session })}
@@ -227,15 +244,15 @@ export function WorkspaceSidebar({ user, workspace, onCollapse, onOpenSettings, 
           })}
         </nav>
 
-        {workspace.error && <p className="border-t border-destructive/20 bg-destructive/10 px-3 py-2 text-xs text-destructive">{workspace.error}</p>}
+        {error && <p className="border-t border-destructive/20 bg-destructive/10 px-3 py-2 text-xs text-destructive">{error.message}</p>}
         <div className="border-t border-sidebar-border p-2">
-          <UserProfile user={user} onOpenSettings={onOpenSettings} onSignOut={onSignOut} />
+          <UserProfile user={user} onOpenSettings={() => setSettingsOpen(true)} onSignOut={onSignOut} />
         </div>
       </aside>
       {dialog && (
-        <WorkspaceDialog dialog={dialog} workspace={workspace} onOpenChange={(open) => !open && setDialog(null)} />
+        <WorkspaceDialog dialog={dialog} onOpenChange={(open) => !open && setDialog(null)} />
       )}
-      <DeleteEntityDialog target={deleteTarget} workspace={workspace} onOpenChange={(open) => !open && setDeleteTarget(null)} />
+      <DeleteEntityDialog target={deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)} />
     </>
   );
 }
@@ -277,20 +294,23 @@ function TreeRow({ depth, active, icon, label, meta, expanded, onClick, menu }: 
 }
 
 /** Confirms destructive tree mutations and prevents duplicate requests while cascading deletes run. */
-function DeleteEntityDialog({ target, workspace, onOpenChange }: { target: DeleteTarget | null; workspace: WorkspaceData; onOpenChange: (open: boolean) => void }) {
+function DeleteEntityDialog({ target, onOpenChange }: { target: DeleteTarget | null; onOpenChange: (open: boolean) => void }) {
   const { t } = useTranslation();
   const [deleting, setDeleting] = useState(false);
+  const deleteProject = useDeleteProject();
+  const deleteTask = useDeleteTask();
+  const deleteSession = useDeleteSession();
 
   const confirmDelete = async () => {
     if (!target || deleting) return;
     setDeleting(true);
     try {
-      if (target.kind === "project") await workspace.deleteProject(target.id);
-      if (target.kind === "task") await workspace.deleteTask(target.id);
-      if (target.kind === "session") await workspace.deleteSession(target.id);
+      if (target.kind === "project") await deleteProject.mutateAsync({ projectId: target.id });
+      if (target.kind === "task") await deleteTask.mutateAsync({ taskId: target.id });
+      if (target.kind === "session") await deleteSession.mutateAsync({ sessionId: target.id });
       onOpenChange(false);
     } catch {
-      // The workspace error banner retains the transport error while the dialog stays open for retry.
+      // The sidebar error banner surfaces transport errors; the dialog stays open for retry.
     } finally {
       setDeleting(false);
     }
@@ -333,8 +353,14 @@ function EntityMenu({ onAdd, addLabel, onEdit, onDelete }: { onAdd?: () => void;
 }
 
 /** Adapts the generic entity form to the selected workspace entity and mutation. */
-function WorkspaceDialog({ dialog, workspace, onOpenChange }: { dialog: DialogState; workspace: WorkspaceData; onOpenChange: (open: boolean) => void }) {
+function WorkspaceDialog({ dialog, onOpenChange }: { dialog: DialogState; onOpenChange: (open: boolean) => void }) {
   const { t } = useTranslation();
+  const createProject = useCreateProject();
+  const updateProject = useUpdateProject();
+  const createTask = useCreateTask();
+  const updateTask = useUpdateTask();
+  const createSession = useCreateSession();
+  const updateSession = useUpdateSession();
   let title: string;
   let description: string;
   let fields: EntityField[];
@@ -349,9 +375,13 @@ function WorkspaceDialog({ dialog, workspace, onOpenChange }: { dialog: DialogSt
       { name: "name", label: t("dialog.projectName"), value: dialog.entity?.name ?? "", placeholder: t("dialog.projectNamePlaceholder") },
       { name: "rootPath", label: t("dialog.repositoryPath"), value: dialog.entity?.rootPath ?? "", placeholder: "C:\\workspace\\project" },
     ];
-    submit = (values) => dialog.entity
-      ? workspace.updateProject(dialog.entity, values.name!, values.rootPath!)
-      : workspace.createProject(values.name!, values.rootPath!);
+    submit = async (values) => {
+      if (dialog.entity) {
+        await updateProject.mutateAsync({ project: dialog.entity, name: values.name!, rootPath: values.rootPath! });
+      } else {
+        await createProject.mutateAsync({ name: values.name!, rootPath: values.rootPath! });
+      }
+    };
   } else if (dialog.kind === "task") {
     title = dialog.entity ? t("dialog.editWorktree") : t("dialog.createWorktree");
     description = t("dialog.worktreeDescription");
@@ -362,9 +392,13 @@ function WorkspaceDialog({ dialog, workspace, onOpenChange }: { dialog: DialogSt
         { label: t("common.todo"), value: "todo" }, { label: t("common.doing"), value: "doing" }, { label: t("common.done"), value: "done" },
       ] },
     ];
-    submit = (values) => dialog.entity
-      ? workspace.updateTask(dialog.entity, values.title!, values.status as TaskStatus)
-      : workspace.createTask(dialog.projectId, values.title!, values.status as TaskStatus);
+    submit = async (values) => {
+      if (dialog.entity) {
+        await updateTask.mutateAsync({ task: dialog.entity, title: values.title!, status: values.status as TaskStatus });
+      } else {
+        await createTask.mutateAsync({ projectId: dialog.projectId, title: values.title!, status: values.status as TaskStatus });
+      }
+    };
   } else {
     title = dialog.entity ? t("dialog.editSession") : t("dialog.startSession");
     description = t("dialog.sessionDescription");
@@ -375,9 +409,13 @@ function WorkspaceDialog({ dialog, workspace, onOpenChange }: { dialog: DialogSt
         { label: t("common.running"), value: "running" }, { label: t("common.stopped"), value: "stopped" },
       ] },
     ];
-    submit = (values) => dialog.entity
-      ? workspace.updateSession(dialog.entity, values.agentId!, values.status as SessionStatus)
-      : workspace.createSession(dialog.taskId, values.agentId!, values.status as SessionStatus);
+    submit = async (values) => {
+      if (dialog.entity) {
+        await updateSession.mutateAsync({ session: dialog.entity, agentId: values.agentId!, status: values.status as SessionStatus });
+      } else {
+        await createSession.mutateAsync({ taskId: dialog.taskId, agentId: values.agentId!, status: values.status as SessionStatus });
+      }
+    };
   }
 
   return <EntityDialog open title={title} description={description} submitLabel={submitLabel} fields={fields} onOpenChange={onOpenChange} onSubmit={submit} />;

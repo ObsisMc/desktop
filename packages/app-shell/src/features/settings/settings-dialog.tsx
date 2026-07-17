@@ -42,28 +42,27 @@ import {
 } from "@tabler/icons-react";
 import type { Locale } from "../../i18n/i18n";
 import { AtomsSettings } from "./atoms-settings";
+import { useUiStore } from "../../state/stores/ui-store";
+import { useSettingsStore, type SettingsPreferences } from "../../state/stores/settings-store";
+import { useConversationsStore } from "../../state/stores/conversations-store";
 import type {
   ApprovalPolicy,
   HistoryRetention,
   InterfaceDensity,
   ModelProvider,
-  SettingsPreferences,
   ThemeMode,
-} from "./use-settings-preferences";
+} from "../../state/stores/settings-store";
 
 type SettingsCategory = "appearance" | "atoms" | "models" | "permissions" | "privacy";
 
-interface SettingsDialogProps {
-  open: boolean;
-  settings: SettingsPreferences;
-  onOpenChange: (open: boolean) => void;
-  onUpdateSettings: (patch: Partial<SettingsPreferences>) => void;
-  onClearHistory: () => void;
-}
-
 /** Presents shared Ora preferences in a dense IDE-style settings surface. */
-export function SettingsDialog({ open, settings, onOpenChange, onUpdateSettings, onClearHistory }: SettingsDialogProps) {
+export function SettingsDialog() {
   const { t } = useTranslation();
+  const open = useUiStore((s) => s.settingsOpen);
+  const setOpen = useUiStore((s) => s.setSettingsOpen);
+  const settings = useSettingsStore((s) => s.settings);
+  const updateSettings = useSettingsStore((s) => s.updateSettings);
+  const clearConversations = useConversationsStore((s) => s.clearConversations);
   const [category, setCategory] = useState<SettingsCategory>("appearance");
 
   const categories: Array<{ id: SettingsCategory; icon: typeof IconAdjustments; label: string }> = [
@@ -75,7 +74,7 @@ export function SettingsDialog({ open, settings, onOpenChange, onUpdateSettings,
   ];
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={setOpen}>
       <DialogContent
         showCloseButton
         className="h-[min(720px,calc(100dvh-2rem))] w-[min(1040px,calc(100vw-2rem))] max-w-none gap-0 overflow-hidden p-0 sm:max-w-none"
@@ -114,11 +113,11 @@ export function SettingsDialog({ open, settings, onOpenChange, onUpdateSettings,
 
           <ScrollArea className="min-h-0">
             <div className="mx-auto w-full max-w-3xl p-5 pb-12 sm:p-8 sm:pb-12">
-              {category === "appearance" && <AppearanceSettings settings={settings} onUpdate={onUpdateSettings} />}
+              {category === "appearance" && <AppearanceSettings settings={settings} onUpdate={updateSettings} />}
               {category === "atoms" && <AtomsSettings />}
-              {category === "models" && <ModelSettings settings={settings} onUpdate={onUpdateSettings} />}
-              {category === "permissions" && <PermissionSettings settings={settings} onUpdate={onUpdateSettings} />}
-              {category === "privacy" && <PrivacySettings settings={settings} onUpdate={onUpdateSettings} onClearHistory={onClearHistory} />}
+              {category === "models" && <ModelSettings settings={settings} onUpdate={updateSettings} />}
+              {category === "permissions" && <PermissionSettings settings={settings} onUpdate={updateSettings} />}
+              {category === "privacy" && <PrivacySettings settings={settings} onUpdate={updateSettings} onClearHistory={clearConversations} />}
             </div>
           </ScrollArea>
         </div>
