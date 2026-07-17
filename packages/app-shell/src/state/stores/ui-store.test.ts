@@ -1,0 +1,93 @@
+import { describe, it, expect, beforeEach } from "vitest";
+import { useUiStore } from "./ui-store";
+import type { Project, Session, Task } from "@ora/contracts";
+
+beforeEach(() => {
+  useUiStore.setState({
+    sidebarCollapsed: false,
+    settingsOpen: false,
+    expandedProjects: new Set<string>(),
+    expandedTasks: new Set<string>(),
+    dialog: null,
+    deleteTarget: null,
+  });
+});
+
+describe("useUiStore", () => {
+  it("toggles sidebar collapse", () => {
+    useUiStore.getState().setSidebarCollapsed(true);
+    expect(useUiStore.getState().sidebarCollapsed).toBe(true);
+    useUiStore.getState().setSidebarCollapsed(false);
+    expect(useUiStore.getState().sidebarCollapsed).toBe(false);
+  });
+
+  it("toggles settings dialog open state", () => {
+    useUiStore.getState().setSettingsOpen(true);
+    expect(useUiStore.getState().settingsOpen).toBe(true);
+  });
+
+  it("toggles project expansion and produces a new Set each time", () => {
+    const initial = useUiStore.getState().expandedProjects;
+    useUiStore.getState().toggleProjectExpand("p1");
+    expect(useUiStore.getState().expandedProjects).toEqual(new Set(["p1"]));
+    expect(useUiStore.getState().expandedProjects).not.toBe(initial);
+    useUiStore.getState().toggleProjectExpand("p1");
+    expect(useUiStore.getState().expandedProjects).toEqual(new Set());
+  });
+
+  it("toggles task expansion independently from projects", () => {
+    useUiStore.getState().toggleTaskExpand("t1");
+    expect(useUiStore.getState().expandedTasks).toEqual(new Set(["t1"]));
+    expect(useUiStore.getState().expandedProjects).toEqual(new Set());
+  });
+
+  it("expandProject is idempotent and never collapses", () => {
+    useUiStore.getState().expandProject("p1");
+    useUiStore.getState().expandProject("p1");
+    expect(useUiStore.getState().expandedProjects).toEqual(new Set(["p1"]));
+  });
+
+  it("expandTask is idempotent and never collapses", () => {
+    useUiStore.getState().expandTask("t1");
+    useUiStore.getState().expandTask("t1");
+    expect(useUiStore.getState().expandedTasks).toEqual(new Set(["t1"]));
+  });
+
+  it("stores the active dialog and delete target verbatim", () => {
+    const project: Project = {
+      id: "p1",
+      name: "Ora",
+      rootPath: "/ora",
+    };
+    const task: Task = {
+      id: "t1",
+      projectId: "p1",
+      title: "Refactor",
+      status: "todo",
+    };
+    const session: Session = {
+      id: "s1",
+      taskId: "t1",
+      agentId: "codex",
+      agentSessionId: null,
+      status: "running",
+    };
+
+    useUiStore.getState().setDialog({ kind: "project", entity: project });
+    useUiStore.getState().setDeleteTarget({ kind: "task", id: "t1", name: "Refactor" });
+
+    expect(useUiStore.getState().dialog).toEqual({ kind: "project", entity: project });
+    expect(useUiStore.getState().deleteTarget).toEqual({ kind: "task", id: "t1", name: "Refactor" });
+
+    // Dialog state with task/session kinds preserves their lineage fields.
+    useUiStore.getState().setDialog({ kind: "task", projectId: "p1", entity: task });
+    expect(useUiStore.getState().dialog).toEqual({ kind: "task", projectId: "p1", entity: task });
+    useUiStore.getState().setDialog({ kind: "session", taskId: "t1", entity: session });
+    expect(useUiStore.getState().dialog).toEqual({ kind: "session", taskId: "t1", entity: session });
+
+    useUiStore.getState().setDialog(null);
+    useUiStore.getState().setDeleteTarget(null);
+    expect(useUiStore.getState().dialog).toBeNull();
+    expect(useUiStore.getState().deleteTarget).toBeNull();
+  });
+});
