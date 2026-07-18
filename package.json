@@ -4,10 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "pnpm --filter @ora/desktop dev",
-    "build": "pnpm --filter @ora/desktop build",
-    "prepare": "husky",
-    "tauri": "pnpm --filter @ora/desktop tauri"
+    "prepare": "husky"
   },
   "devDependencies": {
     "@commitlint/cli": "^20.5.3",
