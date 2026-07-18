@@ -1,5 +1,6 @@
 use ora_contracts::{
-    FrontendEndpoint, FrontendPathParam, export_typescript_bindings_to, frontend_endpoints,
+    FrontendEndpoint, FrontendPathParam, FrontendQueryParam, export_typescript_bindings_to,
+    frontend_endpoints,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -121,6 +122,10 @@ fn render_endpoints_module(endpoints: &[FrontendEndpoint]) -> String {
     source.push_str("  rustFieldName: string;\n");
     source.push_str("  wireName: string;\n");
     source.push_str("};\n\n");
+    source.push_str("export type EndpointQueryParam = {\n");
+    source.push_str("  rustFieldName: string;\n");
+    source.push_str("  wireName: string;\n");
+    source.push_str("};\n\n");
     source.push_str("export type FrontendEndpointDefinition = {\n");
     source.push_str("  operationName: string;\n");
     source.push_str("  namespace: string;\n");
@@ -130,6 +135,7 @@ fn render_endpoints_module(endpoints: &[FrontendEndpoint]) -> String {
     source.push_str("  requestType: string;\n");
     source.push_str("  responseType: string;\n");
     source.push_str("  pathParams: readonly EndpointPathParam[];\n");
+    source.push_str("  queryParams: readonly EndpointQueryParam[];\n");
     source.push_str("  hasJsonBody: boolean;\n");
     source.push_str("};\n\n");
     source.push_str("export type RequestByOperation = {\n");
@@ -190,6 +196,9 @@ fn render_endpoints_module(endpoints: &[FrontendEndpoint]) -> String {
         source.push_str("\",\n");
         source.push_str("    pathParams: ");
         source.push_str(&render_path_params(endpoint.path_params));
+        source.push_str(",\n");
+        source.push_str("    queryParams: ");
+        source.push_str(&render_query_params(endpoint.query_params()));
         source.push_str(",\n");
         source.push_str("    hasJsonBody: ");
         source.push_str(if endpoint.has_json_body {
@@ -278,6 +287,7 @@ fn contract_module_for_type(type_name: &str) -> &'static str {
         | "ListAgentsResponse"
         | "UpdateAgentRequest"
         | "UpdateAgentResponse" => "agent",
+        "ListDirectoryRequest" | "ListDirectoryResponse" => "file-system",
         other => panic!("unknown contract type `{other}`"),
     }
 }
@@ -311,6 +321,32 @@ fn render_path_params(path_params: &[FrontendPathParam]) -> String {
         rendered.push_str("\", ");
         rendered.push_str("wireName: \"");
         rendered.push_str(path_param.wire_name);
+        rendered.push_str("\" }");
+    }
+
+    rendered.push(']');
+    rendered
+}
+
+/// Renders optional query parameter metadata into a TypeScript array literal.
+fn render_query_params(query_params: &[FrontendQueryParam]) -> String {
+    if query_params.is_empty() {
+        return "[]".to_string();
+    }
+
+    let mut rendered = String::from("[");
+
+    for (index, query_param) in query_params.iter().enumerate() {
+        if index > 0 {
+            rendered.push_str(", ");
+        }
+
+        rendered.push_str("{ ");
+        rendered.push_str("rustFieldName: \"");
+        rendered.push_str(query_param.rust_field_name);
+        rendered.push_str("\", ");
+        rendered.push_str("wireName: \"");
+        rendered.push_str(query_param.wire_name);
         rendered.push_str("\" }");
     }
 
