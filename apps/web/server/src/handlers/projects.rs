@@ -30,7 +30,7 @@ pub async fn create_project(
     Json(request): Json<CreateProjectRequest>,
 ) -> Result<Json<CreateProjectResponse>, WebApiError> {
     app_state
-        .project_api()
+        .backend()
         .create_project(request)
         .map(Json)
         .map_err(WebApiError::from)
@@ -42,7 +42,7 @@ pub async fn get_project(
     Path(path): Path<ProjectPath>,
 ) -> Result<Json<GetProjectResponse>, WebApiError> {
     app_state
-        .project_api()
+        .backend()
         .get_project(GetProjectRequest {
             project_id: path.project_id,
         })
@@ -55,7 +55,7 @@ pub async fn list_projects(
     State(app_state): State<AppState>,
 ) -> Result<Json<ListProjectsResponse>, WebApiError> {
     app_state
-        .project_api()
+        .backend()
         .list_projects(ListProjectsRequest {})
         .map(Json)
         .map_err(WebApiError::from)
@@ -68,7 +68,7 @@ pub async fn update_project(
     Json(body): Json<UpdateProjectBody>,
 ) -> Result<Json<UpdateProjectResponse>, WebApiError> {
     app_state
-        .project_api()
+        .backend()
         .update_project(UpdateProjectRequest {
             project_id: path.project_id,
             name: body.name,
@@ -84,7 +84,7 @@ pub async fn delete_project(
     Path(path): Path<ProjectPath>,
 ) -> Result<Json<DeleteProjectResponse>, WebApiError> {
     app_state
-        .project_api()
+        .backend()
         .delete_project(DeleteProjectRequest {
             project_id: path.project_id,
         })

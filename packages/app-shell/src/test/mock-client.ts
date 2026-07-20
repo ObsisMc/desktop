@@ -75,8 +75,7 @@ export function createMockClient(state: MockClientState): ContractsClient {
         const idx = state.tasks.findIndex((t) => t.id === req.taskId);
         if (idx < 0) throw new Error(`task ${req.taskId} not found`);
         const updated: Task = {
-          id: req.taskId,
-          projectId: req.projectId,
+          ...state.tasks[idx]!,
           title: req.title,
           status: req.status as TaskStatus,
         };

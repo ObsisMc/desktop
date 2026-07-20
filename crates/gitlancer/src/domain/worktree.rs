@@ -1,6 +1,7 @@
 use std::path::{Component, Path, PathBuf};
 
 use crate::domain::paths::{GitDir, RepoRelativePath, RepoRoot, WorktreeRoot};
+use crate::domain::refs::BranchName;
 use crate::error::DomainError;
 
 /// Distinguishes the main checkout from linked worktrees because they have different lifecycle semantics.
@@ -17,6 +18,7 @@ pub struct WorktreeHandle {
     worktree_root: WorktreeRoot,
     git_dir: GitDir,
     kind: WorktreeKind,
+    branch_name: Option<BranchName>,
 }
 
 impl WorktreeHandle {
@@ -26,12 +28,14 @@ impl WorktreeHandle {
         worktree_root: WorktreeRoot,
         git_dir: GitDir,
         kind: WorktreeKind,
+        branch_name: Option<BranchName>,
     ) -> Self {
         Self {
             repo_root,
             worktree_root,
             git_dir,
             kind,
+            branch_name,
         }
     }
 
@@ -53,6 +57,11 @@ impl WorktreeHandle {
     /// Returns the worktree kind so callers can branch on main versus linked behavior deliberately.
     pub fn kind(&self) -> &WorktreeKind {
         &self.kind
+    }
+
+    /// Returns the checked-out branch reported by Git, or `None` for detached worktrees.
+    pub fn branch_name(&self) -> Option<&BranchName> {
+        self.branch_name.as_ref()
     }
 
     /// Resolves a caller path into a repo-relative path while preventing traversal outside this worktree.

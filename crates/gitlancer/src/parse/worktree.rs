@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::domain::paths::{GitDir, RepoRoot, WorktreeRoot};
+use crate::domain::refs::BranchName;
 use crate::domain::worktree::{WorktreeHandle, WorktreeKind};
 use crate::error::ParseError;
 
@@ -11,21 +12,32 @@ pub fn parse_worktree_list(
 ) -> Result<Vec<WorktreeHandle>, ParseError> {
     let mut worktrees = Vec::new();
     let mut current_path: Option<PathBuf> = None;
+    let mut current_branch: Option<BranchName> = None;
 
     for line in stdout.lines() {
         let trimmed = line.trim();
 
         if let Some(path) = trimmed.strip_prefix("worktree ") {
             if let Some(worktree_root) = current_path.take() {
-                worktrees.push(build_worktree_handle(repo_root, worktree_root));
+                worktrees.push(build_worktree_handle(
+                    repo_root,
+                    worktree_root,
+                    current_branch.take(),
+                ));
             }
 
             current_path = Some(PathBuf::from(path));
+        } else if let Some(branch) = trimmed.strip_prefix("branch refs/heads/") {
+            current_branch = Some(BranchName::new(branch));
         }
     }
 
     if let Some(worktree_root) = current_path.take() {
-        worktrees.push(build_worktree_handle(repo_root, worktree_root));
+        worktrees.push(build_worktree_handle(
+            repo_root,
+            worktree_root,
+            current_branch,
+        ));
     }
 
     if worktrees.is_empty() {
@@ -36,7 +48,11 @@ pub fn parse_worktree_list(
 }
 
 /// Builds one typed worktree handle from a parsed worktree path and the repository that owns it.
-fn build_worktree_handle(repo_root: &RepoRoot, worktree_root: PathBuf) -> WorktreeHandle {
+fn build_worktree_handle(
+    repo_root: &RepoRoot,
+    worktree_root: PathBuf,
+    branch_name: Option<BranchName>,
+) -> WorktreeHandle {
     let kind = if worktree_root == repo_root.as_path() {
         WorktreeKind::Main
     } else {
@@ -50,6 +66,7 @@ fn build_worktree_handle(repo_root: &RepoRoot, worktree_root: PathBuf) -> Worktr
         WorktreeRoot::new(&worktree_root),
         GitDir::new(worktree_root.join(".git")),
         kind,
+        branch_name,
     )
 }
 

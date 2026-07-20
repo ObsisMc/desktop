@@ -37,7 +37,6 @@ test("builds update URLs from path params and JSON bodies", async () => {
   );
   const response = await client.task.update({
     taskId: "task-1",
-    projectId: "project-1",
     title: "Ship SDK",
     status: "doing",
   });
@@ -45,10 +44,14 @@ test("builds update URLs from path params and JSON bodies", async () => {
   assert.deepEqual(requests, [
     {
       operationName: "updateTask",
+      request: {
+        taskId: "task-1",
+        title: "Ship SDK",
+        status: "doing",
+      },
       method: "PUT",
       path: "/api/tasks/task-1",
       body: {
-        projectId: "project-1",
         title: "Ship SDK",
         status: "doing",
       },
@@ -86,6 +89,7 @@ test("omits JSON bodies for path-only operations", async () => {
   assert.deepEqual(requests, [
     {
       operationName: "getProject",
+      request: { projectId: "project-1" },
       method: "GET",
       path: "/api/projects/project-1",
       body: undefined,
@@ -110,6 +114,7 @@ test("encodes optional query parameters without adding a JSON body", async () =>
   assert.deepEqual(requests, [
     {
       operationName: "listDirectory",
+      request: { path: "/home/ora/projects & tools" },
       method: "GET",
       path: "/api/file-system/directory?path=%2Fhome%2Fora%2Fprojects+%26+tools",
       body: undefined,
@@ -155,6 +160,11 @@ test("uses a skill id in PUT paths while leaving editable fields in JSON", async
   assert.deepEqual(requests, [
     {
       operationName: "updateSkill",
+      request: {
+        skillId: "skill-1",
+        name: "code-review",
+        description: "Reviews code",
+      },
       method: "PUT",
       path: "/api/skills/skill-1",
       body: {

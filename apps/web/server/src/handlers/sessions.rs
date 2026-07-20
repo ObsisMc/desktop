@@ -32,7 +32,7 @@ pub async fn create_session(
     Json(request): Json<CreateSessionRequest>,
 ) -> Result<Json<CreateSessionResponse>, WebApiError> {
     app_state
-        .session_api()
+        .backend()
         .create_session(request)
         .map(Json)
         .map_err(WebApiError::from)
@@ -44,7 +44,7 @@ pub async fn get_session(
     Path(path): Path<SessionPath>,
 ) -> Result<Json<GetSessionResponse>, WebApiError> {
     app_state
-        .session_api()
+        .backend()
         .get_session(GetSessionRequest {
             session_id: path.session_id,
         })
@@ -57,7 +57,7 @@ pub async fn list_sessions(
     State(app_state): State<AppState>,
 ) -> Result<Json<ListSessionsResponse>, WebApiError> {
     app_state
-        .session_api()
+        .backend()
         .list_sessions(ListSessionsRequest {})
         .map(Json)
         .map_err(WebApiError::from)
@@ -70,7 +70,7 @@ pub async fn update_session(
     Json(body): Json<UpdateSessionBody>,
 ) -> Result<Json<UpdateSessionResponse>, WebApiError> {
     app_state
-        .session_api()
+        .backend()
         .update_session(UpdateSessionRequest {
             session_id: path.session_id,
             task_id: body.task_id,
@@ -88,7 +88,7 @@ pub async fn delete_session(
     Path(path): Path<SessionPath>,
 ) -> Result<Json<DeleteSessionResponse>, WebApiError> {
     app_state
-        .session_api()
+        .backend()
         .delete_session(DeleteSessionRequest {
             session_id: path.session_id,
         })

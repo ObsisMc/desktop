@@ -92,7 +92,7 @@ export function useUpdateTask() {
   return useMutation({
     mutationFn: ({ task, title, status }: { task: Task; title: string; status: TaskStatus }) =>
       client.task
-        .update({ taskId: task.id, projectId: task.projectId, title, status })
+        .update({ taskId: task.id, title, status })
         .then((response) => response.task),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.tasks });

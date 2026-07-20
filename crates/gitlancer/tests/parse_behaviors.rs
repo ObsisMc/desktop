@@ -91,4 +91,9 @@ branch refs/heads/feature/runtime
         repo_root.as_path(),
         "linked worktrees should retain the owning repository root"
     );
+    assert_eq!(
+        worktrees[1].branch_name().map(|branch| branch.as_str()),
+        Some("feature/runtime"),
+        "linked worktrees should retain the branch reported by porcelain output"
+    );
 }

@@ -1,15 +1,32 @@
+import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PathSelectionInProgressError } from "../types";
 import { createTauriPlatformAdapter } from "./tauri-platform-adapter";
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
+vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
 const openMock = vi.mocked(open);
+const invokeMock = vi.mocked(invoke);
 
 describe("TauriPlatformAdapter", () => {
   beforeEach(() => {
     openMock.mockReset();
+    invokeMock.mockReset();
+  });
+
+  it("reads and updates the desktop worktree root through Tauri commands", async () => {
+    invokeMock.mockResolvedValueOnce({ worktreeRoot: "/home/ora/worktrees" });
+    const adapter = createTauriPlatformAdapter();
+
+    await expect(adapter.worktreeStorage.getRoot()).resolves.toBe("/home/ora/worktrees");
+    await adapter.worktreeStorage.setRoot("/mnt/worktrees");
+
+    expect(invokeMock).toHaveBeenNthCalledWith(1, "get_desktop_config", { request: {} });
+    expect(invokeMock).toHaveBeenNthCalledWith(2, "set_worktree_root", {
+      request: { worktreeRoot: "/mnt/worktrees" },
+    });
   });
 
   it("maps directory selection and its initial path to the native dialog", async () => {

@@ -3,6 +3,7 @@ use axum::extract::rejection::JsonRejection;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use ora_application::ApplicationError;
+use ora_backend::{BackendError, BackendErrorKind};
 use serde::Serialize;
 use thiserror::Error;
 
@@ -193,6 +194,24 @@ impl From<ApplicationError> for WebApiError {
                 code: "session_repository_error",
                 message,
             },
+        }
+    }
+}
+
+impl From<BackendError> for WebApiError {
+    /// Adds HTTP status semantics to the shared backend error code and message.
+    fn from(error: BackendError) -> Self {
+        let status = match error.kind() {
+            BackendErrorKind::BadRequest => StatusCode::BAD_REQUEST,
+            BackendErrorKind::NotFound => StatusCode::NOT_FOUND,
+            BackendErrorKind::Conflict => StatusCode::CONFLICT,
+            BackendErrorKind::Internal => StatusCode::INTERNAL_SERVER_ERROR,
+        };
+
+        Self {
+            status,
+            code: error.code(),
+            message: error.message().to_string(),
         }
     }
 }

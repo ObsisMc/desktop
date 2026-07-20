@@ -412,7 +412,6 @@ fn updates_tasks_with_refreshed_timestamps() {
         let response = handler
             .handle(UpdateTaskRequest {
                 task_id: "task-1".to_string(),
-                project_id: "project-2".to_string(),
                 title: "Ship updated handlers".to_string(),
                 status: ContractTaskStatus::Done,
             })
@@ -423,7 +422,7 @@ fn updates_tasks_with_refreshed_timestamps() {
             UpdateTaskResponse {
                 task: ContractTask {
                     id: "task-1".to_string(),
-                    project_id: "project-2".to_string(),
+                    project_id: "project-1".to_string(),
                     title: "Ship updated handlers".to_string(),
                     status: ContractTaskStatus::Done,
                 },
@@ -433,7 +432,7 @@ fn updates_tasks_with_refreshed_timestamps() {
             repository.visible_tasks(),
             vec![Task::new(
                 TaskId::new("task-1"),
-                ProjectId::new("project-2"),
+                ProjectId::new("project-1"),
                 "Ship updated handlers",
                 DomainTaskStatus::Done,
                 None,
@@ -468,7 +467,6 @@ fn deletes_tasks_and_owned_worktrees() {
             task_repository.clone(),
             worktree_repository.clone(),
             provisioner.clone(),
-            PathBuf::from(WORK_DIR),
             FixedClock::new(40),
         );
 
@@ -487,7 +485,7 @@ fn deletes_tasks_and_owned_worktrees() {
         assert_eq!(
             provisioner.deleted_requests(),
             vec![DeleteTaskWorktreeRequest {
-                worktree_path: Path::new(WORK_DIR).join(TASK_ID),
+                branch_name: "ora/12345678".to_string(),
                 mode: TaskWorktreeDeletionMode::Force,
             }]
         );
@@ -536,7 +534,7 @@ fn cleans_up_created_worktree_when_task_persistence_fails() {
         assert_eq!(
             provisioner.deleted_requests(),
             vec![DeleteTaskWorktreeRequest {
-                worktree_path: Path::new(WORK_DIR).join(TASK_ID),
+                branch_name: "ora/12345678".to_string(),
                 mode: TaskWorktreeDeletionMode::Force,
             }]
         );

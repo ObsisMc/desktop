@@ -191,8 +191,7 @@ export function createMockHandlers(state: MockState = mockState): HttpHandler[] 
 
       const body = (await request.json()) as Omit<UpdateTaskRequest, "taskId">;
       const task = {
-        id: taskId,
-        projectId: body.projectId,
+        ...state.tasks[taskIndex]!,
         title: body.title,
         status: body.status,
       };

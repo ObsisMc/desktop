@@ -101,12 +101,21 @@ tasks:
       - task: lint:backend
       - cargo test --workspace
 
+  test:desktop:
+    desc: Run the Desktop transport and independent Tauri Rust workspace tests
+    cmds:
+      - pnpm --filter @ora/desktop test
+      - cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml -- --check
+      - cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml -- -D warnings
+      - cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
+
   test:
     desc: Run lint, regenerate contracts, then frontend and Rust tests
     silent: true
     cmds:
       - task: test:frontend
       - task: test:backend
+      - task: test:desktop
 
   ###################################################
   ############# Run Development Servers #############

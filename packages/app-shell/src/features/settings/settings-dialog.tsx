@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { usePlatform } from "@ora/platform";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -30,6 +31,7 @@ import {
   IconCheck,
   IconDatabase,
   IconDeviceDesktop,
+  IconFolder,
   IconLanguage,
   IconLock,
   IconMoon,
@@ -248,10 +250,85 @@ function PermissionSettings({ settings, onUpdate }: { settings: SettingsPreferen
 /** Groups local retention and diagnostic controls, including a confirmed history reset. */
 function PrivacySettings({ settings, onUpdate, onClearHistory }: { settings: SettingsPreferences; onUpdate: (patch: Partial<SettingsPreferences>) => void; onClearHistory: () => void }) {
   const { t } = useTranslation();
+  const platform = usePlatform();
   const [confirmClear, setConfirmClear] = useState(false);
+  const [worktreeRoot, setWorktreeRoot] = useState<string | null>(null);
+  const [worktreeError, setWorktreeError] = useState<string | null>(null);
+  const [worktreeSaving, setWorktreeSaving] = useState(false);
+  const worktreeStorage = platform.worktreeStorage;
+
+  useEffect(() => {
+    if (worktreeStorage.kind !== "configurable") {
+      return;
+    }
+
+    let active = true;
+    worktreeStorage.getRoot().then(
+      (root) => {
+        if (active) {
+          setWorktreeRoot(root);
+          setWorktreeError(null);
+        }
+      },
+      (error: unknown) => {
+        if (active) {
+          setWorktreeError(describeError(error));
+        }
+      },
+    );
+    return () => {
+      active = false;
+    };
+  }, [worktreeStorage]);
+
+  async function changeWorktreeRoot(): Promise<void> {
+    if (worktreeStorage.kind !== "configurable") {
+      return;
+    }
+
+    setWorktreeError(null);
+    try {
+      const selected = await platform.selectPath({
+        kind: "directory",
+        initialPath: worktreeRoot ?? undefined,
+      });
+      if (selected === null) {
+        return;
+      }
+
+      setWorktreeSaving(true);
+      await worktreeStorage.setRoot(selected);
+      setWorktreeRoot(selected);
+    } catch (error: unknown) {
+      setWorktreeError(describeError(error));
+    } finally {
+      setWorktreeSaving(false);
+    }
+  }
+
   return (
     <div className="space-y-7">
       <SettingsHeading title={t("settings.privacy.title")} description={t("settings.privacy.description")} />
+      {worktreeStorage.kind === "configurable" && (
+        <SettingsRow icon={IconFolder} title={t("settings.privacy.worktreeRoot")} description={t("settings.privacy.worktreeRootDescription")}>
+          <div className="flex max-w-sm flex-col items-end gap-2">
+            <code className="max-w-full break-all text-right text-xs text-muted-foreground">
+              {worktreeRoot ?? t("settings.privacy.worktreeRootLoading")}
+            </code>
+            <Button variant="outline" disabled={worktreeRoot === null || worktreeSaving} onClick={changeWorktreeRoot}>
+              <IconFolder />
+              {worktreeSaving ? t("common.saving") : t("settings.privacy.changeWorktreeRoot")}
+            </Button>
+            {worktreeError !== null && <p className="text-right text-xs text-destructive">{worktreeError}</p>}
+          </div>
+        </SettingsRow>
+      )}
+      <SettingsRow icon={IconDatabase} title={t("settings.privacy.retention")} description={t("settings.privacy.retentionDescription")}>
+        <Select value={settings.historyRetention} onValueChange={(value) => onUpdate({ historyRetention: value as HistoryRetention })}>
+          <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+          <SelectContent><SelectItem value="30-days">{t("settings.privacy.days30")}</SelectItem><SelectItem value="90-days">{t("settings.privacy.days90")}</SelectItem><SelectItem value="forever">{t("settings.privacy.forever")}</SelectItem></SelectContent>
+        </Select>
+      </SettingsRow>
       <div className="border-y border-border">
         <SwitchRow title={t("settings.privacy.diagnostics")} description={t("settings.privacy.diagnosticsDescription")} checked={settings.diagnostics} onCheckedChange={(diagnostics) => onUpdate({ diagnostics })} />
       </div>
@@ -267,6 +344,17 @@ function PrivacySettings({ settings, onUpdate, onClearHistory }: { settings: Set
       </AlertDialog>
     </div>
   );
+}
+
+/** Extracts a useful message from Error values and serialized Tauri command errors. */
+function describeError(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  if (typeof error === "object" && error !== null && "message" in error && typeof error.message === "string") {
+    return error.message;
+  }
+  return String(error);
 }
 
 /** Gives every settings pane a consistent heading and readable measure. */

@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
+    "test": "vitest run web/tauri-transport.test.ts",
     "preview": "vite preview",
     "tauri": "tauri"
   },
@@ -14,11 +15,11 @@
     "@ora/app-shell": "workspace:*",
     "@ora/chat": "workspace:*",
     "@ora/contracts": "workspace:*",
-    "@ora/mock-service": "workspace:*",
     "@ora/platform": "workspace:*",
     "@ora/ui": "workspace:*",
     "@tailwindcss/typography": "^0.5.19",
     "@tauri-apps/plugin-dialog": "^2.0.0",
+    "@tauri-apps/api": "^2.10.1",
     "@tailwindcss/vite": "^4.2.4",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
@@ -28,6 +29,7 @@
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^6.0.1",
+    "vitest": "^4.1.10",
     "vite": "^8.0.10"
   }
 }

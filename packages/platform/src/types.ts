@@ -5,8 +5,17 @@ export interface SelectPathOptions {
   initialPath?: string;
 }
 
+export type WorktreeStorageCapability =
+  | { kind: "unsupported" }
+  | {
+      kind: "configurable";
+      getRoot(): Promise<string>;
+      setRoot(path: string): Promise<void>;
+    };
+
 /** Abstracts one single-path selection interaction across Web and Tauri hosts. */
 export interface PlatformAdapter {
+  readonly worktreeStorage: WorktreeStorageCapability;
   selectPath(options: SelectPathOptions): Promise<string | null>;
 }
 

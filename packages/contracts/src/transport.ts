@@ -2,6 +2,7 @@ export type HttpMethod = "GET" | "POST" | "PUT" | "DELETE";
 
 export type ContractTransportRequest = {
   operationName: string;
+  request: unknown;
   method: HttpMethod;
   path: string;
   body: unknown | undefined;

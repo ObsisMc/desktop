@@ -5,7 +5,7 @@ use super::{
 use gitlancer::git::branch::ListBranchesRequest;
 use gitlancer::git::worktree::{
     CreateWorktreeRequest as GitCreateWorktreeRequest,
-    DeleteWorktreeRequest as GitDeleteWorktreeRequest, FindWorktreeRequest,
+    DeleteWorktreeRequest as GitDeleteWorktreeRequest, ResolveWorktreeByBranchRequest,
     WorktreeDeletionMode as GitWorktreeDeletionMode,
 };
 use gitlancer::{BranchName, CliGitRunner, Git, RepoRoot, Repository, WorktreeRoot};
@@ -69,16 +69,16 @@ impl TaskWorktreeProvisioner for GitTaskWorktreeProvisioner {
             })
     }
 
-    /// Deletes one linked worktree while keeping Git-specific diagnostics inside the application.
+    /// Resolves and deletes one linked worktree through Git's authoritative branch metadata.
     fn delete_task_worktree(
         &self,
         request: DeleteTaskWorktreeRequest,
     ) -> Result<(), TaskWorktreeProvisionerError> {
         let worktree = self
             .git
-            .find_worktree(FindWorktreeRequest {
+            .resolve_worktree_by_branch(ResolveWorktreeByBranchRequest {
                 repository: &self.repository,
-                candidate_path: &request.worktree_path,
+                branch_name: &request.branch_name,
             })
             .map_err(|_| {
                 TaskWorktreeProvisionerError::OperationFailed(

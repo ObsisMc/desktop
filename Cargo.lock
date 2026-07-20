@@ -1293,6 +1293,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "ora-backend"
+version = "0.0.0"
+dependencies = [
+ "ora-application",
+ "ora-contracts",
+ "ora-db",
+ "ora-domain",
+ "pretty_assertions",
+ "serde",
+ "tempfile",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "ora-contracts"
 version = "0.0.0"
 dependencies = [
@@ -1375,6 +1389,7 @@ dependencies = [
  "axum",
  "futures-util",
  "ora-application",
+ "ora-backend",
  "ora-contracts",
  "ora-db",
  "ora-domain",

@@ -1,0 +1,23 @@
+[package]
+name = "ora-backend"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "ora_backend"
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+ora-application = { workspace = true }
+ora-contracts = { workspace = true }
+ora-db = { workspace = true }
+ora-domain = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }
+tempfile = { workspace = true }

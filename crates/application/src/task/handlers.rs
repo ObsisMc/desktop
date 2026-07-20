@@ -115,7 +115,7 @@ where
         self.worktree_provisioner
             .create_task_worktree(CreateTaskWorktreeRequest {
                 branch_name: branch_name.clone(),
-                worktree_path: worktree_path.clone(),
+                worktree_path,
             })
             .map_err(|error| {
                 let error = ApplicationError::from_task_worktree_provisioner_error(error);
@@ -128,7 +128,7 @@ where
         let worktree = DomainWorktree::new(
             worktree_id,
             task_id.clone(),
-            Some(branch_name),
+            Some(branch_name.clone()),
             DomainWorktreeActivity::Active,
             AuditFields::new(now, now, false),
         );
@@ -138,7 +138,7 @@ where
                 return Err(self.handle_create_failure_after_provisioning(
                     "create_task",
                     &task_id,
-                    &worktree_path,
+                    &branch_name,
                     ApplicationError::from_worktree_repository_error(error),
                 ));
             }
@@ -157,7 +157,7 @@ where
                 return Err(self.handle_task_persistence_failure_after_worktree_create(
                     &task_id,
                     &worktree.id,
-                    &worktree_path,
+                    &branch_name,
                     ApplicationError::from_task_repository_error(error),
                 ));
             }
@@ -202,13 +202,13 @@ where
         &self,
         operation: &'static str,
         task_id: &TaskId,
-        worktree_path: &Path,
+        branch_name: &str,
         original_error: ApplicationError,
     ) -> ApplicationError {
         let cleanup_result =
             self.worktree_provisioner
                 .delete_task_worktree(DeleteTaskWorktreeRequest {
-                    worktree_path: worktree_path.to_path_buf(),
+                    branch_name: branch_name.to_string(),
                     mode: TaskWorktreeDeletionMode::Force,
                 });
 
@@ -231,7 +231,7 @@ where
         &self,
         task_id: &TaskId,
         worktree_id: &WorktreeId,
-        worktree_path: &Path,
+        branch_name: &str,
         original_error: ApplicationError,
     ) -> ApplicationError {
         let worktree_cleanup = self
@@ -241,7 +241,7 @@ where
         let filesystem_cleanup = self.handle_create_failure_after_provisioning(
             "create_task",
             task_id,
-            worktree_path,
+            branch_name,
             original_error,
         );
 
@@ -378,7 +378,7 @@ where
 
         let task = DomainTask::new(
             task_id.clone(),
-            ProjectId::new(request.project_id),
+            existing_task.project_id,
             request.title,
             map_contract_task_status(request.status),
             existing_task.worktree_id,
@@ -412,7 +412,6 @@ pub struct DeleteTaskHandler<
     task_repository: TaskRepositoryPort,
     worktree_repository: WorktreeRepositoryPort,
     worktree_provisioner: WorktreeProvisioner,
-    work_dir: PathBuf,
     clock: ClockSource,
 }
 
@@ -423,14 +422,12 @@ impl<TaskRepositoryPort, WorktreeRepositoryPort, WorktreeProvisioner, ClockSourc
         task_repository: TaskRepositoryPort,
         worktree_repository: WorktreeRepositoryPort,
         worktree_provisioner: WorktreeProvisioner,
-        work_dir: PathBuf,
         clock: ClockSource,
     ) -> Self {
         Self {
             task_repository,
             worktree_repository,
             worktree_provisioner,
-            work_dir,
             clock,
         }
     }
@@ -484,10 +481,16 @@ where
                     return Err(error);
                 }
             };
-            let worktree_path = worktree_path_for_task(&self.work_dir, &task_id);
+            let Some(branch_name) = existing_worktree.branch_name else {
+                let error = ApplicationError::TaskWorktree {
+                    message: "task worktree branch is unavailable".to_string(),
+                };
+                log_task_failure("delete_task", Some(&task_id), &error);
+                return Err(error);
+            };
             self.worktree_provisioner
                 .delete_task_worktree(DeleteTaskWorktreeRequest {
-                    worktree_path,
+                    branch_name,
                     mode: TaskWorktreeDeletionMode::Force,
                 })
                 .map_err(|error| {

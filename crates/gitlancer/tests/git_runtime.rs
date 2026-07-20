@@ -10,8 +10,8 @@ use gitlancer::git::commit::{AddRequest, CommitRequest};
 use gitlancer::git::repository::ListWorktreesRequest;
 use gitlancer::git::status::StatusRequest;
 use gitlancer::git::worktree::{
-    CreateWorktreeRequest, DeleteWorktreeRequest, FindWorktreeRequest, ResolveWorktreeRequest,
-    WorktreeDeletionMode,
+    CreateWorktreeRequest, DeleteWorktreeRequest, FindWorktreeRequest,
+    ResolveWorktreeByBranchRequest, ResolveWorktreeRequest, WorktreeDeletionMode,
 };
 use gitlancer::{BranchName, CliGitRunner, Git, RepoRoot, WorktreeKind, WorktreeRoot};
 use pretty_assertions::assert_eq;
@@ -60,6 +60,12 @@ fn runtime_discovers_worktrees_and_branches() {
             worktree_name: "feature-tree",
         })
         .expect("resolve linked worktree");
+    let resolved_by_branch = git
+        .resolve_worktree_by_branch(ResolveWorktreeByBranchRequest {
+            repository: &repository,
+            branch_name: "feature/runtime",
+        })
+        .expect("resolve linked worktree by branch");
     let nested_path = linked_path.join("src").join("nested.txt");
     let found = git
         .find_worktree(FindWorktreeRequest {
@@ -88,6 +94,11 @@ fn runtime_discovers_worktrees_and_branches() {
     assert!(
         matches!(resolved.kind(), WorktreeKind::Linked { name } if name == "feature-tree"),
         "the resolved worktree should match the linked worktree name"
+    );
+    assert_eq!(
+        resolved_by_branch.worktree_root().as_path(),
+        linked_path.as_path(),
+        "branch metadata should resolve the authoritative linked worktree path"
     );
     assert_eq!(
         found.worktree_root().as_path(),

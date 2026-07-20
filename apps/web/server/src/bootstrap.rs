@@ -1,43 +1,36 @@
 use crate::app_state::AppState;
 use crate::config::{ProjectConfig, RuntimeConfig};
 use crate::error::WebBootstrapError;
-use crate::service::{
-    AgentApi, FileSystemApi, ProjectApi, ProjectWorkContextApi, SessionApi, SkillApi, TaskApi,
-};
+use crate::service::{FileSystemApi, ProjectWorkContextApi};
 use ora_application::{
     Clock, OpenProjectWorkContextHandler, ProjectIdGenerator, ProjectRepository,
     ProjectRepositoryError, UuidProjectIdGenerator, UuidProjectWorkContextIdGenerator,
 };
+use ora_backend::{Backend, BackendBootstrapError, BackendPaths};
 use ora_contracts::{OpenProjectWorkContextRequest, ProjectWorkContextSurface};
-use ora_db::{DatabaseBootstrapper, DatabaseLocation, RepositoryPool, default_migration_catalog};
+use ora_db::RepositoryPool;
 use ora_domain::{AuditFields, Project};
-use std::fs;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Builds the application state used by the web runtime from SQLite-backed dependencies.
 pub fn build_app_state(runtime_config: &RuntimeConfig) -> Result<AppState, WebBootstrapError> {
-    let pool = build_repository_pool(runtime_config.database().path())?;
+    let backend = build_backend(
+        runtime_config.database().path(),
+        runtime_config.project().work_dir(),
+    )?;
+    let pool = backend.repository_pool();
     let clock = SystemClock;
 
     reconcile_configured_project(&pool, runtime_config.project(), clock)?;
 
     Ok(AppState::new(
-        Arc::new(AgentApi::new(pool.clone(), clock)),
+        backend,
         Arc::new(FileSystemApi::new(
             runtime_config.file_system().home_directory().to_path_buf(),
         )),
-        Arc::new(ProjectApi::new(pool.clone(), clock)),
         Arc::new(ProjectWorkContextApi::new(pool.clone(), clock)),
-        Arc::new(TaskApi::new(
-            pool.clone(),
-            runtime_config.project().path().to_path_buf(),
-            runtime_config.project().work_dir().to_path_buf(),
-            clock,
-        )),
-        Arc::new(SessionApi::new(pool.clone(), clock)),
-        Arc::new(SkillApi::new(pool, clock)),
     ))
 }
 
@@ -48,24 +41,16 @@ pub(crate) fn build_app_state_for_database(
     project_root: &Path,
     work_dir: &Path,
 ) -> Result<AppState, WebBootstrapError> {
-    let pool = build_repository_pool(database_path)?;
+    let backend = build_backend(database_path, work_dir)?;
+    let pool = backend.repository_pool();
     let clock = SystemClock;
 
     Ok(AppState::new(
-        Arc::new(AgentApi::new(pool.clone(), clock)),
+        backend,
         Arc::new(FileSystemApi::new(
             project_root.parent().unwrap_or(project_root).to_path_buf(),
         )),
-        Arc::new(ProjectApi::new(pool.clone(), clock)),
         Arc::new(ProjectWorkContextApi::new(pool.clone(), clock)),
-        Arc::new(TaskApi::new(
-            pool.clone(),
-            project_root.to_path_buf(),
-            work_dir.to_path_buf(),
-            clock,
-        )),
-        Arc::new(SessionApi::new(pool.clone(), clock)),
-        Arc::new(SkillApi::new(pool, clock)),
     ))
 }
 
@@ -134,16 +119,23 @@ fn reconcile_configured_project(
         .map_err(project_work_context_bootstrap_error)
 }
 
-/// Opens the configured file-backed SQLite database and returns the shared repository pool.
-fn build_repository_pool(database_path: &Path) -> Result<RepositoryPool, WebBootstrapError> {
-    let catalog = default_migration_catalog().map_err(WebBootstrapError::DatabaseBootstrap)?;
-    let database_parent = database_path.parent().unwrap_or_else(|| Path::new("."));
+/// Opens the shared backend while preserving the server's existing bootstrap error variants.
+fn build_backend(database_path: &Path, worktree_root: &Path) -> Result<Backend, WebBootstrapError> {
+    Backend::open(BackendPaths {
+        database_path: database_path.to_path_buf(),
+        worktree_root: worktree_root.to_path_buf(),
+    })
+    .map_err(web_backend_bootstrap_error)
+}
 
-    fs::create_dir_all(database_parent).map_err(WebBootstrapError::DataDirectoryCreate)?;
-
-    DatabaseBootstrapper::system()
-        .bootstrap_repository_pool(&DatabaseLocation::path(database_path), &catalog)
-        .map_err(WebBootstrapError::DatabaseBootstrap)
+/// Maps shared backend bootstrap failures into the stable Web process error surface.
+fn web_backend_bootstrap_error(error: BackendBootstrapError) -> WebBootstrapError {
+    match error {
+        BackendBootstrapError::DirectoryCreate { source, .. } => {
+            WebBootstrapError::DataDirectoryCreate(source)
+        }
+        BackendBootstrapError::Database(source) => WebBootstrapError::DatabaseBootstrap(source),
+    }
 }
 
 /// Converts repository-owned bootstrap failures into one stable startup error variant.

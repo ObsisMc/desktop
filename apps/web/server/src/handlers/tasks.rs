@@ -20,7 +20,6 @@ pub struct TaskPath {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateTaskBody {
-    project_id: String,
     title: String,
     status: TaskStatus,
 }
@@ -31,7 +30,7 @@ pub async fn create_task(
     Json(request): Json<CreateTaskRequest>,
 ) -> Result<Json<CreateTaskResponse>, WebApiError> {
     app_state
-        .task_api()
+        .backend()
         .create_task(request)
         .map(Json)
         .map_err(WebApiError::from)
@@ -43,7 +42,7 @@ pub async fn get_task(
     Path(path): Path<TaskPath>,
 ) -> Result<Json<GetTaskResponse>, WebApiError> {
     app_state
-        .task_api()
+        .backend()
         .get_task(GetTaskRequest {
             task_id: path.task_id,
         })
@@ -56,7 +55,7 @@ pub async fn list_tasks(
     State(app_state): State<AppState>,
 ) -> Result<Json<ListTasksResponse>, WebApiError> {
     app_state
-        .task_api()
+        .backend()
         .list_tasks(ListTasksRequest {})
         .map(Json)
         .map_err(WebApiError::from)
@@ -69,10 +68,9 @@ pub async fn update_task(
     Json(body): Json<UpdateTaskBody>,
 ) -> Result<Json<UpdateTaskResponse>, WebApiError> {
     app_state
-        .task_api()
+        .backend()
         .update_task(UpdateTaskRequest {
             task_id: path.task_id,
-            project_id: body.project_id,
             title: body.title,
             status: body.status,
         })
@@ -86,7 +84,7 @@ pub async fn delete_task(
     Path(path): Path<TaskPath>,
 ) -> Result<Json<DeleteTaskResponse>, WebApiError> {
     app_state
-        .task_api()
+        .backend()
         .delete_task(DeleteTaskRequest {
             task_id: path.task_id,
         })

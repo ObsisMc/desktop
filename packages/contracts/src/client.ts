@@ -121,6 +121,7 @@ async function executeOperation<Operation extends EndpointOperation>(
   );
   const transportRequest: ContractTransportRequest = {
     operationName: endpoint.operationName,
+    request,
     method: endpoint.method,
     path,
     body,

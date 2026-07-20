@@ -76,7 +76,6 @@ pub struct ListTasksResponse {
 #[ts(export_to = "task.ts")]
 pub struct UpdateTaskRequest {
     pub task_id: String,
-    pub project_id: String,
     pub title: String,
     pub status: TaskStatus,
 }
@@ -153,7 +152,6 @@ mod tests {
         let list_request = ListTasksRequest {};
         let update_request = UpdateTaskRequest {
             task_id: "task-1".to_string(),
-            project_id: "project-1".to_string(),
             title: "Ship updated handlers".to_string(),
             status: TaskStatus::Done,
         };
@@ -221,7 +219,6 @@ mod tests {
             &update_request,
             json!({
                 "taskId": "task-1",
-                "projectId": "project-1",
                 "title": "Ship updated handlers",
                 "status": "done",
             }),

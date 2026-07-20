@@ -61,6 +61,7 @@ test("normalizes structured server errors from fetch responses", async () => {
   });
   const request: ContractTransportRequest = {
     operationName: "getProject",
+    request: { projectId: "project-1" },
     method: "GET",
     path: "/api/projects/project-1",
     body: undefined,

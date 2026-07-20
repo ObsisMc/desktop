@@ -64,7 +64,6 @@ export type TaskStatus = "todo" | "doing" | "done";
  */
 export type UpdateTaskRequest = {
   taskId: string;
-  projectId: string;
   title: string;
   status: TaskStatus;
 };

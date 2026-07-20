@@ -6,7 +6,7 @@
 
 - It boots shared structured logging through `ora-logging`.
 - It exposes health endpoints for process liveness and runtime readiness.
-- It serves persisted HTTP CRUD routes for `project`, `task`, and `session` by delegating to `ora-application`.
+- It serves persisted HTTP CRUD routes for Project, Task, Session, Skill, and Agent through the shared `ora-backend` composition.
 - It provisions and cleans up task-owned linked worktrees as internal backend state during task lifecycle flows.
 - It provides read-only server filesystem listings for the Web platform path picker.
 
@@ -16,7 +16,7 @@ The web server reads its runtime data root from:
 
 - `ORA_DATA_DIR`: root directory for runtime state. Default: `.`
 
-Startup bootstraps the database through `ora-db`, applies the active migration catalog, and constructs the shared repository pool before the runtime is marked ready.
+Startup asks `ora-backend` to bootstrap the database, apply the active migration catalog, and construct the shared CRUD composition before the runtime is marked ready. The server retains direct composition only for the Web-only project work context and filesystem services.
 
 - SQLite database path: `<ORA_DATA_DIR>/ora.sqlite3`
 - Worktree root: `<ORA_DATA_DIR>/worktrees`
@@ -35,7 +35,8 @@ Startup reconciles this configured project into the `projects` table before the 
 - If a visible project exists with the configured name but a different stored path, startup updates that row in place.
 - If both the configured name and path already match, startup leaves the row unchanged.
 - If `ORA_WORK_DIR` is unset, startup uses a `worktrees/` directory next to the configured SQLite database file.
-- Task creation provisions linked worktrees under `ORA_WORK_DIR/<full-task-id>`.
+- Task creation resolves the project named by the request and provisions linked worktrees under `ORA_WORK_DIR/<full-task-id>`.
+- Task deletion resolves the task's stored project and branch, then obtains the authoritative existing path from Git worktree metadata. Changing `ORA_WORK_DIR` does not make older worktrees undeletable.
 - After project reconciliation, startup also opens the synthetic web work context `surface = web`, `window_id = main` for that project and refreshes its lease immediately.
 
 ## Bind Configuration
@@ -77,6 +78,16 @@ The persisted runtime exposes CRUD routes for the supported public models:
 - `GET /api/sessions/{session_id}`
 - `PUT /api/sessions/{session_id}`
 - `DELETE /api/sessions/{session_id}`
+- `POST /api/skills`
+- `GET /api/skills`
+- `GET /api/skills/{skill_id}`
+- `PUT /api/skills/{skill_id}`
+- `DELETE /api/skills/{skill_id}`
+- `POST /api/agents`
+- `GET /api/agents`
+- `GET /api/agents/{agent_id}`
+- `PUT /api/agents/{agent_id}`
+- `DELETE /api/agents/{agent_id}`
 - `GET /api/file-system/directory?path={absolute_path}`
 
 Request and response payloads use `ora-contracts` DTO shapes, so transport behavior stays aligned with the shared application contract.
@@ -113,4 +124,4 @@ The current runtime uses a file-backed SQLite database bootstrapped through `ora
 
 - Data persists across process restarts as long as the same `ORA_DATA_DIR` is reused.
 - Readiness depends on successful database bootstrap, repository-pool construction, bootstrap-project reconciliation, and synthetic web work context reconciliation.
-- Application-layer failures still map into the shared structured HTTP error envelope across the supported route families.
+- Shared backend failures map into the structured HTTP error envelope using the same public code and message returned by Desktop commands. HTTP alone adds the status code.

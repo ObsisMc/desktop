@@ -30,7 +30,7 @@ pub async fn create_skill(
     Json(request): Json<CreateSkillRequest>,
 ) -> Result<Json<CreateSkillResponse>, WebApiError> {
     app_state
-        .skill_api()
+        .backend()
         .create_skill(request)
         .map(Json)
         .map_err(Into::into)
@@ -42,7 +42,7 @@ pub async fn get_skill(
     Path(path): Path<SkillPath>,
 ) -> Result<Json<GetSkillResponse>, WebApiError> {
     app_state
-        .skill_api()
+        .backend()
         .get_skill(GetSkillRequest {
             skill_id: path.skill_id,
         })
@@ -55,7 +55,7 @@ pub async fn list_skills(
     State(app_state): State<AppState>,
 ) -> Result<Json<ListSkillsResponse>, WebApiError> {
     app_state
-        .skill_api()
+        .backend()
         .list_skills(ListSkillsRequest {})
         .map(Json)
         .map_err(Into::into)
@@ -68,7 +68,7 @@ pub async fn update_skill(
     Json(body): Json<UpdateSkillBody>,
 ) -> Result<Json<UpdateSkillResponse>, WebApiError> {
     app_state
-        .skill_api()
+        .backend()
         .update_skill(UpdateSkillRequest {
             skill_id: path.skill_id,
             name: body.name,
@@ -84,7 +84,7 @@ pub async fn delete_skill(
     Path(path): Path<SkillPath>,
 ) -> Result<Json<DeleteSkillResponse>, WebApiError> {
     app_state
-        .skill_api()
+        .backend()
         .delete_skill(DeleteSkillRequest {
             skill_id: path.skill_id,
         })

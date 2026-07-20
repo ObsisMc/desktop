@@ -22,6 +22,7 @@ export type WebPlatformSnapshot =
 
 /** Coordinates Promise-based platform calls with the React-owned Web path picker dialog. */
 export class WebPlatformAdapter implements PlatformAdapter, PlatformHostRenderer {
+  readonly worktreeStorage = { kind: "unsupported" as const };
   private activeSelection: ActivePathSelection | null = null;
   private listeners = new Set<() => void>();
   private nextRequestId = 1;

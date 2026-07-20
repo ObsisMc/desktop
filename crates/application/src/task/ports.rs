@@ -66,10 +66,10 @@ pub enum TaskWorktreeDeletionMode {
     Force,
 }
 
-/// Carries the derived filesystem path for one task worktree cleanup action.
+/// Carries the persisted branch identity for one task worktree cleanup action.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeleteTaskWorktreeRequest {
-    pub worktree_path: PathBuf,
+    pub branch_name: String,
     pub mode: TaskWorktreeDeletionMode,
 }
 

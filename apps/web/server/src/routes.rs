@@ -644,6 +644,12 @@ mod tests {
     #[tokio::test]
     async fn serves_task_crud_routes() {
         let (_temp_dir, _database_path, app) = test_router();
+        let project_id = create_project(
+            &app,
+            "Task project",
+            &_temp_dir.path().join("repo").to_string_lossy(),
+        )
+        .await;
         let create_response = match app
             .clone()
             .oneshot(
@@ -653,7 +659,7 @@ mod tests {
                     .header("content-type", "application/json")
                     .body(Body::from(
                         json!({
-                            "projectId": "project-1",
+                            "projectId": project_id,
                             "title": "Ship handlers",
                             "status": "todo",
                         })
@@ -708,7 +714,6 @@ mod tests {
                     .header("content-type", "application/json")
                     .body(Body::from(
                         json!({
-                            "projectId": "project-2",
                             "title": "Ship updated handlers",
                             "status": "doing",
                         })
@@ -745,7 +750,7 @@ mod tests {
             created_task,
             json!({
                 "id": task_id,
-                "projectId": "project-1",
+                "projectId": project_id,
                 "title": "Ship handlers",
                 "status": "todo",
             })
@@ -756,7 +761,7 @@ mod tests {
                 "tasks": [
                     {
                         "id": task_id,
-                        "projectId": "project-1",
+                        "projectId": project_id,
                         "title": "Ship handlers",
                         "status": "todo",
                     },
@@ -768,7 +773,7 @@ mod tests {
             json!({
                 "task": {
                     "id": task_id,
-                    "projectId": "project-1",
+                    "projectId": project_id,
                     "title": "Ship handlers",
                     "status": "todo",
                 },
@@ -779,7 +784,7 @@ mod tests {
             json!({
                 "task": {
                     "id": task_id,
-                    "projectId": "project-2",
+                    "projectId": project_id,
                     "title": "Ship updated handlers",
                     "status": "doing",
                 },

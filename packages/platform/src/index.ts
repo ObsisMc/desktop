@@ -7,4 +7,5 @@ export {
   type PlatformAdapter,
   type PlatformLocale,
   type SelectPathOptions,
+  type WorktreeStorageCapability,
 } from "./types";

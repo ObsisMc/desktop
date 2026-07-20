@@ -164,7 +164,6 @@ test("supports task create, get, update, and delete within one runtime", async (
 
   const updated = await client.task.update({
     taskId: created.task.id,
-    projectId: created.task.projectId,
     title: "Every task endpoint is covered",
     status: "done",
   });

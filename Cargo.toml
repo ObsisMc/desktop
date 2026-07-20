@@ -2,6 +2,7 @@
 members = [
     "apps/web/server",
     "crates/application",
+    "crates/backend",
     "crates/contracts",
     "crates/db",
     "crates/domain",
@@ -25,6 +26,7 @@ edition = "2024"
 [workspace.dependencies]
 # Internal
 ora-application = { path = "crates/application" }
+ora-backend = { path = "crates/backend" }
 ora-contracts = { path = "crates/contracts" }
 ora-db = { path = "crates/db" }
 ora-domain = { path = "crates/domain" }
