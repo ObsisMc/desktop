@@ -54,11 +54,13 @@ export function WorkspaceView({ userName }: WorkspaceViewProps) {
 
   useEffect(() => {
     if (
-      session?.status === "stopped" &&
+      session !== undefined &&
       conversation?.isLoading !== true &&
       conversation?.isLoaded !== true &&
       conversation?.error == null
     ) {
+      // A browser refresh replaces the in-memory chat store without stopping the backend-owned
+      // process, so a selected session can still be Running while its local history is empty.
       void chatStore.getState().loadSession(session.id)
         .then(() => sessionsQuery.refetch())
         .catch(() => undefined);
