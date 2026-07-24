@@ -10,6 +10,7 @@ export const queryKeys = {
   sessions: ["sessions"] as const,
   agents: ["agents"] as const,
   skills: ["skills"] as const,
+  gitIdentity: ["gitIdentity"] as const,
 };
 
 export type WorkspaceQueryKey = readonly ["projects"] | readonly ["tasks"] | readonly ["sessions"];

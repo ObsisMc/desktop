@@ -87,6 +87,7 @@ pub const SKILL_PATH: &str = "/api/skills/{skillId}";
 pub const AGENTS_PATH: &str = "/api/agents";
 pub const AGENT_PATH: &str = "/api/agents/{agentId}";
 pub const FILE_SYSTEM_DIRECTORY_PATH: &str = "/api/file-system/directory";
+pub const GIT_IDENTITY_PATH: &str = "/api/git/identity";
 
 const PROJECT_ID_PATH_PARAM: FrontendPathParam = FrontendPathParam {
     rust_field_name: "project_id",
@@ -120,6 +121,7 @@ const SESSION_NAMESPACE: &str = "session";
 const SKILL_NAMESPACE: &str = "skill";
 const AGENT_NAMESPACE: &str = "agent";
 const FILE_SYSTEM_NAMESPACE: &str = "fileSystem";
+const GIT_NAMESPACE: &str = "gitIdentity";
 
 const PROJECT_PATH_PARAMS: &[FrontendPathParam] = &[PROJECT_ID_PATH_PARAM];
 const TASK_PATH_PARAMS: &[FrontendPathParam] = &[TASK_ID_PATH_PARAM];
@@ -470,6 +472,17 @@ const FRONTEND_ENDPOINTS: &[FrontendEndpoint] = &[
         path_template: FILE_SYSTEM_DIRECTORY_PATH,
         request_type: "ListDirectoryRequest",
         response_type: "ListDirectoryResponse",
+        path_params: NO_PATH_PARAMS,
+        has_json_body: false,
+    },
+    FrontendEndpoint {
+        operation_name: "getGitIdentity",
+        namespace: GIT_NAMESPACE,
+        member_name: "get",
+        method: FrontendHttpMethod::Get,
+        path_template: GIT_IDENTITY_PATH,
+        request_type: "GetGitIdentityRequest",
+        response_type: "GitIdentityResponse",
         path_params: NO_PATH_PARAMS,
         has_json_body: false,
     },

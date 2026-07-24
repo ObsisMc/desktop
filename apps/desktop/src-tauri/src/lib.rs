@@ -56,6 +56,7 @@ pub fn run() {
             commands::list_agents,
             commands::update_agent,
             commands::delete_agent,
+            commands::get_git_identity,
             commands::get_desktop_config,
             commands::set_worktree_root,
             commands::resolve_task_cwd,

@@ -2475,11 +2475,13 @@ version = "0.0.0"
 dependencies = [
  "futures-util",
  "ora-contracts",
+ "ora-logging",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
  "tokio",
  "tokio-util",
+ "tracing",
 ]
 
 [[package]]
@@ -2506,6 +2508,7 @@ dependencies = [
  "ora-contracts",
  "ora-db",
  "ora-domain",
+ "ora-logging",
  "ora-process",
  "serde",
  "serde_json",

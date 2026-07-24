@@ -23,9 +23,9 @@ import { WorkspaceView } from "./features/workspace/workspace-view";
 import { WorkspaceDialogs } from "./features/workspace/workspace-dialogs";
 import { SettingsDialog } from "./features/settings/settings-dialog";
 import { AppI18nProvider } from "./i18n/i18n";
-import { CURRENT_USER } from "./lib/mock-data";
 import type { CurrentUser } from "./lib/types";
 import { createAppQueryClient } from "./state/query-client";
+import { useGitIdentityUser } from "./state/hooks/use-git-identity";
 import { useSessionUnreadSync } from "./state/hooks/use-session-unread-sync";
 import { useUiStore } from "./state/stores/ui-store";
 import { startThemeSubscription } from "./state/stores/settings-store";
@@ -44,7 +44,7 @@ const MAX_SIDEBAR_WIDTH = 480;
 const MIN_WORKSPACE_WIDTH = 480;
 
 /** The main Ora application shell: sidebar + chat view with conversation state. */
-export function AppShell({ client, chatStore, platform, user = CURRENT_USER }: AppShellProps) {
+export function AppShell({ client, chatStore, platform, user }: AppShellProps) {
   // One client per shell instance so HMR or multiple mounted shells never share cache.
   const [queryClient] = useState(() => createAppQueryClient());
   return (
@@ -57,11 +57,16 @@ export function AppShell({ client, chatStore, platform, user = CURRENT_USER }: A
 }
 
 /** Renders the shell inside providers so stateful hooks can consume the active locale. */
-function AppShellContent({ client, chatStore, platform, user }: Required<AppShellProps>) {
+function AppShellContent({ client, chatStore, platform, user: injectedUser }: AppShellProps) {
   // Mirror theme/density onto <html> for the shell's lifetime.
   useEffect(() => startThemeSubscription(), []);
   // Track which sessions finished a turn while the user was looking elsewhere.
   useSessionUnreadSync(chatStore);
+
+  // Derive the sidebar user from the host's global Git identity unless a caller
+  // (tests, storybook) injects an explicit user to render instead.
+  const gitIdentityUser = useGitIdentityUser(client, injectedUser === undefined);
+  const user = injectedUser ?? gitIdentityUser;
 
   const sidebarCollapsed = useUiStore((s) => s.sidebarCollapsed);
   const { i18n, t } = useTranslation();

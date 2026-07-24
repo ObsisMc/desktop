@@ -417,6 +417,10 @@ export function createMockHandlers(state: MockState = mockState): HttpHandler[] 
 
       return HttpResponse.json(directory);
     }),
+
+    getGitIdentity: http.get("*/api/git/identity", () => {
+      return HttpResponse.json({ name: "Ora Dev", email: "dev@ora.local" });
+    }),
   } satisfies Record<EndpointOperation, HttpHandler>;
 
   return Object.values(handlersByOperation);

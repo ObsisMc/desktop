@@ -10,6 +10,7 @@ pub use domain::refs::{BranchName, CommitId};
 pub use domain::repo::Repository;
 pub use domain::worktree::{WorktreeHandle, WorktreeKind};
 pub use error::{DomainError, GitExecError, GitlancerError, ParseError};
+pub use git::config::GlobalIdentity;
 pub use exec::command::{GitCommand, GitIntent};
 pub use exec::env::GitEnv;
 pub use exec::output::GitOutput;

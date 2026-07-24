@@ -3,6 +3,7 @@ pub mod acp;
 mod agent;
 mod file_system;
 mod frontend;
+mod git;
 mod project;
 mod project_work_context;
 mod session;
@@ -20,12 +21,13 @@ pub use file_system::{
 };
 pub use frontend::{
     AGENT_PATH, AGENTS_PATH, FILE_SYSTEM_DIRECTORY_PATH, FrontendEndpoint, FrontendHttpMethod,
-    FrontendPathParam, FrontendQueryParam, FrontendResponseMode, PROJECT_PATH,
+    FrontendPathParam, FrontendQueryParam, FrontendResponseMode, GIT_IDENTITY_PATH, PROJECT_PATH,
     PROJECT_WORK_CONTEXT_OPEN_PATH, PROJECT_WORK_CONTEXT_RENEW_PATH, PROJECTS_PATH,
     SESSION_LOAD_PATH, SESSION_PATH, SESSION_PERMISSION_RESPONSE_PATH, SESSION_PROMPT_PATH,
     SESSION_STOP_PATH, SESSIONS_PATH, SKILL_PATH, SKILLS_PATH, TASK_PATH, TASKS_PATH,
     frontend_endpoints,
 };
+pub use git::{GetGitIdentityRequest, GitIdentityResponse};
 pub use project::{
     CreateProjectRequest, CreateProjectResponse, DeleteProjectRequest, DeleteProjectResponse,
     GetProjectRequest, GetProjectResponse, ListProjectsRequest, ListProjectsResponse, Project,
@@ -67,6 +69,7 @@ pub fn export_typescript_bindings_to(
     acp::export(&config)?;
     agent::export(&config)?;
     file_system::export(&config)?;
+    git::export(&config)?;
     project::export(&config)?;
     project_work_context::export(&config)?;
     session::export(&config)?;

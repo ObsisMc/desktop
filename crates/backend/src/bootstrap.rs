@@ -6,6 +6,7 @@ use crate::project::ProjectApi;
 use crate::session::SessionApi;
 use crate::skill::SkillApi;
 use crate::task::TaskApi;
+use gitlancer::{CliGitRunner, Git};
 use ora_contracts::*;
 use ora_db::{DatabaseBootstrapper, DatabaseLocation, RepositoryPool, default_migration_catalog};
 use std::fs;
@@ -105,6 +106,31 @@ impl Backend {
     /// when the task has no active worktree on disk.
     pub fn resolve_task_cwd(&self, task_id: &str) -> Result<PathBuf, BackendError> {
         crate::agent_runtime::resolve_task_cwd(&self.pool, &ora_domain::TaskId::new(task_id))
+    }
+
+    /// Reads the host's global Git identity (`user.name` / `user.email`) for the sidebar profile.
+    ///
+    /// The `--global` scope is independent of any repository, so the current process directory
+    /// is a sufficient spawn location. Unset keys come back as `None` rather than an error.
+    pub fn read_git_identity(
+        &self,
+        _request: GetGitIdentityRequest,
+    ) -> Result<GitIdentityResponse, BackendError> {
+        let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        let identity = Git::new(CliGitRunner)
+            .read_global_identity(&cwd)
+            .map_err(|_| {
+                BackendError::new(
+                    BackendErrorKind::Internal,
+                    "git_identity_read_failed",
+                    "failed to read the global Git identity",
+                )
+            })?;
+
+        Ok(GitIdentityResponse {
+            name: identity.name,
+            email: identity.email,
+        })
     }
 
     /// Creates one project through the shared application composition.

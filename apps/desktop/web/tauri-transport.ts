@@ -56,6 +56,7 @@ const tauriCommands = {
   listAgents: "list_agents",
   updateAgent: "update_agent",
   deleteAgent: "delete_agent",
+  getGitIdentity: "get_git_identity",
 } as const satisfies Record<SupportedTauriOperation, string>;
 
 /** Creates the Desktop contracts transport backed by unary commands and Tauri IPC channels. */

@@ -1,5 +1,6 @@
 pub mod branch;
 pub mod commit;
+pub mod config;
 pub mod repository;
 pub mod status;
 pub mod worktree;

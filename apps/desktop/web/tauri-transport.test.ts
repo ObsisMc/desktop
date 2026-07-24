@@ -67,7 +67,7 @@ describe("createTauriTransport", () => {
   });
 
   it("starts channel streams lazily and forwards ordered data until end", async () => {
-    const invoke = vi.fn(async (command: string, args: Record<string, unknown>) => {
+    const invoke = vi.fn().mockImplementation(async (command: string, args: Record<string, unknown>) => {
       if (command === "stream_contract") {
         const channel = args.onEvent as { onmessage: (frame: unknown) => void };
         queueMicrotask(() => {
@@ -105,7 +105,7 @@ describe("createTauriTransport", () => {
   });
 
   it("fails a channel stream when its bounded consumer queue overflows", async () => {
-    const invoke = vi.fn(async (command: string, args: Record<string, unknown>) => {
+    const invoke = vi.fn().mockImplementation(async (command: string, args: Record<string, unknown>) => {
       if (command === "stream_contract") {
         const channel = args.onEvent as { onmessage: (frame: unknown) => void };
         for (let index = 0; index < 257; index += 1) {
