@@ -13,10 +13,12 @@ workspace = true
 [dependencies]
 futures-util = { workspace = true }
 ora-contracts = { workspace = true }
+ora-logging = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["io-util", "rt", "sync"] }
+tracing = { workspace = true }
 tokio-util = { workspace = true, features = ["codec"] }
 
 [dev-dependencies]

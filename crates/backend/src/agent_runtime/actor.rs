@@ -112,6 +112,7 @@ impl RuntimeActor {
             AcpSessionId::new(self.session.agent_session_id.clone()),
             &self.cwd,
         );
+        ora_debug!(session_id = %self.session.id, "session/load sent");
         let future =
             client.request::<_, LoadSessionResponse>(AGENT_METHOD_NAMES.session_load, &request);
         tokio::pin!(future);
@@ -122,6 +123,7 @@ impl RuntimeActor {
                 response = &mut future => {
                     match response {
                         Ok(_) => {
+                            ora_debug!(session_id = %self.session.id, "session/load completed");
                             if events.try_send(Ok(LoadSessionEvent::Completed)).is_ok() {
                                 self.process = Some(process);
                             } else {
@@ -130,6 +132,7 @@ impl RuntimeActor {
                             }
                         }
                         Err(error) => {
+                            ora_debug!(session_id = %self.session.id, error = %error, "session/load failed");
                             let _ = process.child.kill().await;
                             let _ = events.try_send(Err(map_acp_error(error)));
                             self.mark_stopped();
@@ -169,6 +172,7 @@ impl RuntimeActor {
                     }
                 }
                 _ = &mut deadline => {
+                    ora_debug!(session_id = %self.session.id, "session/load timed out");
                     let _ = process.child.kill().await;
                     let _ = events.try_send(Err(runtime_internal("agent_load_timeout", "agent session load timed out")));
                     self.mark_stopped();
@@ -196,7 +200,9 @@ impl RuntimeActor {
             return;
         };
         let client = process.client.clone();
+        let text_len = text.len();
         let request = PromptRequest::new(self.session.agent_session_id.clone(), vec![text.into()]);
+        ora_debug!(session_id = %self.session.id, text_len = text_len, "session/prompt sent");
         let future =
             client.request::<_, PromptResponse>(AGENT_METHOD_NAMES.session_prompt, &request);
         tokio::pin!(future);
@@ -206,6 +212,7 @@ impl RuntimeActor {
                 response = &mut future => {
                     match response {
                         Ok(response) => {
+                            ora_debug!(session_id = %self.session.id, stop_reason = ?response.stop_reason, "prompt completed");
                             if events.try_send(Ok(PromptSessionEvent::Completed { stop_reason: response.stop_reason })).is_ok() {
                                 self.process = Some(process);
                             } else {
@@ -215,6 +222,7 @@ impl RuntimeActor {
                         }
                         Err(error) => {
                             let process_is_reusable = matches!(&error, ora_acp::AcpError::RequestFailed(_));
+                            ora_debug!(session_id = %self.session.id, error = %error, reusable = process_is_reusable, "prompt failed");
                             let event_sent = events.try_send(Err(map_acp_error(error))).is_ok();
                             if process_is_reusable && event_sent {
                                 self.process = Some(process);
@@ -251,6 +259,7 @@ impl RuntimeActor {
                             }
                             let public_id = permission.request_id.to_string();
                             let option_ids = permission.request.options.iter().map(|option| option.option_id.0.to_string()).collect::<Vec<_>>();
+                            ora_debug!(session_id = %self.session.id, tool_call = ?permission.request.tool_call, option_count = option_ids.len(), request_id = %public_id, "permission requested");
                             permissions.insert(public_id.clone(), (permission.request_id, option_ids));
                             let event = PromptSessionEvent::PermissionRequest(SessionPermissionRequest {
                                 permission_request_id: public_id,
@@ -265,6 +274,7 @@ impl RuntimeActor {
                             }
                         }
                         Some(AcpControl::Fatal(error)) => {
+                            ora_debug!(session_id = %self.session.id, error = %error, "protocol fatal error");
                             let _ = process.child.kill().await;
                             let _ = events.try_send(Err(map_acp_error(error)));
                             self.mark_stopped();
@@ -280,6 +290,7 @@ impl RuntimeActor {
                             let _ = response.send(result);
                         }
                         Some(RuntimeCommand::Cancel { operation_id: cancelled }) if cancelled == operation_id => {
+                            ora_debug!(session_id = %self.session.id, "prompt cancelled");
                             self.request_prompt_cancellation(&client, &permissions).await;
                             match timeout(CANCELLATION_GRACE, &mut future).await {
                                 Ok(Ok(_)) | Ok(Err(ora_acp::AcpError::RequestFailed(_))) => {
@@ -293,6 +304,7 @@ impl RuntimeActor {
                             return;
                         }
                         Some(RuntimeCommand::Stop { response }) => {
+                            ora_debug!(session_id = %self.session.id, "prompt stopped by stop command");
                             self.request_prompt_cancellation(&client, &permissions).await;
                             let _ = process.child.kill().await;
                             self.mark_stopped();
@@ -367,6 +379,7 @@ impl RuntimeActor {
         client: &AcpClient<ChildStdin>,
         permissions: &HashMap<String, (ora_contracts::acp::rpc::RequestId, Vec<String>)>,
     ) {
+        ora_debug!(session_id = %self.session.id, pending_permissions = permissions.len(), "cancelling prompt");
         for (request_id, _) in permissions.values() {
             let _ = client
                 .respond(
@@ -390,6 +403,7 @@ impl RuntimeActor {
                 runtime_internal("agent_stop_failed", "failed to stop agent process")
             })?;
             let _ = timeout(CANCELLATION_GRACE, process.child.wait()).await;
+            ora_debug!(session_id = %self.session.id, "process stopped");
         }
         self.mark_stopped();
         Ok(())
@@ -402,5 +416,6 @@ impl RuntimeActor {
             .clone()
             .with_status(SessionStatus::Stopped, self.clock.now_timestamp_millis());
         let _ = self.repository.update_session(self.session.clone());
+        ora_debug!(session_id = %self.session.id, "session marked stopped");
     }
 }

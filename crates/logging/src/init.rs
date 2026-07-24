@@ -90,6 +90,7 @@ where
 /// Maps the public level enum into the tracing filter used by every active sink.
 fn level_filter(level: LogLevel) -> LevelFilter {
     match level {
+        LogLevel::Trace => LevelFilter::TRACE,
         LogLevel::Debug => LevelFilter::DEBUG,
         LogLevel::Info => LevelFilter::INFO,
         LogLevel::Warn => LevelFilter::WARN,

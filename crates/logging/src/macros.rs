@@ -1,3 +1,20 @@
+/// Emits a trace event and automatically records the current function name under `method`.
+#[macro_export]
+macro_rules! ora_trace {
+    ($($arg:tt)*) => {
+        {
+            fn __ora_log_marker() {}
+            ::tracing::trace!(
+                method = $crate::__private::method_name_from_marker_type_name(
+                    ::core::any::type_name_of_val(&__ora_log_marker),
+                    "__ora_log_marker",
+                ),
+                $($arg)*
+            )
+        }
+    };
+}
+
 /// Emits a debug event and automatically records the current function name under `method`.
 #[macro_export]
 macro_rules! ora_debug {

@@ -280,6 +280,7 @@ fn read_logging_config(
         .to_ascii_lowercase()
         .as_str()
     {
+        "trace" => LogLevel::Trace,
         "debug" => LogLevel::Debug,
         "info" => LogLevel::Info,
         "warn" => LogLevel::Warn,

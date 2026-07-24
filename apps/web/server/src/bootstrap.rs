@@ -134,8 +134,8 @@ fn web_backend_bootstrap_error(error: BackendBootstrapError) -> WebBootstrapErro
             WebBootstrapError::DataDirectoryCreate(source)
         }
         BackendBootstrapError::Database(source) => WebBootstrapError::DatabaseBootstrap(source),
-        BackendBootstrapError::AgentRuntime(_) => WebBootstrapError::ProjectBootstrap {
-            message: "failed to initialize agent runtime".to_string(),
+        BackendBootstrapError::AgentRuntime(source) => WebBootstrapError::ProjectBootstrap {
+            message: format!("failed to initialize agent runtime: {source}"),
         },
     }
 }

@@ -23,6 +23,7 @@ impl LoggingConfig {
 /// Enumerates the supported event filtering levels for shared runtime logging.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LogLevel {
+    Trace,
     Debug,
     Info,
     Warn,
