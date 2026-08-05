@@ -14,6 +14,7 @@ import { clientId } from "../client-id";
 import { queryKeys } from "./query-keys";
 import { useSessions } from "./use-sessions";
 import { usePendingSwitch } from "../stores/pending-agent-store";
+import { useAgentModelStore } from "../stores/agent-model-store";
 
 /** The provider session backing one chat surface, and whether it is still being opened. */
 export interface WarmSession {
@@ -82,6 +83,7 @@ export function useWarmSession(
   const setConfigOptions = useStore(chatStore, (state) => state.setConfigOptions);
   const { data: sessions = [] } = useSessions();
   const pendingSwitch = usePendingSwitch(selection.sessionId);
+  const rememberModels = useAgentModelStore((state) => state.remember);
   // Selection can already point at a session that was never persisted — a chat
   // whose attach failed, for one — and that surface still needs a warm session
   // to retry with. Only a session the backend actually stored ends warming.
@@ -123,6 +125,11 @@ export function useWarmSession(
     // runs a render later and never writes over a conversation the store already
     // knows — would find it there and skip, leaving the session with no models.
     seedConfigOptions(chatStore, setConfigOptions, response);
+    // Recorded here for the same reason, against a narrower race: a send
+    // resolves this and then points the workspace at the new session, so this
+    // hook can be unmounted before the effect below ever runs and the handshake
+    // the user waited on would be the one nothing remembered.
+    rememberModels(agentCli, response.configOptions);
     return response.sessionId;
   };
 
@@ -130,6 +137,15 @@ export function useWarmSession(
     if (data === undefined) return;
     seedConfigOptions(chatStore, setConfigOptions, data);
   }, [chatStore, data, setConfigOptions]);
+
+  // Kept out of the effect above, which stops at a session the store already
+  // knows. This one has to run for every handshake: what it records is scoped to
+  // the CLI, not to the session, and it is the only thing that lets the *next*
+  // surface opening on this CLI paint a model list before its own handshake.
+  useEffect(() => {
+    if (data === undefined) return;
+    rememberModels(agentCli, data.configOptions);
+  }, [agentCli, data, rememberModels]);
 
   // `isLoading` is `isPending && isFetching`, so a disabled query (nothing to
   // warm) and a failed handshake — which does not retry — both read as false.

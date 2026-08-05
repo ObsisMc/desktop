@@ -19,6 +19,7 @@ import { useSetSessionConfig } from "../../state/hooks/use-session-config";
 import { useWarmSession, warmTargetKey } from "../../state/hooks/use-warm-session";
 import { useTargetAgentCli } from "../../state/hooks/use-target-agent-cli";
 import { usePendingAgentStore, usePendingSwitch } from "../../state/stores/pending-agent-store";
+import { useAgentModelStore } from "../../state/stores/agent-model-store";
 import { currentValueName, findModelOption, selectableValues } from "@ora/chat";
 import { AGENT_CLI_LABELS, AGENT_CLI_ORDER } from "./model-catalog";
 import { ProviderLogo } from "./provider-logos";
@@ -73,7 +74,7 @@ export function ModelSelector({ disabled = false }: { disabled?: boolean }) {
     warmSession.sessionId ?? (pendingSwitch === undefined ? selection.sessionId : null);
   // Selected narrowly rather than as one conversation object, so a streaming
   // turn does not re-render the picker on every token.
-  const configOptions = useStore(chatStore, (state) =>
+  const liveOptions = useStore(chatStore, (state) =>
     activeSessionId === null ? undefined : state.conversations[activeSessionId]?.configOptions,
   );
   const isReplayingHistory = useStore(chatStore, (state) =>
@@ -81,6 +82,12 @@ export function ModelSelector({ disabled = false }: { disabled?: boolean }) {
       ? false
       : state.conversations[activeSessionId]?.isLoading === true,
   );
+  // What this CLI reported the last time any surface handshook it. Standing in
+  // for an answer that has not arrived is the whole point: the list barely
+  // changes between sessions, and waiting for `session/new` to say so again is
+  // what made opening a chat feel slow.
+  const cachedOptions = useAgentModelStore((state) => state.known[agentCli]);
+  const configOptions = liveOptions ?? cachedOptions;
   const modelOption = configOptions ? findModelOption(configOptions) : null;
 
   // An agent only reports its models as part of the handshake — warming this
@@ -92,10 +99,23 @@ export function ModelSelector({ disabled = false }: { disabled?: boolean }) {
   // running. A surface that never started warming, or whose handshake failed,
   // is not loading and still reports empty. A pending move reads as loading for
   // the same reason: it has no session to name until the incoming CLI answers.
-  const isLoadingModels =
+  const isSettling =
     activeSessionId === null
       ? warmSession.isOpening || pendingSwitch !== undefined
-      : configOptions === undefined || isReplayingHistory;
+      : liveOptions === undefined || isReplayingHistory;
+  // Having a list to offer is what ends the wait, not having received this
+  // surface's own answer: a cached list is a real answer to "what can I pick",
+  // and showing it beats spinning while the handshake confirms it. Gating on the
+  // resolved option rather than on the options array is deliberate — a replaying
+  // session is seeded with an empty one, which is a placeholder rather than a
+  // list, and must keep reading as "still arriving".
+  const isLoadingModels = isSettling && modelOption === null;
+
+  // A cached list describes the CLI, not a session, so there is nothing to write
+  // a choice from it to until the handshake produces one. The values are shown
+  // but not selectable for that window rather than hidden, because what the user
+  // is waiting to learn — which models this agent has — is already answered.
+  const canSelectModel = activeSessionId !== null;
 
   const activeLabel = modelOption
     ? currentValueName(modelOption)
@@ -192,6 +212,7 @@ export function ModelSelector({ disabled = false }: { disabled?: boolean }) {
               <DropdownMenuItem
                 key={value.value}
                 className="gap-1.5 rounded-sm px-2 py-1.5 text-xs"
+                disabled={!canSelectModel}
                 onClick={() => selectModel(value.value)}
               >
                 {value.name}

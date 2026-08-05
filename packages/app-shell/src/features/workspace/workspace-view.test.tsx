@@ -20,11 +20,16 @@ import {
   createMockClientState,
 } from "../../test/mock-client";
 import { useWorkspaceSelectionStore } from "../../state/stores/workspace-selection-store";
+import { useAgentModelStore } from "../../state/stores/agent-model-store";
 import { WorkspaceView } from "./workspace-view";
 import { directChatTitle } from "./workspace-view-utils";
 
 beforeEach(() => {
   useWorkspaceSelectionStore.getState().clearSelection();
+  // Outlives a render on purpose — remembering one CLI's models across chat
+  // surfaces is the point of the store — so each test has to start from a CLI
+  // nothing has handshaken, or an earlier test's list would answer for it.
+  useAgentModelStore.setState({ known: {} });
 });
 
 describe("WorkspaceView", () => {
@@ -736,6 +741,131 @@ describe("WorkspaceView", () => {
     expect(
       await screen.findByRole("menuitem", { name: "Small Pickle" }),
     ).toBeInTheDocument();
+  });
+
+  it("offers a CLI's remembered models while a later surface is still warming", async () => {
+    const state = createMockClientState();
+    state.projects = [
+      { id: "p1", name: "Ora", rootPath: "/ora" },
+      { id: "p2", name: "Ora Docs", rootPath: "/ora-docs" },
+    ];
+    const baseClient = createMockClient(state);
+    let handshakes = 0;
+    const client: ContractsClient = {
+      ...baseClient,
+      session: {
+        ...baseClient.session,
+        // The first surface handshakes normally; the second is held open, which
+        // is the wait this whole cache exists to hide.
+        warm: (request) => {
+          handshakes += 1;
+          if (handshakes === 1) return baseClient.session.warm(request);
+          return new Promise<WarmSessionResponse>(() => {});
+        },
+      },
+    };
+    // One query client and chat store across both renders, so the second
+    // surface opens in the same app run that already learned this CLI's models.
+    const Wrapper = createHookWrapper(
+      client,
+      createTestQueryClient(),
+      createChatStore(client.session),
+    );
+
+    const renderView = () =>
+      render(
+        <Wrapper>
+          <AppI18nProvider>
+            <PlatformProvider adapter={createStubPlatform()}>
+              <TooltipProvider>
+                <WorkspaceView userName="Eric" />
+              </TooltipProvider>
+            </PlatformProvider>
+          </AppI18nProvider>
+        </Wrapper>,
+      );
+
+    useWorkspaceSelectionStore.getState().selectProject("p1");
+    const first = renderView();
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /选择模型|Select model/ }),
+      ).toHaveTextContent("Big Pickle"),
+    );
+    first.unmount();
+
+    useWorkspaceSelectionStore.getState().selectProject("p2");
+    renderView();
+
+    // A different surface, so nothing about the first one's session is reused —
+    // only what its handshake reported the CLI offers, which is what lets this
+    // one name a model before its own handshake has answered anything.
+    const picker = await screen.findByRole("button", {
+      name: /选择模型|Select model/,
+    });
+    await waitFor(() => expect(picker).toHaveTextContent("Big Pickle"));
+    expect(picker).not.toHaveTextContent(/加载中|Loading/);
+    expect(handshakes).toBe(2);
+  });
+
+  it("offers remembered models to read but not to pick until a session exists", async () => {
+    const user = userEvent.setup();
+    const state = createMockClientState();
+    state.projects = [{ id: "p1", name: "Ora", rootPath: "/ora" }];
+    const baseClient = createMockClient(state);
+    let openHandshake: (response: WarmSessionResponse) => void = () => {};
+    const setConfig = vi.fn(baseClient.session.setConfig);
+    const client: ContractsClient = {
+      ...baseClient,
+      session: {
+        ...baseClient.session,
+        setConfig,
+        warm: () =>
+          new Promise<WarmSessionResponse>((resolve) => {
+            openHandshake = resolve;
+          }),
+      },
+    };
+    // Stands in for an earlier surface in this run having handshaken this CLI.
+    useAgentModelStore.setState({ known: { open_code: state.configOptions } });
+    const Wrapper = createHookWrapper(
+      client,
+      createTestQueryClient(),
+      createChatStore(client.session),
+    );
+    useWorkspaceSelectionStore.getState().selectProject("p1");
+
+    render(
+      <Wrapper>
+        <AppI18nProvider>
+          <PlatformProvider adapter={createStubPlatform()}>
+            <TooltipProvider>
+              <WorkspaceView userName="Eric" />
+            </TooltipProvider>
+          </PlatformProvider>
+        </AppI18nProvider>
+      </Wrapper>,
+    );
+
+    await user.click(
+      await screen.findByRole("button", { name: /选择模型|Select model/ }),
+    );
+    // The remembered list answers what the user opened the menu to find out,
+    // so it is shown rather than withheld behind the handshake.
+    const item = await screen.findByRole("menuitem", { name: "Small Pickle" });
+    // Applying a choice needs a session id, and there is none until the
+    // handshake lands — so the value is offered to read, not to act on.
+    expect(item).toHaveAttribute("data-disabled");
+    await user.click(item);
+    expect(setConfig).not.toHaveBeenCalled();
+
+    openHandshake({ sessionId: "s1", configOptions: state.configOptions });
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("menuitem", { name: "Small Pickle" }),
+      ).not.toHaveAttribute("data-disabled"),
+    );
   });
 
   it("says the model list is still arriving while a selected session replays", async () => {
