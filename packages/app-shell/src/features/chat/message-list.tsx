@@ -278,7 +278,9 @@ function findActiveAnchorId(element: HTMLDivElement): string | null {
 }
 
 /** Word rotation cadence — slow enough to read each phrase, quick enough to feel alive. */
-const RUNNING_WORD_INTERVAL_MS = 2600;
+const RUNNING_WORD_INTERVAL_MS = 5000;
+/** Jitter applied to each rotation so the cadence doesn't feel metronomic (golden ratio, in ms). */
+const RUNNING_WORD_JITTER_MS = 618;
 
 /**
  * A playful "still working" line pinned to the foot of the live turn.
@@ -298,8 +300,16 @@ function RunningIndicator() {
 
   useEffect(() => {
     if (words.length <= 1 || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    const timer = setInterval(() => setIndex((current) => (current + 1) % words.length), RUNNING_WORD_INTERVAL_MS);
-    return () => clearInterval(timer);
+    let timer: ReturnType<typeof setTimeout>;
+    const scheduleNext = () => {
+      const delay = RUNNING_WORD_INTERVAL_MS + (Math.random() * 2 - 1) * RUNNING_WORD_JITTER_MS;
+      timer = setTimeout(() => {
+        setIndex((current) => (current + 1) % words.length);
+        scheduleNext();
+      }, delay);
+    };
+    scheduleNext();
+    return () => clearTimeout(timer);
   }, [words]);
 
   const word = words[index % words.length] ?? words[0] ?? "";
