@@ -1,7 +1,13 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useStore } from "zustand";
 import { useEffect } from "react";
-import type { AgentCli, WarmSessionTarget } from "@ora/contracts";
+import type {
+  acp,
+  AgentCli,
+  WarmSessionResponse,
+  WarmSessionTarget,
+} from "@ora/contracts";
+import type { ChatStore } from "@ora/chat";
 import { useContractsClient } from "../../contracts-client-context";
 import { useChatStore } from "../../chat-store-context";
 import { clientId } from "../client-id";
@@ -21,6 +27,38 @@ export interface WarmSession {
    * alone cannot distinguish them.
    */
   isOpening: boolean;
+  /**
+   * Resolves this surface's warm session id, waiting out a handshake that is
+   * still open, and rejects if that handshake fails.
+   *
+   * The send path needs the id itself rather than a render-time snapshot of it:
+   * a message sent while the handshake is in flight reads `sessionId` as `null`
+   * and would otherwise have nowhere to go. Resolves to `null` only when there
+   * is genuinely nothing to warm.
+   */
+  ensureSessionId: () => Promise<string | null>;
+}
+
+/**
+ * Seeds a warm session's options into the chat store, but never over a
+ * conversation the store already knows.
+ *
+ * The handshake response is a snapshot, and the query holding it is pinned
+ * (`staleTime`/`gcTime: Infinity`) so every remount hands back the same one. The
+ * store is where a session's options actually live — a model picked since the
+ * handshake exists only there — so replaying that snapshot over a live
+ * conversation would restore its opening model.
+ */
+function seedConfigOptions(
+  chatStore: ChatStore,
+  setConfigOptions: (
+    oraSessionId: string,
+    configOptions: acp.SessionConfigOption[],
+  ) => void,
+  warmed: WarmSessionResponse,
+): void {
+  if (chatStore.getState().conversations[warmed.sessionId] !== undefined) return;
+  setConfigOptions(warmed.sessionId, warmed.configOptions);
 }
 
 /**
@@ -39,6 +77,7 @@ export function useWarmSession(
   agentCli: AgentCli,
 ): WarmSession {
   const client = useContractsClient();
+  const queryClient = useQueryClient();
   const chatStore = useChatStore();
   const setConfigOptions = useStore(chatStore, (state) => state.setConfigOptions);
   const { data: sessions = [] } = useSessions();
@@ -58,10 +97,11 @@ export function useWarmSession(
 
   // The backend keys warm sessions by exactly these values, so the same surface
   // always resolves to the same session and repeated calls are cache hits rather
-  // than new provider sessions.
-  const { data, isLoading } = useQuery({
+  // than new provider sessions. The subscribing query below and `ensureSessionId`
+  // share this definition so they address one cache entry: two spellings of the
+  // same request would hand the backend two provider sessions for one surface.
+  const queryOptions = {
     queryKey: queryKeys.warmSession(target, agentCli),
-    enabled: target !== null,
     queryFn: () =>
       client.session.warm({ target: target!, agentCli, clientId: clientId() }),
     // A warm session is owned by the backend and only changes when this client
@@ -69,24 +109,32 @@ export function useWarmSession(
     staleTime: Infinity,
     gcTime: Infinity,
     retry: false,
-  });
+  };
+  const { data, isLoading } = useQuery({ ...queryOptions, enabled: target !== null });
+
+  const ensureSessionId = async (): Promise<string | null> => {
+    if (target === null) return null;
+    // Goes through the cache rather than calling the backend directly, so a
+    // handshake this hook already started is awaited instead of duplicated.
+    // Because warming does not retry, a previously failed one is retried here.
+    const response = await queryClient.ensureQueryData(queryOptions);
+    // Seeded here and not left to the effect below: a caller that was waiting on
+    // this opens the conversation the moment it resolves, and the effect — which
+    // runs a render later and never writes over a conversation the store already
+    // knows — would find it there and skip, leaving the session with no models.
+    seedConfigOptions(chatStore, setConfigOptions, response);
+    return response.sessionId;
+  };
 
   useEffect(() => {
     if (data === undefined) return;
-    // This response is a snapshot of the handshake, and the query holding it is
-    // pinned (`staleTime`/`gcTime: Infinity`) so every remount hands back the
-    // same one. The store is where the session's options actually live — a model
-    // picked since the handshake exists only there — so this seeds a session the
-    // store has not heard of yet and never replays over one it has. Without that,
-    // returning to a still-warm surface would restore its opening model.
-    if (chatStore.getState().conversations[data.sessionId] !== undefined) return;
-    setConfigOptions(data.sessionId, data.configOptions);
+    seedConfigOptions(chatStore, setConfigOptions, data);
   }, [chatStore, data, setConfigOptions]);
 
   // `isLoading` is `isPending && isFetching`, so a disabled query (nothing to
   // warm) and a failed handshake — which does not retry — both read as false.
   // Only a request actually in flight counts as still opening.
-  return { sessionId: data?.sessionId ?? null, isOpening: isLoading };
+  return { sessionId: data?.sessionId ?? null, isOpening: isLoading, ensureSessionId };
 }
 
 /** Derives what a chat surface should warm against, or `null` when nothing should. */

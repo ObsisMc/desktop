@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@ora/ui";
 import type { AttachSessionResponse, Session, Task } from "@ora/contracts";
 import { useTranslation } from "react-i18next";
@@ -16,7 +16,7 @@ import { useProjects } from "../../state/hooks/use-projects";
 import { useTasks } from "../../state/hooks/use-tasks";
 import { useSessions } from "../../state/hooks/use-sessions";
 import { useSkills } from "../../state/hooks/use-skills";
-import { useWarmSession } from "../../state/hooks/use-warm-session";
+import { useWarmSession, warmTargetKey } from "../../state/hooks/use-warm-session";
 import { queryKeys } from "../../state/hooks/query-keys";
 import { useContractsClient } from "../../contracts-client-context";
 import { useUiStore } from "../../state/stores/ui-store";
@@ -62,6 +62,71 @@ function upsertById<T extends { id: string }>(
 /** Stable empty-turns reference so the workflow detection effect does not re-run each render. */
 const EMPTY_TURNS: ChatTurn[] = [];
 
+/** Reduces a thrown value to the text shown against a turn that never reached the agent. */
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * Names the chat surface a selection is looking at.
+ *
+ * Neither half is enough alone: `workflowKeyFor` collapses every project-root
+ * chat onto one key, and the warm target does not change when a send adopts its
+ * session. Together they move on exactly the two transitions that must retire a
+ * pending send — navigating elsewhere, and its own conversation taking over.
+ */
+function chatSurfaceKeyFor(selection: {
+  projectId: string | null;
+  taskId: string | null;
+  sessionId: string | null;
+}): string {
+  return `${workflowKeyFor(selection)}|${warmTargetKey(selection) ?? ""}`;
+}
+
+/** A sent message shown before its surface has a session to key it under. */
+interface PendingSend {
+  /** The chat surface it was typed on, so it is retired when that surface is not on screen. */
+  surfaceKey: string;
+  turn: ChatTurn;
+}
+
+/**
+ * Builds the turn that stands in for a message sent before this surface holds a
+ * warm session id.
+ *
+ * Nothing can be keyed in the chat store under a session that does not exist
+ * yet, so this turn is held by the view instead and is what puts the thread
+ * layout, the message and the thinking indicator on screen while the handshake
+ * finishes. It mirrors what `sendMessage` materializes so the handover is
+ * invisible.
+ */
+function draftTurn(text: string, images: acp.ImageContent[]): ChatTurn {
+  const createdAt = Date.now();
+  return {
+    id: crypto.randomUUID(),
+    userMessage: {
+      kind: "message",
+      id: crypto.randomUUID(),
+      role: "user",
+      content: text.trim(),
+      ...(images.length === 0
+        ? {}
+        : {
+            structuredContent: images.map((image) => ({
+              type: "image" as const,
+              ...image,
+            })),
+          }),
+      createdAt,
+    },
+    items: [],
+    status: "streaming",
+    stopReason: null,
+    error: null,
+    createdAt,
+  };
+}
+
 /** Shows useful project/task context until a session is selected, then opens its agent chat. */
 export function WorkspaceView({ userName }: WorkspaceViewProps) {
   const { t } = useTranslation();
@@ -85,7 +150,20 @@ export function WorkspaceView({ userName }: WorkspaceViewProps) {
   const queryClient = useQueryClient();
   // Opens the provider session for this surface before anything is sent, so the
   // model picker has real options and the send path skips the agent handshake.
-  const { sessionId: warmSessionId } = useWarmSession(selection, targetAgentCli);
+  const { sessionId: warmSessionId, ensureSessionId } = useWarmSession(
+    selection,
+    targetAgentCli,
+  );
+
+  // A message sent before the handshake lands has no session to be keyed under,
+  // so the view carries its turn until one exists. Holding it here is what lets
+  // the composer slide down and the message appear on the send itself rather
+  // than a round trip later.
+  const [pendingSend, setPendingSend] = useState<PendingSend | null>(null);
+  // Bumped to abandon a send still waiting on its handshake, which only Stop
+  // does — leaving the surface is handled by the key the turn carries. The
+  // waiting `dispatchSend` compares the token it captured and gives up.
+  const pendingSendToken = useRef(0);
 
   const project = projects.find((item) => item.id === selection.projectId);
   const task = tasks.find((item) => item.id === selection.taskId);
@@ -103,6 +181,13 @@ export function WorkspaceView({ userName }: WorkspaceViewProps) {
 
   // Workflow state is isolated per session (per task before the session exists).
   const workflowKey = workflowKeyFor(selection);
+  // Deriving what to show rather than clearing on a transition is what makes the
+  // handover atomic: the render that adopts the session both retires this turn
+  // and shows the real one, with no frame carrying neither or both.
+  const pendingTurn =
+    pendingSend?.surfaceKey === chatSurfaceKeyFor(selection)
+      ? pendingSend.turn
+      : null;
   // Absolute path to the OpenSpec skills, so the agent finds them from its worktree
   // cwd even when `.opencode/skills` lives only at the project root.
   const skillsDir =
@@ -211,80 +296,120 @@ export function WorkspaceView({ userName }: WorkspaceViewProps) {
       }
       return;
     }
-    if (project === undefined || warmSessionId === null) return;
+    if (project === undefined) return;
+
+    // Show the turn before waiting on anything. The handshake can still be open
+    // here — the composer never blocks on it — and this is what makes the send
+    // land on screen immediately instead of after the round trip.
+    const token = (pendingSendToken.current += 1);
+    const surfaceKey = chatSurfaceKeyFor(selection);
+    setPendingSend({ surfaceKey, turn: draftTurn(displayText, images) });
+    let warmed: string | null;
+    try {
+      warmed = await ensureSessionId();
+    } catch (error) {
+      // The message never reached an agent, so it stays on screen carrying the
+      // failure rather than disappearing with the composer's optimistic clear.
+      const message = errorMessage(error);
+      if (token !== pendingSendToken.current) return;
+      setPendingSend((current) =>
+        current === null
+          ? null
+          : { ...current, turn: { ...current.turn, status: "failed", error: message } },
+      );
+      throw error;
+    }
+    // Stopped, or the user moved on while the handshake ran. The surface check is
+    // not just cosmetic: proceeding would select the session below and drag the
+    // user back to a chat they had left.
+    if (token !== pendingSendToken.current) return;
+    if (
+      chatSurfaceKeyFor(useWorkspaceSelectionStore.getState().selection) !== surfaceKey
+    ) {
+      return;
+    }
+    if (warmed === null) return;
+    // Rebound as a const so the narrowing survives into `prepare` below.
+    const sessionId = warmed;
 
     const projectId = project.id;
     let taskId = task?.id ?? null;
     // The workflow run follows the conversation onto its session id, which is
-    // already known, so this happens once instead of tracking a moving key.
-    useWorkflowStore.getState().rekey(currentKey, warmSessionId);
+    // now known, so this happens once instead of tracking a moving key.
+    useWorkflowStore.getState().rekey(currentKey, sessionId);
     // Point the workspace at this session before anything is awaited, so the
     // optimistic turn is on screen while its task and record are still forming.
     const selectionStore = useWorkspaceSelectionStore.getState();
     if (taskId === null) {
-      selectionStore.selectSessionBeforeTask(warmSessionId, projectId);
+      selectionStore.selectSessionBeforeTask(sessionId, projectId);
     } else {
-      selectionStore.selectSession(warmSessionId, taskId, projectId);
+      selectionStore.selectSession(sessionId, taskId, projectId);
     }
-    try {
-      await chatStore.getState().sendMessage({
-        oraSessionId: warmSessionId,
-        text: displayText,
-        agentText,
-        images,
-        prepare: async () => {
-          if (taskId === null) {
-            const response = await client.task.create({
-              projectId,
-              title: directChatTitle(displayText),
-              status: "todo",
-              workspaceMode: "project_root",
-            });
-            const createdTask = response.task;
-            taskId = createdTask.id;
-            queryClient.setQueryData<Task[]>(queryKeys.tasks, (current) =>
-              upsertById(current, createdTask),
-            );
-            void queryClient.invalidateQueries({ queryKey: queryKeys.tasks });
-            // Record the owning task straight away. If the attach below fails,
-            // the task is retained and the next send reuses it.
-            useWorkspaceSelectionStore
-              .getState()
-              .selectSession(warmSessionId, taskId, projectId);
-          }
-
-          const attachedTaskId = taskId;
-          let response: AttachSessionResponse;
-          try {
-            response = await client.session.attach({
-              sessionId: warmSessionId,
-              taskId: attachedTaskId,
-            });
-          } finally {
-            // The attach attempt consumes the warm entry whether it succeeds or
-            // fails, so this surface must warm a fresh one next time rather than
-            // keep retrying with an id the backend no longer recognizes.
-            queryClient.removeQueries({
-              queryKey: queryKeys.warmSession(
-                { type: "task", taskId: attachedTaskId },
-                targetAgentCli,
-              ),
-            });
-            queryClient.removeQueries({
-              queryKey: queryKeys.warmSession(
-                { type: "projectRoot", projectId },
-                targetAgentCli,
-              ),
-            });
-          }
-          queryClient.setQueryData<Session[]>(queryKeys.sessions, (current) =>
-            upsertById(current, response.session),
+    // `sendMessage` materializes its own turn before its first `await`, so the
+    // pending one is released below in the same synchronous stretch. React
+    // commits both together: no duplicated message, and no frame back at the
+    // landing layout between the two.
+    const sent = chatStore.getState().sendMessage({
+      oraSessionId: sessionId,
+      text: displayText,
+      agentText,
+      images,
+      prepare: async () => {
+        if (taskId === null) {
+          const response = await client.task.create({
+            projectId,
+            title: directChatTitle(displayText),
+            status: "todo",
+            workspaceMode: "project_root",
+          });
+          const createdTask = response.task;
+          taskId = createdTask.id;
+          queryClient.setQueryData<Task[]>(queryKeys.tasks, (current) =>
+            upsertById(current, createdTask),
           );
-          useUiStore.getState().expandProject(projectId);
-          useUiStore.getState().expandTask(attachedTaskId);
-          return { availableCommands: response.availableCommands };
-        },
-      });
+          void queryClient.invalidateQueries({ queryKey: queryKeys.tasks });
+          // Record the owning task straight away. If the attach below fails,
+          // the task is retained and the next send reuses it.
+          useWorkspaceSelectionStore
+            .getState()
+            .selectSession(sessionId, taskId, projectId);
+        }
+
+        const attachedTaskId = taskId;
+        let response: AttachSessionResponse;
+        try {
+          response = await client.session.attach({
+            sessionId,
+            taskId: attachedTaskId,
+          });
+        } finally {
+          // The attach attempt consumes the warm entry whether it succeeds or
+          // fails, so this surface must warm a fresh one next time rather than
+          // keep retrying with an id the backend no longer recognizes.
+          queryClient.removeQueries({
+            queryKey: queryKeys.warmSession(
+              { type: "task", taskId: attachedTaskId },
+              targetAgentCli,
+            ),
+          });
+          queryClient.removeQueries({
+            queryKey: queryKeys.warmSession(
+              { type: "projectRoot", projectId },
+              targetAgentCli,
+            ),
+          });
+        }
+        queryClient.setQueryData<Session[]>(queryKeys.sessions, (current) =>
+          upsertById(current, response.session),
+        );
+        useUiStore.getState().expandProject(projectId);
+        useUiStore.getState().expandTask(attachedTaskId);
+        return { availableCommands: response.availableCommands };
+      },
+    });
+    setPendingSend(null);
+    try {
+      await sent;
     } finally {
       await Promise.all([
         sessionsQuery.refetch(),
@@ -330,8 +455,20 @@ export function WorkspaceView({ userName }: WorkspaceViewProps) {
       ? session.status === "running" || conversation?.isLoaded === true
       : project !== undefined;
     // A failed background session-create settles onto the draft conversation, so
-    // the conversation error already covers the start-up failure path.
-    const chatError = conversation?.error ?? null;
+    // the conversation error already covers the start-up failure path. A pending
+    // send has no conversation to settle onto and carries its own.
+    const chatError = conversation?.error ?? pendingTurn?.error ?? null;
+    // The pending turn is appended rather than pushed into the store, since the
+    // session it would be keyed under does not exist while it is on screen. It is
+    // what flips `ChatView` out of the landing layout on the send itself.
+    const turns =
+      pendingTurn === null
+        ? (conversation?.turns ?? [])
+        : [...(conversation?.turns ?? []), pendingTurn];
+    // A pending send is waiting on its handshake, which is exactly the state the
+    // thinking indicator describes.
+    const isResponding =
+      (conversation?.isResponding ?? false) || pendingTurn?.status === "streaming";
     const lastTurn = conversation?.turns.at(-1);
     // Output has begun once the live turn carries any item; until then the turn is
     // still starting up (session creation or the wait for the first token).
@@ -386,10 +523,10 @@ export function WorkspaceView({ userName }: WorkspaceViewProps) {
         <TaskChangesLayout taskId={task?.id}>
           <ChatView
             taskId={task?.id}
-            turns={conversation?.turns ?? []}
+            turns={turns}
             modelChanges={conversation?.modelChanges}
             userName={userName}
-            isResponding={conversation?.isResponding ?? false}
+            isResponding={isResponding}
             isStreaming={isStreaming}
             isLoading={isLoadingHistory}
             error={chatError}
@@ -401,7 +538,9 @@ export function WorkspaceView({ userName }: WorkspaceViewProps) {
             // A persisted or optimistic session already fixes its project and
             // execution context, so the pickers only belong to a blank composer.
             contextBar={
-              selection.sessionId === null ? <ComposerContextBar /> : undefined
+              selection.sessionId === null && pendingTurn === null ? (
+                <ComposerContextBar />
+              ) : undefined
             }
             workflowBar={
               <WorkflowStepper onLaunch={launchWorkflowNode} disabled={!canChat} />
@@ -415,11 +554,19 @@ export function WorkspaceView({ userName }: WorkspaceViewProps) {
                 ? undefined
                 : () => launchWorkflowNode(quickLaunchNodeId)
             }
-            // The selected id, not session.id: during the optimistic startup the
-            // real session does not exist yet but the draft key is already live.
-            onStop={() =>
-              chatStore.getState().stopGeneration(selection.sessionId ?? "")
-            }
+            // A pending send has no session to stop — abandoning it before its
+            // handshake resolves is what stops it.
+            // Otherwise the selected id, not session.id: during the optimistic
+            // startup the real session does not exist yet but the draft key is
+            // already live.
+            onStop={() => {
+              if (pendingTurn !== null) {
+                pendingSendToken.current += 1;
+                setPendingSend(null);
+                return;
+              }
+              chatStore.getState().stopGeneration(selection.sessionId ?? "");
+            }}
             onRespondToPermission={(permissionRequestId, optionId) => {
               if (session) {
                 void chatStore
