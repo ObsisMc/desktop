@@ -20,9 +20,10 @@ interface ToolCallGroupProps {
 /** Condenses related tool calls while preserving every original result behind one disclosure. */
 export function ToolCallGroup({ kind, tools }: ToolCallGroupProps) {
   const status = groupStatus(tools);
-  const [disclosure, setDisclosure] = useState({ status, open: status !== "completed" });
+  const isActive = status === "in_progress" || status === "pending";
+  const [disclosure, setDisclosure] = useState({ status, open: isActive });
   if (disclosure.status !== status) {
-    setDisclosure({ status, open: status !== "completed" });
+    setDisclosure({ status, open: isActive });
   }
   const open = disclosure.open;
   const { t } = useTranslation();

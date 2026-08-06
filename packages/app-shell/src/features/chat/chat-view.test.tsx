@@ -573,7 +573,8 @@ describe("MessageList", () => {
     expect(screen.getByRole("button", { name: /读取\s*d\.md|Read\s*d\.md/ })).toBeVisible();
   });
 
-  it("keeps reads, edits, and commands as distinct perceptible activity groups", () => {
+  it("folds reads, edits, and commands into one collapsed phase, each still distinct once expanded", async () => {
+    const user = userEvent.setup();
     renderWithI18n(
       <MessageList
         turns={[
@@ -589,6 +590,12 @@ describe("MessageList", () => {
         isResponding={false}
       />,
     );
+
+    expect(screen.queryByRole("button", { name: /文件读取完成|File reading complete/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /已修改 2 个文件|Changed 2 files/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /已执行 2 条命令|Ran 2 commands/ })).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: /已完成的操作|Completed activity/ }));
 
     expect(screen.getByRole("button", { name: /文件读取完成|File reading complete/ })).toBeVisible();
     expect(screen.getByRole("button", { name: /已修改 2 个文件|Changed 2 files/ })).toBeVisible();

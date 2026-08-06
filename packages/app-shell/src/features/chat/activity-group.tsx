@@ -49,14 +49,14 @@ type TimelineEntry = ThoughtTimelineEntry | ToolTimelineEntry;
 export function ActivityGroup({ items, turnStatus, isLatestActivity }: ActivityGroupProps) {
   const status = activityStatus(items, turnStatus, isLatestActivity);
   const entries = groupTimelineEntries(items);
-  const [disclosure, setDisclosure] = useState({ status, open: status !== "completed" });
+  const [disclosure, setDisclosure] = useState({ status, open: status === "active" });
   const latestItemId = entries.at(-1)?.id ?? null;
   const [selection, setSelection] = useState({
     followsLatest: status === "active",
     selectedId: status === "active" ? latestItemId : null,
   });
   if (disclosure.status !== status) {
-    setDisclosure({ status, open: status !== "completed" });
+    setDisclosure({ status, open: status === "active" });
   }
   const open = disclosure.open;
   const selectedId = selection.followsLatest && status === "active" ? latestItemId : selection.selectedId;

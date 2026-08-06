@@ -1,31 +1,12 @@
 import { IconAlertTriangle, IconBan, IconInfoCircle } from "@tabler/icons-react";
 import { useTranslation } from "react-i18next";
-import type { ChatToolCall, ChatTurn, ChatTurnItem } from "@ora/chat";
+import type { ChatTurn } from "@ora/chat";
 import { OraMark } from "../../components/ora-mark";
-import { ActivityGroup, type ActivityItem } from "./activity-group";
+import { ActivityPhase } from "./activity-phase";
 import { MessageBubble } from "./message-bubble";
-import { PlanBlock } from "./plan-block";
-import { ToolCallBlock } from "./tool-call-block";
-import { ToolCallGroup } from "./tool-call-group";
 import { ContentBlock } from "./content-block";
-import { toolCallGroupKind, type ToolCallGroupKind } from "./tool-call-group-kind";
+import { buildTurnDisplayItems } from "./turn-item-grouping";
 import { TurnDiffSummary } from "./turn-diff-summary";
-
-interface ToolGroup {
-  kind: "toolGroup";
-  id: string;
-  groupKind: ToolCallGroupKind;
-  tools: ChatToolCall[];
-}
-
-interface ActivityGroupItem {
-  kind: "activityGroup";
-  id: string;
-  items: ActivityItem[];
-}
-
-type ToolGroupedTurnItem = ChatTurnItem | ToolGroup;
-type DisplayTurnItem = ToolGroupedTurnItem | ActivityGroupItem;
 
 interface ResponseTurnProps {
   turn: ChatTurn;
@@ -35,28 +16,22 @@ interface ResponseTurnProps {
 /** Groups all agent activity for one prompt under a single assistant identity. */
 export function ResponseTurn({ turn, userName }: ResponseTurnProps) {
   const { t } = useTranslation();
-  const displayItems = groupExplorationActivity(groupAdjacentTools(turn.items));
+  const displayItems = buildTurnDisplayItems(turn.items, turn.status);
   return (
     <section className="flex gap-3 py-3" aria-label={t("chat.assistantReplied")}>
       <OraMark size="sm" />
       <div className="min-w-0 flex-1 space-y-2.5">
         {displayItems.map((item, index) => {
           switch (item.kind) {
-            case "activityGroup":
+            case "activityPhase":
               return (
-                <ActivityGroup
+                <ActivityPhase
                   key={item.id}
-                  items={item.items}
+                  phase={item}
                   turnStatus={turn.status}
                   isLatestActivity={index === displayItems.length - 1}
                 />
               );
-            case "plan":
-              return <PlanBlock key={item.id} plan={item} />;
-            case "toolCall":
-              return <ToolCallBlock key={item.id} tool={item} />;
-            case "toolGroup":
-              return <ToolCallGroup key={item.id} kind={item.groupKind} tools={item.tools} />;
             case "message":
               return (
                 <MessageBubble
@@ -76,68 +51,6 @@ export function ResponseTurn({ turn, userName }: ResponseTurnProps) {
       </div>
     </section>
   );
-}
-
-/** Groups adjacent tools by intent while preserving boundaries created by messages and plans. */
-function groupAdjacentTools(items: ChatTurnItem[]): ToolGroupedTurnItem[] {
-  const grouped: ToolGroupedTurnItem[] = [];
-  let tools: ChatToolCall[] = [];
-  let groupKind: ToolCallGroupKind | null = null;
-
-  const flushTools = () => {
-    if (tools.length === 1) grouped.push(tools[0]);
-    if (tools.length > 1 && groupKind !== null) {
-      grouped.push({ kind: "toolGroup", id: `${groupKind}-group-${tools[0].id}`, groupKind, tools });
-    }
-    tools = [];
-    groupKind = null;
-  };
-
-  for (const item of items) {
-    const nextGroupKind = item.kind === "toolCall" ? toolCallGroupKind(item) : null;
-    if (item.kind === "toolCall" && nextGroupKind !== null) {
-      if (groupKind !== null && groupKind !== nextGroupKind) flushTools();
-      groupKind = nextGroupKind;
-      tools.push(item);
-      continue;
-    }
-    flushTools();
-    grouped.push(item);
-  }
-  flushTools();
-  return grouped;
-}
-
-/** Merges interleaved thoughts and exploratory calls into one compact progress group. */
-function groupExplorationActivity(items: ToolGroupedTurnItem[]): DisplayTurnItem[] {
-  const grouped: DisplayTurnItem[] = [];
-  let activity: ActivityItem[] = [];
-
-  const flushActivity = () => {
-    if (activity.length > 0) {
-      grouped.push({ kind: "activityGroup", id: `activity-group-${activity[0].id}`, items: activity });
-    }
-    activity = [];
-  };
-
-  for (const item of items) {
-    if (item.kind === "thought") {
-      activity.push(item);
-      continue;
-    }
-    if (item.kind === "toolCall" && toolCallGroupKind(item) === "exploration") {
-      activity.push(item);
-      continue;
-    }
-    if (item.kind === "toolGroup" && item.groupKind === "exploration") {
-      activity.push(...item.tools);
-      continue;
-    }
-    flushActivity();
-    grouped.push(item);
-  }
-  flushActivity();
-  return grouped;
 }
 
 /** Explains non-standard turn endings without treating them as transport failures. */
