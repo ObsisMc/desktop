@@ -117,6 +117,12 @@ export function ModelSelector({ disabled = false }: { disabled?: boolean }) {
   // is waiting to learn — which models this agent has — is already answered.
   const canSelectModel = activeSessionId !== null;
 
+  // The disabled cached list on its own reads as settled, not provisional — the
+  // handshake could still replace it with a different set. This names that
+  // in-between case so the dropdown can say so, distinct from isLoadingModels
+  // (nothing to show yet) even though both are the same underlying wait.
+  const isUpdatingModels = isSettling && modelOption !== null;
+
   const activeLabel = modelOption
     ? currentValueName(modelOption)
     : t(isLoadingModels ? "chat.modelSelector.loading" : "chat.modelSelector.placeholder");
@@ -175,7 +181,7 @@ export function ModelSelector({ disabled = false }: { disabled?: boolean }) {
           </span>
         </span>
         <span className="whitespace-nowrap">{activeLabel}</span>
-        {setSessionConfig.isPending || isLoadingModels
+        {setSessionConfig.isPending || isSettling
           ? <IconLoader2 className="size-3 shrink-0 animate-spin opacity-50" aria-hidden="true" />
           : <IconChevronDown className="size-3 shrink-0 opacity-50" aria-hidden="true" />}
       </DropdownMenuTrigger>
@@ -200,8 +206,14 @@ export function ModelSelector({ disabled = false }: { disabled?: boolean }) {
           ))}
         </DropdownMenuGroup>
         <DropdownMenuGroup className="p-1">
-          <DropdownMenuLabel className="px-2 py-1.5 text-xs font-normal text-muted-foreground">
+          <DropdownMenuLabel className="flex items-center gap-1 px-2 py-1.5 text-xs font-normal text-muted-foreground">
             {t("chat.modelSelector.model")}
+            {isUpdatingModels && (
+              <span className="inline-flex items-center gap-1 text-muted-foreground/70">
+                <IconLoader2 className="size-3 animate-spin" aria-hidden="true" />
+                {t("chat.modelSelector.updating")}
+              </span>
+            )}
           </DropdownMenuLabel>
           {modelOption === null ? (
             <p className="px-2 py-4 text-center text-xs text-muted-foreground">
