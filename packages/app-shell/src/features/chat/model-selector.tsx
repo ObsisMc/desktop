@@ -51,11 +51,15 @@ export function ModelSelector({ disabled = false }: { disabled?: boolean }) {
   const { data: sessions = [] } = useSessions();
 
   // Having a binding is what makes a session persisted, and only a persisted one
-  // can be rebound; a warm session has no row to move.
-  const isPersisted = sessions.some((session) => session.id === selection.sessionId);
+  // can be rebound; a warm session has no row to move. The bound CLI is also what
+  // a candidate has to be compared against to decide whether picking it is a move
+  // at all — the resolved agent below cannot answer that, since it already
+  // reports whatever move is pending.
+  const boundSession = sessions.find((session) => session.id === selection.sessionId);
   const targetKey = warmTargetKey(selection);
   const setPickedForTarget = usePendingAgentStore((state) => state.setPendingAgent);
   const setPendingSwitch = usePendingAgentStore((state) => state.setPendingSwitch);
+  const clearPendingSwitch = usePendingAgentStore((state) => state.clearPendingSwitch);
   const pendingSwitch = usePendingSwitch(selection.sessionId);
   // Resolved centrally so this and the composer cannot disagree: they share one
   // warm-session query key, and the CLI is part of that key.
@@ -133,6 +137,12 @@ export function ModelSelector({ disabled = false }: { disabled?: boolean }) {
    * against its own target instead, so it survives navigating away and back
    * without touching any other chat.
    *
+   * Picking the CLI a session is still bound to withdraws the recorded move
+   * instead of recording one onto it. Nothing was rebound when the other CLI was
+   * chosen, so arriving back at the bound one leaves the conversation exactly
+   * where it started — and asking the backend to rebind a session onto the agent
+   * it already runs on is refused as `session_agent_unchanged`.
+   *
    * Either way the shared default also moves, so the next chat surface no one
    * has touched yet still opens on whatever the user picked most recently, and
    * either way the CLI's own models arrive from a handshake that has not
@@ -142,8 +152,12 @@ export function ModelSelector({ disabled = false }: { disabled?: boolean }) {
   const selectAgent = (candidate: AgentCli) => {
     if (candidate === agentCli) return;
     updateSettings({ agentCli: candidate });
-    if (isPersisted && selection.sessionId !== null) {
-      setPendingSwitch(selection.sessionId, candidate);
+    if (boundSession !== undefined) {
+      if (candidate === boundSession.agentCli) {
+        clearPendingSwitch(boundSession.id);
+      } else {
+        setPendingSwitch(boundSession.id, candidate);
+      }
       return;
     }
     if (targetKey !== null) setPickedForTarget(targetKey, candidate);

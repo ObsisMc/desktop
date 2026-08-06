@@ -254,7 +254,11 @@ export function WorkspaceView({ userName }: WorkspaceViewProps) {
       // click time could have been mid-reply. Running it inside `prepare` means
       // a CLI that refuses the move fails the send it was part of, leaving the
       // message and the pending pick intact to retry.
-      const pendingSwitch = usePendingAgentStore.getState().switches[session.id];
+      // Only the binding decides whether a recorded pick is a move: a record
+      // naming the CLI this session already runs on is one the user withdrew by
+      // arriving back where they started, and committing it would be refused.
+      const recorded = usePendingAgentStore.getState().switches[session.id];
+      const pendingSwitch = recorded === session.agentCli ? undefined : recorded;
       const prepare =
         pendingSwitch === undefined
           ? undefined

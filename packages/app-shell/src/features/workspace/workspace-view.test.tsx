@@ -19,6 +19,7 @@ import {
   createMockClient,
   createMockClientState,
 } from "../../test/mock-client";
+import { usePendingAgentStore } from "../../state/stores/pending-agent-store";
 import { useWorkspaceSelectionStore } from "../../state/stores/workspace-selection-store";
 import { useAgentModelStore } from "../../state/stores/agent-model-store";
 import { WorkspaceView } from "./workspace-view";
@@ -30,6 +31,9 @@ beforeEach(() => {
   // surfaces is the point of the store — so each test has to start from a CLI
   // nothing has handshaken, or an earlier test's list would answer for it.
   useAgentModelStore.setState({ known: {} });
+  // Agent picks outlive a render, so a test that leaves one recorded would hand
+  // the next one a surface already pointing somewhere it never chose.
+  usePendingAgentStore.setState({ selections: {}, switches: {} });
 });
 
 describe("WorkspaceView", () => {
@@ -994,10 +998,15 @@ describe("WorkspaceView", () => {
   function createSwitchTargetClient(state: ReturnType<typeof createMockClientState>) {
     const baseClient = createMockClient(state);
     const switched: SwitchSessionAgentRequest[] = [];
+    const prompted: string[] = [];
     const client: ContractsClient = {
       ...baseClient,
       session: {
         ...baseClient.session,
+        prompt: (request, options) => {
+          prompted.push(request.sessionId);
+          return baseClient.session.prompt(request, options);
+        },
         warm: async (request, options) => {
           const response = await baseClient.session.warm(request, options);
           if (request.agentCli !== "claude") return response;
@@ -1024,7 +1033,7 @@ describe("WorkspaceView", () => {
         },
       },
     };
-    return { client, switched };
+    return { client, switched, prompted };
   }
 
   /** Seeds one running session on OpenCode under a worktree task. */
@@ -1131,6 +1140,48 @@ describe("WorkspaceView", () => {
     expect(switched).toEqual([
       { sessionId: "s1", agentCli: "claude", clientId: expect.any(String) },
     ]);
+  });
+
+  it("sends without rebinding when the picker returns to the session's own agent", async () => {
+    const user = userEvent.setup();
+    const state = createMockClientState();
+    seedSwitchableSession(state);
+    const { client, switched, prompted } = createSwitchTargetClient(state);
+    const Wrapper = createHookWrapper(
+      client,
+      createTestQueryClient(),
+      createChatStore(client.session),
+    );
+    useWorkspaceSelectionStore.getState().selectSession("s1", "t1", "p1");
+
+    render(
+      <Wrapper>
+        <AppI18nProvider>
+          <PlatformProvider adapter={createStubPlatform()}>
+            <TooltipProvider>
+              <WorkspaceView userName="Eric" />
+            </TooltipProvider>
+          </PlatformProvider>
+        </AppI18nProvider>
+      </Wrapper>,
+    );
+    await user.click(
+      await screen.findByRole("button", { name: /选择模型|Select model/ }),
+    );
+    await user.click(await screen.findByRole("menuitem", { name: "Claude Code" }));
+    // Back to the CLI the conversation was already running on. Nothing was
+    // rebound in between, so this is a withdrawn move rather than a second one.
+    await user.click(await screen.findByRole("menuitem", { name: "OpenCode" }));
+    await user.keyboard("{Escape}");
+
+    await user.type(await screen.findByRole("textbox"), "hello");
+    await user.keyboard("{Enter}");
+
+    await waitFor(() => expect(prompted).toEqual(["s1"]));
+    // Asking the backend to move a session onto its own agent is refused with
+    // `session_agent_unchanged`, which would have failed the message with it.
+    expect(switched).toEqual([]);
+    expect(state.sessions[0]?.agentCli).toBe("open_code");
   });
 
   it("resumes a session whose history stopped recording", async () => {
