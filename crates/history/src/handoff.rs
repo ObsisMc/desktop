@@ -102,7 +102,11 @@ fn previous_agent(history: &SessionHistory) -> Option<AgentCli> {
 struct HandoffTurn {
     user: Vec<String>,
     assistant: Vec<String>,
-    tools: Vec<String>,
+    /// Tool titles paired with the status recorded for them.
+    ///
+    /// The status is kept rather than rendered on arrival because how it reads
+    /// depends on how the turn ended, which is only known once the turn closes.
+    tools: Vec<(String, ToolCallStatus)>,
     notes: Vec<String>,
     stop_reason: Option<StopReason>,
 }
@@ -128,7 +132,18 @@ impl HandoffTurn {
             );
         }
         if !self.tools.is_empty() {
-            let _ = write!(rendered, "\n**Tools:** {}\n", self.tools.join(", "));
+            let tools = self
+                .tools
+                .iter()
+                .map(|(title, status)| {
+                    format!(
+                        "{title} ({status})",
+                        status = describe_status(*status, self.stop_reason),
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            let _ = write!(rendered, "\n**Tools:** {tools}\n");
         }
         for note in &self.notes {
             let _ = write!(rendered, "\n_{note}_\n");
@@ -195,11 +210,7 @@ fn absorb_update(turn: &mut HandoffTurn, update: &SessionUpdate) {
             turn.assistant.push(describe_content(&chunk.content));
         }
         SessionUpdate::ToolCall(call) => {
-            turn.tools.push(format!(
-                "{title} ({status})",
-                title = call.title,
-                status = describe_status(call.status),
-            ));
+            turn.tools.push((call.title.clone(), call.status));
         }
         // Reasoning belongs to the agent that produced it and does not transfer.
         // Plans, tool results, and session chrome are either stale on arrival or
@@ -229,12 +240,32 @@ fn describe_content(content: &ContentBlock) -> String {
     }
 }
 
-fn describe_status(status: ToolCallStatus) -> &'static str {
+/// Names one tool's outcome as the successor should read it.
+///
+/// ACP does not require an agent to report a terminal status, so a call left at
+/// `pending` or `in_progress` is not evidence that it never ran — an agent that
+/// simply moved on leaves exactly that behind. Reading it back as "never started"
+/// would state as fact something the record never said, so an unfinished call is
+/// reported as unreported instead.
+///
+/// How the turn ended is what separates the two ways that happens: a turn cut
+/// short may genuinely have interrupted the call, while one the agent ended on
+/// its own terms means the work almost certainly ran and only its result went
+/// unsaid. Either way the successor is told what is unknown rather than being
+/// handed a result nobody observed.
+fn describe_status(status: ToolCallStatus, stop_reason: Option<StopReason>) -> &'static str {
     match status {
-        ToolCallStatus::Pending => "never started",
-        ToolCallStatus::InProgress => "did not finish",
         ToolCallStatus::Completed => "completed",
         ToolCallStatus::Failed => "failed",
+        ToolCallStatus::Pending | ToolCallStatus::InProgress => match stop_reason {
+            Some(
+                StopReason::Cancelled
+                | StopReason::Refusal
+                | StopReason::MaxTokens
+                | StopReason::MaxTurnRequests,
+            ) => "interrupted, outcome unknown",
+            Some(StopReason::EndTurn) | None => "outcome not reported",
+        },
     }
 }
 

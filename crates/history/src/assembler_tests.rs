@@ -209,6 +209,97 @@ fn preserves_appearance_order_when_a_tool_settles_after_a_later_message() {
 }
 
 #[test]
+fn settles_a_tool_call_the_provider_never_reported_finishing() {
+    let mut assembler = HistoryAssembler::new(0);
+
+    // The agent opens a call, moves straight on to unrelated output, and ends the
+    // turn on its own terms without ever reporting a terminal status.
+    assembler.push_update(&SessionUpdate::ToolCall(
+        ToolCall::new("t1", "Read file").status(ToolCallStatus::InProgress),
+    ));
+    assembler.push_update(&agent_text("here is what I found", Some("m1")));
+
+    assert_eq!(
+        assembler.end_turn(StopReason::EndTurn),
+        vec![
+            AssembledRecord {
+                seq: 0,
+                record: HistoryRecord::Update {
+                    update: SessionUpdate::ToolCall(
+                        ToolCall::new("t1", "Read file").status(ToolCallStatus::Completed),
+                    ),
+                },
+            },
+            message_at(1, "here is what I found", Some("m1")),
+            AssembledRecord {
+                seq: 2,
+                record: HistoryRecord::TurnEnded {
+                    stop_reason: StopReason::EndTurn,
+                },
+            },
+        ],
+    );
+}
+
+#[test]
+fn keeps_an_unfinished_tool_call_unfinished_when_the_turn_was_cut_short() {
+    // Every ending other than the agent stopping on its own terms may have
+    // interrupted the call, so none of them may credit it with success. Ora's
+    // runtime records a broken connection and a failed prompt as `Cancelled`, so
+    // these cover network failure and user cancellation alike.
+    for stop_reason in [
+        StopReason::Cancelled,
+        StopReason::MaxTokens,
+        StopReason::MaxTurnRequests,
+        StopReason::Refusal,
+    ] {
+        let mut assembler = HistoryAssembler::new(0);
+        assembler.push_update(&SessionUpdate::ToolCall(
+            ToolCall::new("t1", "Run tests").status(ToolCallStatus::InProgress),
+        ));
+
+        assert_eq!(
+            assembler.end_turn(stop_reason),
+            vec![
+                AssembledRecord {
+                    seq: 0,
+                    record: HistoryRecord::Update {
+                        update: SessionUpdate::ToolCall(
+                            ToolCall::new("t1", "Run tests").status(ToolCallStatus::InProgress),
+                        ),
+                    },
+                },
+                AssembledRecord {
+                    seq: 1,
+                    record: HistoryRecord::TurnEnded { stop_reason },
+                },
+            ],
+            "{stop_reason:?} must not record an outcome the provider never gave",
+        );
+    }
+}
+
+#[test]
+fn never_reinterprets_a_failure_the_provider_did_report() {
+    let mut assembler = HistoryAssembler::new(0);
+
+    assembler.push_update(&SessionUpdate::ToolCall(
+        ToolCall::new("t1", "Fetch data").status(ToolCallStatus::Failed),
+    ));
+
+    // The turn ending cleanly says nothing about a call that already failed.
+    assert_eq!(
+        assembler.end_turn(StopReason::EndTurn),
+        vec![AssembledRecord {
+            seq: 1,
+            record: HistoryRecord::TurnEnded {
+                stop_reason: StopReason::EndTurn,
+            },
+        }],
+    );
+}
+
+#[test]
 fn synthesizes_a_tool_call_from_an_update_that_arrived_without_its_opening() {
     let mut assembler = HistoryAssembler::new(0);
 

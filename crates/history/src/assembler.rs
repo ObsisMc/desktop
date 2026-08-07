@@ -128,6 +128,10 @@ impl HistoryAssembler {
     }
 
     /// Flushes every item still open and closes the turn with its stop reason.
+    ///
+    /// Tool calls the provider never reported finishing are settled here rather
+    /// than written mid-flight, because the turn ending is proof they are no
+    /// longer running.
     pub fn end_turn(&mut self, stop_reason: StopReason) -> Vec<AssembledRecord> {
         let mut records: Vec<AssembledRecord> = std::mem::take(&mut self.texts)
             .into_iter()
@@ -135,8 +139,7 @@ impl HistoryAssembler {
             .chain(
                 std::mem::take(&mut self.tools)
                     .into_iter()
-                    .filter(|tool| !tool.written)
-                    .map(|tool| tool_record(tool.seq, &tool.call)),
+                    .filter_map(|tool| tool.settle_at_turn_end(stop_reason)),
             )
             .chain(self.plan.take().map(|(seq, plan)| AssembledRecord {
                 seq,
@@ -283,6 +286,33 @@ impl PendingTool {
         }
         self.written = true;
         vec![tool_record(self.seq, &self.call)]
+    }
+
+    /// Emits this call's final snapshot once the turn it belongs to has ended.
+    ///
+    /// ACP does not require a provider to report a terminal status, and one that
+    /// simply moves on leaves the call frozen at `pending` or `in_progress`. That
+    /// is indistinguishable from work still running, so the record would keep a
+    /// state the conversation has already left behind.
+    ///
+    /// Only a turn the agent ended on its own terms is evidence that the call it
+    /// left open ran to completion — having chosen to stop, the agent had whatever
+    /// the tool produced. Every other ending cut the turn short, and a call open
+    /// at that moment may have been interrupted rather than finished, so its
+    /// unfinished status stands and `TurnEnded` records why. Crediting those with
+    /// success would report an outcome nobody observed.
+    ///
+    /// A terminal status the provider did report is never reinterpreted.
+    fn settle_at_turn_end(mut self, stop_reason: StopReason) -> Option<AssembledRecord> {
+        let unfinished = matches!(
+            self.call.status,
+            ToolCallStatus::Pending | ToolCallStatus::InProgress
+        );
+        if unfinished && stop_reason == StopReason::EndTurn {
+            self.call.status = ToolCallStatus::Completed;
+            return Some(tool_record(self.seq, &self.call));
+        }
+        (!self.written).then(|| tool_record(self.seq, &self.call))
     }
 }
 

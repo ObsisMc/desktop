@@ -8,6 +8,7 @@ import type {
   ChatModelChange,
   ChatPlan,
   ChatToolCall,
+  ChatToolCallStatus,
   ChatTurn,
   SessionConversation,
 } from "./types.js";
@@ -451,16 +452,17 @@ export function createChatStore(
             appendPermission(set, key, event);
           } else {
             flushPendingTextChunk();
-            updateTurn(set, key, turnId, (current) => {
-              const next = {
-                ...current,
-                status: event.stopReason === "cancelled" ? "cancelled" as const : "completed" as const,
-                stopReason: event.stopReason,
-              };
-              return event.stopReason === "cancelled"
-                ? cancelActiveToolCalls(next, now())
-                : next;
-            });
+            updateTurn(set, key, turnId, (current) =>
+              settleActiveToolCalls(
+                {
+                  ...current,
+                  status: event.stopReason === "cancelled" ? "cancelled" as const : "completed" as const,
+                  stopReason: event.stopReason,
+                },
+                impliedToolStatus(event.stopReason),
+                now(),
+              ),
+            );
           }
         }
       } catch (error) {
@@ -468,15 +470,22 @@ export function createChatStore(
         if (isAbortError(error)) {
           updateTurn(set, key, turnId, (current) =>
             current.status === "streaming"
-              ? cancelActiveToolCalls({ ...current, status: "cancelled" }, now())
+              ? settleActiveToolCalls({ ...current, status: "cancelled" }, "cancelled", now())
               : current,
           );
           clearPendingPermissions(set, key);
         } else {
           const message = errorMessage(error);
+          // The failure ended the turn, so tools the agent never settled were
+          // interrupted by it. They are not marked failed: the stream broke, and
+          // whether the tool itself succeeded is exactly what was never reported.
           updateTurn(set, key, turnId, (current) =>
             current.status === "streaming"
-              ? { ...current, status: "failed", error: message }
+              ? settleActiveToolCalls(
+                  { ...current, status: "failed", error: message },
+                  "cancelled",
+                  now(),
+                )
               : current,
           );
           updateConversation(set, key, (conversation) => ({
@@ -488,8 +497,13 @@ export function createChatStore(
       } finally {
         flushPendingTextChunk();
         operations.delete(key);
+        // A stream that ended without a boundary event still closes the turn, so
+        // its tools settle with it rather than outliving the turn that owns them.
+        // Nothing reported them finishing, so they close as interrupted.
         updateTurn(set, key, turnId, (current) =>
-          current.status === "streaming" ? { ...current, status: "completed" } : current,
+          current.status === "streaming"
+            ? settleActiveToolCalls({ ...current, status: "completed" }, "cancelled", now())
+            : current,
         );
         updateConversation(set, key, (conversation) => ({
           ...conversation,
@@ -595,7 +609,7 @@ class HistoryBuilder {
       stopReason,
     };
     this.replaceLast(
-      stopReason === "cancelled" ? cancelActiveToolCalls(settled, this.now()) : settled,
+      settleActiveToolCalls(settled, impliedToolStatus(stopReason), this.now()),
     );
   }
 
@@ -604,9 +618,13 @@ class HistoryBuilder {
     return {
       ...this.snapshot(),
       // A turn still streaming here never reached its boundary in the record,
-      // which is what an interrupted process leaves behind.
+      // which is what an interrupted process leaves behind. Its tools close with
+      // it as interrupted too, so replay neither restores work that appears to
+      // still be running nor credits it with an outcome the record never held.
       turns: this.turns.map((turn) =>
-        turn.status === "streaming" ? { ...turn, status: "completed" as const } : turn,
+        turn.status === "streaming"
+          ? settleActiveToolCalls({ ...turn, status: "completed" as const }, "cancelled", this.now())
+          : turn,
       ),
       pendingPermissions: this.permissions,
       isLoaded: true,
@@ -897,16 +915,39 @@ function updateToolCall(turn: ChatTurn, update: acp.ToolCallUpdate, timestamp: n
   return { ...turn, items };
 }
 
-/** Settles tools whose provider lifecycle cannot finish after the prompt stream is cancelled. */
-function cancelActiveToolCalls(turn: ChatTurn, timestamp: number): ChatTurn {
+/**
+ * Settles tools whose provider lifecycle never reached a terminal status.
+ *
+ * ACP does not require an agent to report a tool call finishing, and one that
+ * simply moves on to its next update leaves the call active for the life of the
+ * conversation. A turn that ended is proof it is not running, so the outcome the
+ * turn implies replaces a status the conversation has already left behind.
+ */
+function settleActiveToolCalls(
+  turn: ChatTurn,
+  status: ChatToolCallStatus,
+  timestamp: number,
+): ChatTurn {
   return {
     ...turn,
     items: turn.items.map((item) =>
       item.kind === "toolCall" && (item.status === "pending" || item.status === "in_progress")
-        ? { ...item, status: "cancelled" as const, updatedAt: timestamp }
+        ? { ...item, status, updatedAt: timestamp }
         : item,
     ),
   };
+}
+
+/**
+ * Names the tool outcome a turn boundary implies for work the agent never settled.
+ *
+ * Only a turn the agent ended on its own terms is evidence that the call it left
+ * open ran to completion. Every other ending — cancelled, out of tokens, refused —
+ * cut the turn short, so the call is shown as interrupted rather than credited
+ * with a success nobody reported.
+ */
+function impliedToolStatus(stopReason: acp.StopReason): ChatToolCallStatus {
+  return stopReason === "end_turn" ? "completed" : "cancelled";
 }
 
 function appendPermission(

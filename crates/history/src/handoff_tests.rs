@@ -141,8 +141,28 @@ fn states_that_a_turn_was_cancelled_so_unfinished_work_reads_correctly() {
     ]));
 
     let rendered = rendered.unwrap_or_default();
-    assert!(rendered.contains("**Tools:** Run tests (did not finish)"));
+    assert!(rendered.contains("**Tools:** Run tests (interrupted, outcome unknown)"));
     assert!(rendered.contains("_This turn was cancelled by the user before it finished._"));
+}
+
+#[test]
+fn reports_an_unreported_tool_outcome_without_claiming_the_work_never_ran() {
+    // The agent opened the call, never sent a terminal status, and ended the turn
+    // on its own terms. Calling that "never started" would state as fact something
+    // the record never said, and calling it completed would hand the successor a
+    // result nobody observed.
+    let rendered = render_handoff(&history(vec![
+        meta(AgentCli::Nga),
+        user("read the config"),
+        tool("Read file", ToolCallStatus::Pending),
+        turn_ended(StopReason::EndTurn),
+    ]));
+
+    assert!(
+        rendered
+            .unwrap_or_default()
+            .contains("**Tools:** Read file (outcome not reported)")
+    );
 }
 
 #[test]

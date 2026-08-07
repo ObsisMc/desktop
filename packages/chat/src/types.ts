@@ -32,7 +32,14 @@ export interface ChatPlan {
   updatedAt: number;
 }
 
-/** Adds a client-owned terminal state for prompts cancelled before the provider settles a tool. */
+/**
+ * Adds a client-owned terminal state for tools the provider never settled.
+ *
+ * ACP has no status for work whose outcome was never reported, and a turn that
+ * was cancelled, cut short, or broken by a failed stream leaves exactly that.
+ * The state is distinct from `failed` on purpose: the tool is not known to have
+ * failed, only to have been interrupted before anything said otherwise.
+ */
 export type ChatToolCallStatus = acp.ToolCallStatus | "cancelled";
 
 /** Stores one tool call and its latest ACP lifecycle fields. */
