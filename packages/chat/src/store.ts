@@ -760,6 +760,38 @@ function appendContentChunk(
 }
 
 /** Appends one live text batch while preserving the per-message identity rules. */
+/**
+ * Finds the text run one chunk continues, or -1 when it starts a new one.
+ *
+ * A `messageId` is ACP stating which chunks form one message, so it identifies
+ * the run outright and the message stays whole however much interleaves with it.
+ * Text carrying none has no identity to merge on, and contiguity stands in for
+ * one exactly as the recorded history does: an entry that took its own place in
+ * the turn — a tool call, a plan, an image — proves later text is a new run.
+ * Merging across it would keep appending to an item positioned before that entry
+ * and render the agent's summary above the work it describes.
+ *
+ * The two text streams do not close each other, so reasoning interleaved with an
+ * answer still belongs to one message, matching how the record is assembled.
+ */
+function textRunIndex(
+  turn: ChatTurn,
+  itemKind: "message" | "thought",
+  messageId: string | undefined,
+): number {
+  if (messageId !== undefined) {
+    return turn.items.findIndex(
+      (item) => item.kind === itemKind && item.protocolMessageId === messageId,
+    );
+  }
+  for (let index = turn.items.length - 1; index >= 0; index -= 1) {
+    const item = turn.items[index]!;
+    if (item.kind !== "message" && item.kind !== "thought") return -1;
+    if (item.kind === itemKind && item.protocolMessageId === undefined) return index;
+  }
+  return -1;
+}
+
 function appendTextContentChunk(
   turn: ChatTurn,
   itemKind: "message" | "thought",
@@ -767,10 +799,17 @@ function appendTextContentChunk(
   text: string,
   timestamp: number,
 ): ChatTurn {
-  const implicitId = `${itemKind}-implicit-${turn.id}`;
-  const itemId = messageId === undefined ? implicitId : `${itemKind}-${messageId}`;
-  const itemIndex = turn.items.findIndex((item) => item.id === itemId && item.kind === itemKind);
+  const itemIndex = textRunIndex(turn, itemKind, messageId);
   if (itemIndex === -1) {
+    // An agent switching to a tool call commonly emits empty or newline-only
+    // deltas first. Opening a run on those would place a blank block ahead of
+    // the work that follows it, so a run starts where its content does.
+    if (text.trim() === "") return turn;
+    // Implicit runs are numbered by where they begin, which keeps them distinct
+    // now that one turn can hold several.
+    const itemId = messageId === undefined
+      ? `${itemKind}-implicit-${turn.id}-${turn.items.length}`
+      : `${itemKind}-${messageId}`;
     const item = itemKind === "message"
       ? {
           kind: "message" as const,

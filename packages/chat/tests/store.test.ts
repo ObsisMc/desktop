@@ -121,6 +121,55 @@ test("restores a cancelled turn and its unfinished tools from the recorded bound
   }]);
 });
 
+test("keeps text that resumed after a tool call below it", async () => {
+  // Replays the frame order an agent that omits messageId produces: reasoning,
+  // the empty deltas it emits while switching to a tool, the call itself, more
+  // reasoning, then the answer. Every text chunk here is unidentified, so the
+  // run boundaries can only come from what arrived between them.
+  const chunk = (kind: "agent_message_chunk" | "agent_thought_chunk", text: string) =>
+    ({ type: "session_update", update: { sessionUpdate: kind, content: { type: "text", text } } }) as PromptSessionEvent;
+  const client: ChatSessionClient = {
+    load: () => events<LoadSessionEvent>([{ type: "completed" }]),
+    prompt: () => events<PromptSessionEvent>([
+      chunk("agent_thought_chunk", " this"),
+      chunk("agent_thought_chunk", ".\n"),
+      chunk("agent_message_chunk", ""),
+      chunk("agent_message_chunk", "\n\n\n"),
+      {
+        type: "session_update",
+        update: { sessionUpdate: "tool_call", toolCallId: "t1", title: "Terminal", kind: "execute", status: "pending" },
+      },
+      {
+        type: "session_update",
+        update: { sessionUpdate: "tool_call_update", toolCallId: "t1", title: "ls -la", status: "completed" },
+      },
+      chunk("agent_thought_chunk", "The"),
+      chunk("agent_thought_chunk", " command"),
+      chunk("agent_message_chunk", "Here are the files."),
+      { type: "completed", stopReason: "end_turn" },
+    ]),
+    respondToPermission: async () => ({}),
+    setConfig: async () => ({ configOptions: [] }),
+  };
+  const store = createChatStore(client, { createId: () => "local", now: () => 42 });
+
+  await store.getState().loadSession("ora-1");
+  await store.getState().sendMessage({ oraSessionId: "ora-1", text: "list files" });
+
+  // The blank deltas open nothing, and the answer lands behind the call it
+  // describes rather than merging back into an item positioned ahead of it.
+  const [turn] = store.getState().conversations["ora-1"]!.turns;
+  assert.deepEqual(
+    turn?.items.map((item) => [item.kind, item.kind === "toolCall" ? item.title : (item as { content: string }).content]),
+    [
+      ["thought", " this.\n"],
+      ["toolCall", "ls -la"],
+      ["thought", "The command"],
+      ["message", "Here are the files."],
+    ],
+  );
+});
+
 test("settles a live tool call the agent never reported finishing", async () => {
   const client: ChatSessionClient = {
     load: () => events<LoadSessionEvent>([{ type: "completed" }]),
