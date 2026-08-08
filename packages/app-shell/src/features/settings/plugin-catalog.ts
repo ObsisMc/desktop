@@ -18,7 +18,7 @@ import {
 } from "@tabler/icons-react";
 import type { AgentCli } from "@ora/contracts";
 import { OpenAiLogo } from "../chat/provider-logos";
-import { ClaudeMark, CodeAgentCliMark, NgaMark, OpenCodeMark } from "./plugin-marks";
+import { ClaudeMark, CodeAgentCliMark, NgaMark, OpenCodeMark, RtkMark } from "./plugin-marks";
 
 /** A plugin's brand mark. Tabler icons and the hand-drawn marks both satisfy this. */
 export type PluginMark = ComponentType<{ className?: string }>;
@@ -154,6 +154,23 @@ export const PLUGIN_CATALOG: PluginEntry[] = [
     summaryKey: "settings.plugins.catalog.codex",
     skills: ["Codex", "Code Review"],
     detectionAgentCli: "codex",
+  },
+  {
+    id: "rtk",
+    name: "RTK",
+    publisher: "rtk-ai",
+    identifier: "rtk-ai.rtk",
+    version: "0.45.0",
+    updated: "2026-08-07",
+    size: "6.5 MB",
+    collection: "public",
+    featured: true,
+    categoryKey: "settings.plugins.category.devtools",
+    capabilityKeys: ["settings.plugins.capability.interactive", "settings.plugins.capability.terminal"],
+    mark: RtkMark,
+    tone: "text-lime-600 dark:text-lime-400",
+    summaryKey: "settings.plugins.catalog.rtk",
+    skills: [],
   },
   {
     id: "github",

@@ -143,24 +143,26 @@ export function PluginDetail({ plugin, installed, enabled, installPending, enabl
         {t("settings.plugins.overview", { name: plugin.name, publisher: plugin.publisher, summary })}
       </p>
 
-      <PluginSection title={t("settings.plugins.skills")} count={plugin.skills.length}>
-        <div className="divide-y divide-border">
-          {plugin.skills.map((skill) => (
-            <div key={skill} className="flex items-center gap-3 py-3">
-              <PluginTile plugin={plugin} size="sm" />
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium">{skill}</p>
-                <p className="mt-0.5 truncate text-xs text-muted-foreground">{t("settings.plugins.skillSummary", { name: skill })}</p>
+      {plugin.skills.length > 0 && (
+        <PluginSection title={t("settings.plugins.skills")} count={plugin.skills.length}>
+          <div className="divide-y divide-border">
+            {plugin.skills.map((skill) => (
+              <div key={skill} className="flex items-center gap-3 py-3">
+                <PluginTile plugin={plugin} size="sm" />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium">{skill}</p>
+                  <p className="mt-0.5 truncate text-xs text-muted-foreground">{t("settings.plugins.skillSummary", { name: skill })}</p>
+                </div>
+                <Switch
+                  checked={!disabledSkills.includes(skill)}
+                  onCheckedChange={() => toggleSkill(skill)}
+                  aria-label={t("settings.plugins.toggleSkill", { name: skill })}
+                />
               </div>
-              <Switch
-                checked={!disabledSkills.includes(skill)}
-                onCheckedChange={() => toggleSkill(skill)}
-                aria-label={t("settings.plugins.toggleSkill", { name: skill })}
-              />
-            </div>
-          ))}
-        </div>
-      </PluginSection>
+            ))}
+          </div>
+        </PluginSection>
+      )}
 
       <PluginSection title={t("settings.plugins.details")}>
         <ul data-selectable className="space-y-2 pt-3">
