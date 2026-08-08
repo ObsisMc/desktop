@@ -18,7 +18,21 @@ import {
   type ComposerAction,
   type ComposerActionGroup,
 } from "./composer-actions";
+import { SelectedPluginsButton } from "./selected-plugins-button";
 import { useComposerFileContextStore } from "../../state/stores/composer-file-context-store";
+import { usePluginInstallStore } from "../../state/stores/plugin-install-store";
+import { useComposerPluginSelectionStore } from "../../state/stores/composer-plugin-selection-store";
+import { conversationKeyFor } from "../../state/stores/conversation-key";
+import { useWorkspaceSelectionStore } from "../../state/stores/workspace-selection-store";
+import { AI_AGENT_CATEGORY_KEY, PLUGIN_CATALOG, findPlugin, type PluginEntry } from "../settings/plugin-catalog";
+
+/** Candidate plugins for the composer's "@" and "+" menus; the AI agent CLIs are chosen elsewhere. */
+const CANDIDATE_PLUGINS = PLUGIN_CATALOG.filter((plugin) => plugin.categoryKey !== AI_AGENT_CATEGORY_KEY);
+/** Stable empty array so the store selector below doesn't return a fresh reference every render. */
+const EMPTY_PLUGIN_IDS: string[] = [];
+
+/** Matches an "@" mention token ending at the cursor, e.g. the "Doc" in "check @Doc". */
+const AT_TRIGGER_PATTERN = /(?<=^|\s)@([^\s]*)$/;
 
 interface ComposerProps {
   taskId?: string;
@@ -82,6 +96,31 @@ export function Composer({
   const [expandedGroups, setExpandedGroups] = useState<ReadonlySet<ComposerActionGroup>>(new Set());
   const [attachments, setAttachments] = useState<ImageAttachment[]>([]);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const [caret, setCaret] = useState(0);
+  const installedPluginIds = usePluginInstallStore((state) => state.installedIds);
+  const disabledPluginIds = usePluginInstallStore((state) => state.disabledIds);
+  // Keyed by conversation, not by task: sibling sessions under one task each keep their own
+  // applied plugins, and the composer instance is reused across session switches rather than
+  // remounted, so this cannot live in component state. `dispatchSend` rekeys a pre-session
+  // conversation onto its real session id, which is what carries the picks across a first send.
+  const conversationKey = useWorkspaceSelectionStore((state) => conversationKeyFor(state.selection));
+  const selectedPluginIds = useComposerPluginSelectionStore((state) => state.selectedIdsByConversation[conversationKey] ?? EMPTY_PLUGIN_IDS);
+  const addSelectedPlugin = useComposerPluginSelectionStore((state) => state.addPlugin);
+  const removeSelectedPlugin = useComposerPluginSelectionStore((state) => state.removePlugin);
+  const selectedPlugins = useMemo(
+    () => selectedPluginIds.map(findPlugin).filter((plugin): plugin is PluginEntry => plugin !== undefined),
+    [selectedPluginIds],
+  );
+  // Only plugins the user actually installed, hasn't disabled, and hasn't already applied
+  // show up in "@" and "+" — picking one removes it from the menu until it is removed below.
+  const composerPlugins = useMemo(
+    () => CANDIDATE_PLUGINS.filter((plugin) =>
+      installedPluginIds.includes(plugin.id)
+      && !disabledPluginIds.includes(plugin.id)
+      && !selectedPluginIds.includes(plugin.id),
+    ),
+    [disabledPluginIds, installedPluginIds, selectedPluginIds],
+  );
   const [previewedAttachment, setPreviewedAttachment] = useState<ImageAttachment | null>(null);
   const composerRef = useRef<HTMLDivElement>(null);
   const textAreaRef = useRef<HTMLTextAreaElement>(null);
@@ -123,23 +162,30 @@ export function Composer({
     textAreaRef.current?.focus();
   }, [consumeFileContext, pendingFileContext, t, taskId]);
   const slashQuery = value.match(/^\/([^\s]*)$/)?.[1] ?? null;
+  const atMatch = value.slice(0, caret).match(AT_TRIGGER_PATTERN);
+  const atQuery = atMatch?.[1] ?? null;
+  const atTriggerIndex = atMatch !== null ? atMatch.index ?? null : null;
   const allActions = useMemo(() => buildComposerActions({
     skills,
     commands: availableCommands,
+    plugins: composerPlugins,
+    translatePluginSummary: (summaryKey) => t(summaryKey),
     includeAttachments: true,
     attachmentLabel: t("chat.actionMenu.addImages"),
     attachmentDescription: t("chat.actionMenu.addImagesDescription"),
-  }), [availableCommands, skills, t]);
-  const filteredActions = useMemo(
-    () => filterComposerActions(allActions, plusMenuOpen ? "" : slashQuery ?? ""),
-    [allActions, plusMenuOpen, slashQuery],
-  );
+  }), [availableCommands, composerPlugins, skills, t]);
+  const filteredActions = useMemo(() => {
+    if (plusMenuOpen) return filterComposerActions(allActions, "");
+    if (atQuery !== null) return filterComposerActions(allActions.filter((action) => action.group === "plugins"), atQuery);
+    // Slash is for skills and commands only; plugins are reached through "@" or the "+" menu.
+    return filterComposerActions(allActions.filter((action) => action.group !== "plugins"), slashQuery ?? "");
+  }, [allActions, atQuery, plusMenuOpen, slashQuery]);
   const visibleActions = useMemo(
     () => visibleComposerActions(filteredActions, expandedGroups),
     [expandedGroups, filteredActions],
   );
   const showActionMenu = visibleActions.length > 0
-    && (plusMenuOpen || (slashQuery !== null && !menuDismissed))
+    && (plusMenuOpen || (slashQuery !== null && !menuDismissed) || (atQuery !== null && !menuDismissed))
     && !disabled
     && !isResponding;
 
@@ -175,6 +221,20 @@ export function Composer({
     });
   };
 
+  /** Adds a plugin to this message's applied set and clears any "@" token that triggered it. */
+  const applyPlugin = (plugin: PluginEntry) => {
+    addSelectedPlugin(conversationKey, plugin.id);
+    if (atTriggerIndex !== null) {
+      const nextValue = value.slice(0, atTriggerIndex) + value.slice(caret);
+      setValue(nextValue);
+      requestAnimationFrame(() => {
+        textAreaRef.current?.focus();
+        textAreaRef.current?.setSelectionRange(atTriggerIndex, atTriggerIndex);
+      });
+    }
+    closeActionMenu();
+  };
+
   /** Executes the selected palette action through its existing product data path. */
   const selectAction = (action: ComposerAction) => {
     switch (action.group) {
@@ -183,6 +243,9 @@ export function Composer({
         return;
       case "commands":
         insertPromptToken(`/${action.command.name} `);
+        return;
+      case "plugins":
+        applyPlugin(action.plugin);
         return;
       case "actions":
         closeActionMenu();
@@ -377,11 +440,13 @@ export function Composer({
           disabled={disabled}
           onChange={(event) => {
             setValue(event.target.value);
+            setCaret(event.target.selectionStart ?? event.target.value.length);
             setPlusMenuOpen(false);
             setMenuDismissed(false);
             setExpandedGroups(new Set());
             setSelectedActionIndex(0);
           }}
+          onSelect={(event) => setCaret(event.currentTarget.selectionStart ?? 0)}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
           aria-label={t("chat.messageLabel")}
@@ -429,6 +494,13 @@ export function Composer({
             {attachments.length > 0 && <IconPhoto className="size-3.5 text-sky-600 dark:text-sky-400" aria-hidden="true" />}
             <PermissionSelector disabled={disabled} />
             <WorkflowToggle disabled={disabled} />
+            {selectedPlugins.length > 0 && (
+              <SelectedPluginsButton
+                selected={selectedPlugins}
+                disabled={disabled}
+                onRemove={(plugin) => removeSelectedPlugin(conversationKey, plugin.id)}
+              />
+            )}
           </div>
           <div ref={rightControlsRef} className="flex shrink-0 items-center gap-2">
             {showModelSelector && <ModelSelector disabled={disabled} />}

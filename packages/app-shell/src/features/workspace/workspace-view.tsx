@@ -29,9 +29,10 @@ import {
   getRun,
   kickNode,
   useWorkflowStore,
-  workflowKeyFor,
   type WorkflowNodeId,
 } from "../../state/stores/workflow-store";
+import { conversationKeyFor } from "../../state/stores/conversation-key";
+import { useComposerPluginSelectionStore } from "../../state/stores/composer-plugin-selection-store";
 import { useChatStore } from "../../chat-store-context";
 import { DragRegion } from "../../components/drag-region";
 import { WindowControls } from "../../components/window-controls";
@@ -70,7 +71,7 @@ function errorMessage(error: unknown): string {
 /**
  * Names the chat surface a selection is looking at.
  *
- * Neither half is enough alone: `workflowKeyFor` collapses every project-root
+ * Neither half is enough alone: `conversationKeyFor` collapses every project-root
  * chat onto one key, and the warm target does not change when a send adopts its
  * session. Together they move on exactly the two transitions that must retire a
  * pending send — navigating elsewhere, and its own conversation taking over.
@@ -80,7 +81,7 @@ function chatSurfaceKeyFor(selection: {
   taskId: string | null;
   sessionId: string | null;
 }): string {
-  return `${workflowKeyFor(selection)}|${warmTargetKey(selection) ?? ""}`;
+  return `${conversationKeyFor(selection)}|${warmTargetKey(selection) ?? ""}`;
 }
 
 /** A sent message shown before its surface has a session to key it under. */
@@ -185,7 +186,7 @@ export function WorkspaceView({ userName }: WorkspaceViewProps) {
   );
 
   // Workflow state is isolated per session (per task before the session exists).
-  const workflowKey = workflowKeyFor(selection);
+  const workflowKey = conversationKeyFor(selection);
   // Deriving what to show rather than clearing on a transition is what makes the
   // handover atomic: the render that adopts the session both retires this turn
   // and shows the real one, with no frame carrying neither or both.
@@ -245,7 +246,7 @@ export function WorkspaceView({ userName }: WorkspaceViewProps) {
     agentText: string | undefined,
     images: acp.ImageContent[] = [],
   ) => {
-    const currentKey = workflowKeyFor(
+    const currentKey = conversationKeyFor(
       useWorkspaceSelectionStore.getState().selection,
     );
     if (session) {
@@ -343,9 +344,11 @@ export function WorkspaceView({ userName }: WorkspaceViewProps) {
 
     const projectId = project.id;
     let taskId = task?.id ?? null;
-    // The workflow run follows the conversation onto its session id, which is
-    // now known, so this happens once instead of tracking a moving key.
+    // The workflow run and the composer's applied plugins both follow the
+    // conversation onto its session id, which is now known, so this happens once
+    // instead of tracking a moving key.
     useWorkflowStore.getState().rekey(currentKey, sessionId);
+    useComposerPluginSelectionStore.getState().rekey(currentKey, sessionId);
     // Point the workspace at this session before anything is awaited, so the
     // optimistic turn is on screen while its task and record are still forming.
     const selectionStore = useWorkspaceSelectionStore.getState();
@@ -435,7 +438,7 @@ export function WorkspaceView({ userName }: WorkspaceViewProps) {
   // running) launches that stage and rides its reminder; the reminder shows only in
   // `agentText`, never the transcript. Within a running stage nothing is injected.
   const sendOrStartSession = async (text: string, images: acp.ImageContent[] = []) => {
-    const key = workflowKeyFor(useWorkspaceSelectionStore.getState().selection);
+    const key = conversationKeyFor(useWorkspaceSelectionStore.getState().selection);
     const nodeId = kickNode(getRun(useWorkflowStore.getState(), key));
     let agentText: string | undefined;
     if (nodeId !== null) {
@@ -449,7 +452,7 @@ export function WorkspaceView({ userName }: WorkspaceViewProps) {
   // agent starts that stage. The transcript shows a short action label while the
   // agent receives the full reminder; the node flips to running.
   const launchWorkflowNode = (id: WorkflowNodeId) => {
-    const key = workflowKeyFor(useWorkspaceSelectionStore.getState().selection);
+    const key = conversationKeyFor(useWorkspaceSelectionStore.getState().selection);
     useWorkflowStore.getState().launchNode(key, id);
     const displayText = t("workflow.startNode", { node: t(`workflow.node.${id}`) });
     void dispatchSend(displayText, buildWorkflowReminder(id, skillsDir)).catch(() => undefined);

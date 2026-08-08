@@ -205,20 +205,6 @@ export function getRun(state: { runs: Record<string, WorkflowRun> }, key: string
   return state.runs[key] ?? EMPTY_RUN;
 }
 
-/**
- * The workflow store key for a selection. A live session keys on its id; the
- * new-task landing keys on its task so a workflow armed before the session exists
- * survives until it is rekeyed onto the real session id.
- */
-export function workflowKeyFor(selection: {
-  sessionId: string | null;
-  taskId: string | null;
-}): string {
-  if (selection.sessionId !== null) return selection.sessionId;
-  if (selection.taskId !== null) return `task:${selection.taskId}`;
-  return "__none__";
-}
-
 /** The first still-pending node — the stepper's suggested next step (starts at explore). */
 export function suggestedNextNode(nodes: WorkflowNode[]): WorkflowNodeId | null {
   return nodes.find((node) => node.status === "pending")?.id ?? null;

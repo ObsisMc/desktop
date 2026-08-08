@@ -1,7 +1,7 @@
 import { useWorkspaceSelectionStore } from "../../state/stores/workspace-selection-store";
-import { workflowKeyFor } from "../../state/stores/workflow-store";
+import { conversationKeyFor } from "../../state/stores/conversation-key";
 
 /** The workflow store key for the current selection (session id, or a task key). */
 export function useWorkflowKey(): string {
-  return useWorkspaceSelectionStore((state) => workflowKeyFor(state.selection));
+  return useWorkspaceSelectionStore((state) => conversationKeyFor(state.selection));
 }

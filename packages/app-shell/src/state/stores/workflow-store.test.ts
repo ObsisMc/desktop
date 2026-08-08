@@ -5,7 +5,6 @@ import {
   kickNode,
   suggestedNextNode,
   useWorkflowStore,
-  workflowKeyFor,
 } from "./workflow-store";
 
 const KEY = "session-1";
@@ -129,14 +128,6 @@ describe("buildWorkflowReminder", () => {
 
   it("maps apply to the apply-change skill", () => {
     expect(buildWorkflowReminder("apply", "/x/.opencode/skills")).toContain("openspec-apply-change");
-  });
-});
-
-describe("workflowKeyFor", () => {
-  it("prefers the session id, then a task key, then a sentinel", () => {
-    expect(workflowKeyFor({ sessionId: "s1", taskId: "t1" })).toBe("s1");
-    expect(workflowKeyFor({ sessionId: null, taskId: "t1" })).toBe("task:t1");
-    expect(workflowKeyFor({ sessionId: null, taskId: null })).toBe("__none__");
   });
 });
 

@@ -132,7 +132,7 @@ function ActionOption({
   );
 }
 
-/** Chooses a consistent line icon for each capability group. */
+/** Chooses a consistent line icon for each capability group; plugins show their own brand mark. */
 function actionIcon(action: ComposerAction): ReactNode {
   const commonClassName = "size-4 shrink-0 text-muted-foreground group-aria-selected:text-foreground";
   switch (action.group) {
@@ -140,6 +140,10 @@ function actionIcon(action: ComposerAction): ReactNode {
       return <IconSparkles className={commonClassName} aria-hidden="true" />;
     case "commands":
       return <IconBolt className={commonClassName} aria-hidden="true" />;
+    case "plugins": {
+      const Mark = action.plugin.mark;
+      return <Mark className={`size-4 shrink-0 ${action.plugin.tone}`} aria-hidden="true" />;
+    }
     case "actions":
       return <IconPhoto className={commonClassName} aria-hidden="true" />;
   }

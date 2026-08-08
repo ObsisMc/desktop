@@ -1,25 +1,31 @@
 import type { acp, Skill } from "@ora/contracts";
+import type { PluginEntry } from "../settings/plugin-catalog";
 
-export type ComposerActionGroup = "skills" | "commands" | "actions";
+export type ComposerActionGroup = "skills" | "commands" | "plugins" | "actions";
 
 export type ComposerAction =
   | { id: string; group: "skills"; label: string; description: string; skill: Skill }
   | { id: string; group: "commands"; label: string; description: string; hint?: string; command: acp.AvailableCommand }
+  | { id: string; group: "plugins"; label: string; description: string; plugin: PluginEntry }
   | { id: "action:add-images"; group: "actions"; label: string; description: string };
 
-export const COMPOSER_ACTION_GROUPS: readonly ComposerActionGroup[] = ["skills", "commands", "actions"];
+export const COMPOSER_ACTION_GROUPS: readonly ComposerActionGroup[] = ["skills", "commands", "plugins", "actions"];
 export const COLLAPSED_ACTION_GROUP_SIZE = 5;
 
-/** Builds searchable actions from provider capabilities and Ora's configured skills. */
+/** Builds searchable actions from provider capabilities, Ora's configured skills, and the plugin catalog. */
 export function buildComposerActions({
   skills,
   commands,
+  plugins,
+  translatePluginSummary,
   includeAttachments,
   attachmentLabel,
   attachmentDescription,
 }: {
   skills: Skill[];
   commands: acp.AvailableCommand[];
+  plugins: PluginEntry[];
+  translatePluginSummary: (summaryKey: string) => string;
   includeAttachments: boolean;
   attachmentLabel: string;
   attachmentDescription: string;
@@ -39,6 +45,13 @@ export function buildComposerActions({
       description: command.description,
       ...(command.input == null ? {} : { hint: command.input.hint }),
       command,
+    })),
+    ...plugins.map((plugin): ComposerAction => ({
+      id: `plugin:${plugin.id}`,
+      group: "plugins",
+      label: plugin.name,
+      description: translatePluginSummary(plugin.summaryKey),
+      plugin,
     })),
     ...(includeAttachments ? [{
       id: "action:add-images" as const,

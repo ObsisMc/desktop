@@ -27,8 +27,8 @@ import {
 } from "@tabler/icons-react";
 import type { AgentCliStatus } from "@ora/contracts";
 import { useAgentRuntimeStatus } from "../../state/hooks/use-agent-runtime-status";
+import { usePluginInstallStore } from "../../state/stores/plugin-install-store";
 import {
-  DEFAULT_INSTALLED_PLUGIN_IDS,
   PLUGIN_CATALOG,
   findPlugin,
   type PluginCollection,
@@ -63,14 +63,16 @@ type InstalledEntry =
  */
 export function PluginsSettings() {
   const { t } = useTranslation();
-  const [installedIds, setInstalledIds] = useState<string[]>(DEFAULT_INSTALLED_PLUGIN_IDS);
+  const installedIds = usePluginInstallStore((state) => state.installedIds);
+  const toggleInstalledId = usePluginInstallStore((state) => state.toggleInstalled);
+  const disabledIds = usePluginInstallStore((state) => state.disabledIds);
+  const toggleEnabled = usePluginInstallStore((state) => state.toggleEnabled);
   const discoveredPlugins = useInstalledPlugins().data ?? [];
   const [query, setQuery] = useState("");
   const [collection, setCollection] = useState<PluginCollection>("public");
   const [expanded, setExpanded] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
   const [managing, setManaging] = useState(false);
-  const [disabledIds, setDisabledIds] = useState<string[]>([]);
   const { data: agentRuntimeStatuses } = useAgentRuntimeStatus();
 
   // The three CLI plugins never read from `installedIds`: their card is installed exactly
@@ -94,11 +96,8 @@ export function PluginsSettings() {
 
   const toggleInstall = (id: string) => {
     if (findPlugin(id)?.detectionAgentCli) return;
-    setInstalledIds((ids) => (ids.includes(id) ? ids.filter((current) => current !== id) : [...ids, id]));
+    toggleInstalledId(id);
   };
-  const toggleEnabled = (id: string) => setDisabledIds((ids) => (
-    ids.includes(id) ? ids.filter((current) => current !== id) : [...ids, id]
-  ));
 
   const installed = useMemo(
     () => PLUGIN_CATALOG.filter(isInstalled),
