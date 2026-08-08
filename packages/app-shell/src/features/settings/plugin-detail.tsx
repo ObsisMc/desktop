@@ -27,8 +27,7 @@ import {
 import type { PluginEntry } from "./plugin-catalog";
 import { PluginTile } from "./plugin-tile";
 
-/** The prompt suggestions and feature bullets are generic; each is filled with the plugin's name. */
-const SAMPLE_PROMPT_KEYS = ["settings.plugins.prompt1", "settings.plugins.prompt2", "settings.plugins.prompt3"];
+/** The feature bullets are generic; each is filled with the plugin's name. */
 const FEATURE_KEYS = [
   "settings.plugins.feature1",
   "settings.plugins.feature2",
@@ -113,7 +112,7 @@ export function PluginDetail({ plugin, installed, enabled, onBack, onToggleEnabl
 
       <div className="rounded-xl border border-border bg-gradient-to-br from-muted/70 via-muted/30 to-background p-6">
         <div className="mx-auto flex max-w-sm flex-col gap-2.5">
-          {SAMPLE_PROMPT_KEYS.map((key) => (
+          {[1, 2, 3].map((step) => `settings.plugins.prompt.${plugin.id}.${step}`).map((key) => (
             <div key={key} className="flex items-center gap-2 rounded-lg border border-border bg-background/80 px-3 py-2 text-xs shadow-sm">
               <PluginTile plugin={plugin} size="sm" className="size-4 [&_svg]:size-4" />
               <span className="shrink-0 font-medium">{plugin.name}</span>
