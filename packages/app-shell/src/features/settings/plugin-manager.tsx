@@ -18,7 +18,7 @@ import {
   Input,
   Switch,
 } from "@ora/ui";
-import { IconDots, IconInfoCircle, IconPlug, IconSearch, IconTrash } from "@tabler/icons-react";
+import { IconDots, IconInfoCircle, IconLoader2, IconPlug, IconSearch, IconTrash } from "@tabler/icons-react";
 import type { PluginEntry } from "./plugin-catalog";
 import { PluginTile } from "./plugin-tile";
 import { filterDiscoveredPlugins } from "./filter-discovered-plugins";
@@ -27,10 +27,12 @@ import { filterDiscoveredPlugins } from "./filter-discovered-plugins";
  * The installed-plugin manager keeps catalog interactions unchanged and appends
  * discovered packages as read-only rows without detail, uninstall, or enable controls.
  */
-export function PluginManager({ plugins, discoveredPlugins, disabledIds, onBack, onOpen, onToggleEnabled, onUninstall }: {
+export function PluginManager({ plugins, discoveredPlugins, disabledIds, pendingInstallIds, pendingEnableIds, onBack, onOpen, onToggleEnabled, onUninstall }: {
   plugins: PluginEntry[];
   discoveredPlugins: InstalledPlugin[];
   disabledIds: string[];
+  pendingInstallIds: string[];
+  pendingEnableIds: string[];
   onBack: () => void;
   onOpen: (id: string) => void;
   onToggleEnabled: (id: string) => void;
@@ -87,7 +89,10 @@ export function PluginManager({ plugins, discoveredPlugins, disabledIds, onBack,
         ? <p className="py-10 text-center text-sm text-muted-foreground">{plugins.length + discoveredPlugins.length === 0 ? t("settings.plugins.noneInstalled") : t("settings.plugins.empty")}</p>
         : (
           <div className="divide-y divide-border border-y border-border">
-            {visible.map((plugin) => (
+            {visible.map((plugin) => {
+              const uninstalling = pendingInstallIds.includes(plugin.id);
+              const togglingEnabled = pendingEnableIds.includes(plugin.id);
+              return (
               <div key={plugin.id} className="flex items-center gap-3 py-3">
                 <button
                   type="button"
@@ -113,18 +118,24 @@ export function PluginManager({ plugins, discoveredPlugins, disabledIds, onBack,
                     {!plugin.detectionAgentCli && (
                       <>
                         <DropdownMenuSeparator />
-                        <DropdownMenuItem variant="destructive" onClick={() => onUninstall(plugin.id)}><IconTrash />{t("settings.plugins.uninstall")}</DropdownMenuItem>
+                        <DropdownMenuItem variant="destructive" disabled={uninstalling} onClick={() => onUninstall(plugin.id)}>
+                          {uninstalling ? <IconLoader2 className="animate-spin" /> : <IconTrash />}
+                          {t(uninstalling ? "settings.plugins.uninstalling" : "settings.plugins.uninstall")}
+                        </DropdownMenuItem>
                       </>
                     )}
                   </DropdownMenuContent>
                 </DropdownMenu>
+                {/* An uninstall in flight also freezes the toggle: this row is on its way out. */}
                 <Switch
                   checked={!disabledIds.includes(plugin.id)}
+                  disabled={togglingEnabled || uninstalling}
                   onCheckedChange={() => onToggleEnabled(plugin.id)}
                   aria-label={t("settings.plugins.toggleSkill", { name: plugin.name })}
                 />
               </div>
-            ))}
+              );
+            })}
             {visibleDiscovered.map((plugin) => (
               <div key={`discovered:${plugin.id}`} className="flex items-center gap-3 py-3">
                 <span className="flex size-10 shrink-0 items-center justify-center text-muted-foreground">

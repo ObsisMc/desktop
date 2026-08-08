@@ -19,6 +19,7 @@ import {
   IconDots,
   IconFilter,
   IconInfoCircle,
+  IconLoader2,
   IconPlug,
   IconSearch,
   IconSettings,
@@ -66,7 +67,9 @@ export function PluginsSettings() {
   const installedIds = usePluginInstallStore((state) => state.installedIds);
   const toggleInstalledId = usePluginInstallStore((state) => state.toggleInstalled);
   const disabledIds = usePluginInstallStore((state) => state.disabledIds);
-  const toggleEnabled = usePluginInstallStore((state) => state.toggleEnabled);
+  const toggleEnabledId = usePluginInstallStore((state) => state.toggleEnabled);
+  const pendingInstallIds = usePluginInstallStore((state) => state.pendingInstallIds);
+  const pendingEnableIds = usePluginInstallStore((state) => state.pendingEnableIds);
   const discoveredPlugins = useInstalledPlugins().data ?? [];
   const [query, setQuery] = useState("");
   const [collection, setCollection] = useState<PluginCollection>("public");
@@ -94,10 +97,13 @@ export function PluginsSettings() {
       : installedIds.includes(plugin.id)
   ), [detectionStatusByPluginId, installedIds]);
 
+  // Both mutations resolve behind a simulated delay owned by the store; nothing here
+  // awaits them because every control re-renders off the store's pending id lists.
   const toggleInstall = (id: string) => {
     if (findPlugin(id)?.detectionAgentCli) return;
-    toggleInstalledId(id);
+    void toggleInstalledId(id);
   };
+  const toggleEnabled = (id: string) => void toggleEnabledId(id);
 
   const installed = useMemo(
     () => PLUGIN_CATALOG.filter(isInstalled),
@@ -122,6 +128,8 @@ export function PluginsSettings() {
         plugin={openPlugin}
         installed={isInstalled(openPlugin)}
         enabled={!disabledIds.includes(openPlugin.id)}
+        installPending={pendingInstallIds.includes(openPlugin.id)}
+        enablePending={pendingEnableIds.includes(openPlugin.id)}
         onBack={() => setOpenId(null)}
         onToggleEnabled={() => toggleEnabled(openPlugin.id)}
         onToggleInstall={() => toggleInstall(openPlugin.id)}
@@ -134,6 +142,8 @@ export function PluginsSettings() {
       <PluginManager
         plugins={installed}
         disabledIds={disabledIds}
+        pendingInstallIds={pendingInstallIds}
+        pendingEnableIds={pendingEnableIds}
         onBack={() => setManaging(false)}
         discoveredPlugins={discoveredPlugins}
         onOpen={setOpenId}
@@ -148,7 +158,7 @@ export function PluginsSettings() {
   const featured = visible.filter((plugin) => plugin.featured);
   const rest = visible.filter((plugin) => !plugin.featured);
   const collapsible = rest.length > NAMED_IN_SHOW_MORE;
-  const grid = { installedIds, detectionStatusByPluginId, onOpen: setOpenId, onToggleInstall: toggleInstall };
+  const grid = { installedIds, pendingInstallIds, detectionStatusByPluginId, onOpen: setOpenId, onToggleInstall: toggleInstall };
 
   return (
     <div className="space-y-6">
@@ -331,9 +341,10 @@ function InstalledOverflowTile({ hidden, total, onOpen }: { hidden: number; tota
 }
 
 /** Two-column browse grid shared by the featured, expanded and search result sections. */
-function PluginGrid({ items, installedIds, detectionStatusByPluginId, onOpen, onToggleInstall }: {
+function PluginGrid({ items, installedIds, pendingInstallIds, detectionStatusByPluginId, onOpen, onToggleInstall }: {
   items: PluginEntry[];
   installedIds: string[];
+  pendingInstallIds: string[];
   detectionStatusByPluginId: Map<string, AgentCliStatus>;
   onOpen: (id: string) => void;
   onToggleInstall: (id: string) => void;
@@ -347,6 +358,7 @@ function PluginGrid({ items, installedIds, detectionStatusByPluginId, onOpen, on
             key={plugin.id}
             plugin={plugin}
             installed={detectionStatus ? detectionStatus === "ready" : installedIds.includes(plugin.id)}
+            pending={pendingInstallIds.includes(plugin.id)}
             onOpen={() => onOpen(plugin.id)}
             onToggleInstall={() => onToggleInstall(plugin.id)}
           />
@@ -357,9 +369,10 @@ function PluginGrid({ items, installedIds, detectionStatusByPluginId, onOpen, on
 }
 
 /** One catalog row: the mark and copy open the detail page, the trailing control installs it. */
-function PluginCard({ plugin, installed, onOpen, onToggleInstall }: {
+function PluginCard({ plugin, installed, pending, onOpen, onToggleInstall }: {
   plugin: PluginEntry;
   installed: boolean;
+  pending: boolean;
   onOpen: () => void;
   onToggleInstall: () => void;
 }) {
@@ -378,9 +391,18 @@ function PluginCard({ plugin, installed, onOpen, onToggleInstall }: {
           <span className="mt-0.5 block truncate text-[11px] text-muted-foreground/80">{plugin.publisher}</span>
         </span>
       </button>
-      {installed
-        ? <PluginActionsMenu plugin={plugin} onOpen={onOpen} onUninstall={onToggleInstall} />
-        : <Button variant="outline" size="sm" className="shrink-0" onClick={onToggleInstall}>{t("settings.plugins.install")}</Button>}
+      {/* In flight, the menu and the install button both give way to one inert progress
+          button, so the row cannot start a second mutation or be uninstalled mid-install. */}
+      {pending
+        ? (
+          <Button variant="outline" size="sm" disabled className="shrink-0">
+            <IconLoader2 className="animate-spin" />
+            {t(installed ? "settings.plugins.uninstalling" : "settings.plugins.installing")}
+          </Button>
+        )
+        : installed
+          ? <PluginActionsMenu plugin={plugin} onOpen={onOpen} onUninstall={onToggleInstall} />
+          : <Button variant="outline" size="sm" className="shrink-0" onClick={onToggleInstall}>{t("settings.plugins.install")}</Button>}
     </div>
   );
 }
