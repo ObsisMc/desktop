@@ -1,9 +1,8 @@
 use crate::{
     AgentCli, AgentDefinition, AgentDefinitionId, Artifact, ArtifactId, AuditFields,
-    DomainModelError, HistoryState, Project, ProjectId, ProjectWorkContext, ProjectWorkContextId,
-    ProjectWorkContextSurface, Session, SessionId, SessionStatus, Skill, SkillId, Task, TaskId,
-    TaskStatus, TaskType, VirtualEntry, VirtualEntryId, VirtualEntryKind, VirtualFolder,
-    VirtualFolderId, Worktree, WorktreeActivity, WorktreeBaseline, WorktreeId,
+    DomainModelError, HistoryState, Project, ProjectId, Session, SessionId, SessionStatus, Skill,
+    SkillId, Task, TaskId, TaskStatus, TaskType, VirtualEntry, VirtualEntryId, VirtualEntryKind,
+    VirtualFolder, VirtualFolderId, Worktree, WorktreeActivity, WorktreeBaseline, WorktreeId,
 };
 use pretty_assertions::assert_eq;
 
@@ -46,15 +45,6 @@ fn constructs_schema_backed_entities() {
         task.id.clone(),
         Some("proposal".to_string()),
         audit_fields.clone(),
-    );
-    let project_work_context = ProjectWorkContext::new(
-        ProjectWorkContextId::new("project-work-context-1"),
-        ProjectWorkContextSurface::Web,
-        "main",
-        project.id.clone(),
-        1_700_000_000_600,
-        1_700_000_000_000,
-        1_700_000_000_500,
     );
     let entry = VirtualEntry::new(
         VirtualEntryId::new("entry-1"),
@@ -140,18 +130,6 @@ fn constructs_schema_backed_entities() {
             task_id: TaskId::new("task-1"),
             content: Some("proposal".to_string()),
             audit_fields: audit_fields.clone(),
-        }
-    );
-    assert_eq!(
-        project_work_context,
-        ProjectWorkContext {
-            id: ProjectWorkContextId::new("project-work-context-1"),
-            surface: ProjectWorkContextSurface::Web,
-            window_id: "main".to_string(),
-            project_id: ProjectId::new("project-1"),
-            lease_expires_at: 1_700_000_000_600,
-            created_at: 1_700_000_000_000,
-            updated_at: 1_700_000_000_500,
         }
     );
     assert_eq!(
@@ -276,12 +254,6 @@ fn maps_agent_cli_launch_arguments() {
 /// Confirms every categorical enum round-trips to the integer encoding expected by SQLite.
 #[test]
 fn round_trips_database_backed_enums() {
-    assert_eq!(
-        ProjectWorkContextSurface::from_database_value("web"),
-        Ok(ProjectWorkContextSurface::Web)
-    );
-    assert_eq!(ProjectWorkContextSurface::Tauri.database_value(), "tauri");
-
     assert_eq!(TaskStatus::from_database_value(0), Ok(TaskStatus::Todo));
     assert_eq!(TaskStatus::Doing.database_value(), 1);
     assert_eq!(TaskStatus::Done.database_value(), 2);
@@ -311,12 +283,6 @@ fn rejects_invalid_database_values() {
     assert_eq!(
         WorktreeBaseline::recorded("  "),
         Err(DomainModelError::EmptyWorktreeBaseline)
-    );
-    assert_eq!(
-        ProjectWorkContextSurface::from_database_value("desktop"),
-        Err(DomainModelError::InvalidProjectWorkContextSurface(
-            "desktop".to_string()
-        ))
     );
     assert_eq!(
         TaskStatus::from_database_value(7),

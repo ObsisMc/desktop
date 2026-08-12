@@ -5,7 +5,6 @@ mod error;
 mod git_cleanup;
 mod ids;
 mod project;
-mod project_work_context;
 mod session;
 mod session_title;
 mod skill;
@@ -31,12 +30,10 @@ pub use git_cleanup::{
 };
 pub use ids::{
     AgentDefinitionId, ArtifactId, GitCleanupJobId, ProjectId, ProjectSpecSourceOverrideId,
-    ProjectWorkContextId, SessionId, SkillId, TaskDiffCommentId, TaskId, VirtualEntryId,
-    VirtualFolderId, WorkflowId, WorkflowNodeRunId, WorkflowRunId, WorkflowSnapshotId, WorktreeId,
-    WorktreeProvisioningLeaseId,
+    SessionId, SkillId, TaskDiffCommentId, TaskId, VirtualEntryId, VirtualFolderId, WorkflowId,
+    WorkflowNodeRunId, WorkflowRunId, WorkflowSnapshotId, WorktreeId, WorktreeProvisioningLeaseId,
 };
 pub use project::Project;
-pub use project_work_context::{ProjectWorkContext, ProjectWorkContextSurface};
 pub use session::{AgentCli, HistoryState, Session, SessionStatus};
 pub use session_title::{MAX_SESSION_TITLE_CHARS, SessionTitle, SessionTitleError};
 pub use skill::{

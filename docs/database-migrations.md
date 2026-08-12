@@ -23,8 +23,9 @@ Ora keeps SQLite migration definitions in Rust code inside `ora-db` rather than 
 | `0008` | `agents.content` for persisted agent definitions |
 | `0009` | nullable `sessions.title` for the persisted display name |
 | `0010` | nullable `worktrees.checkout_root`, `git_cleanup_jobs`, `worktree_provisioning_leases` |
+| `0011` | drops `project_work_contexts` and its indexes after the single-tab restriction removed multi-client window leases |
 
-`default_migration_catalog()` returns all nine with every version as the active target.
+`default_migration_catalog()` returns all eleven with every version as the active target.
 
 ## Reconciliation model
 

@@ -13,7 +13,6 @@
 - It provides read-only server filesystem listings for the Web platform path picker.
 - It provides a task-scoped, read-only workspace explorer with bounded file reads, ripgrep search, and native refresh events.
 - It exposes the shared project/task Spec catalog, safe Markdown reads, project-wide source configuration, and mounted-only refresh streams.
-- It owns the project work context routes, which are outside `ora-backend`.
 
 ## Data root configuration
 
@@ -31,7 +30,7 @@ Every other runtime path is derived from it — there is no separate variable fo
 
 Two Ora processes must not share one data root. SQLite tolerates it, but session history files are written on a single-writer assumption that only holds within one process. See [ACP Agent Runtime](agent-runtime.md).
 
-Startup asks `ora-backend` to create the required directories, bootstrap the database, apply the active migration catalog, and construct the shared composition before the runtime is marked ready. A SQLite database that cannot be opened, migrated, or pooled fails startup with a typed bootstrap error rather than serving requests from a partially initialized runtime. The server retains direct composition only for the Web-only project work context and filesystem services.
+Startup asks `ora-backend` to create the required directories, bootstrap the database, apply the active migration catalog, and construct the shared composition before the runtime is marked ready. A SQLite database that cannot be opened, migrated, or pooled fails startup with a typed bootstrap error rather than serving requests from a partially initialized runtime. The server retains direct composition only for the Web-only filesystem services.
 
 ## Project configuration
 
@@ -47,8 +46,6 @@ Startup reconciles this configured project into the `projects` table before the 
 - If no visible project exists with the configured name, startup creates one row.
 - If a visible project exists with the configured name but a different stored path, startup fails, because project roots are immutable.
 - If both the configured name and path already match, startup leaves the row unchanged.
-
-After reconciliation, startup opens the synthetic web work context `surface = web`, `window_id = main` for that project and refreshes its lease immediately.
 
 Task creation resolves the project named in the request and provisions linked worktrees under `<ORA_DATA_DIR>/worktrees/<full-task-id>`. Agent session startup instead resolves Task → Worktree → branch name and then asks Git for the authoritative linked-worktree path, which becomes the ACP session `cwd`. See [Task Worktrees](task-worktrees.md).
 
@@ -79,11 +76,6 @@ Route paths come from shared `ora-contracts` path constants, while the generatio
 - `GET /api/projects/{projectId}`
 - `PUT /api/projects/{projectId}`
 - `DELETE /api/projects/{projectId}`
-
-### projectWorkContext
-
-- `POST /api/project-work-contexts/open`
-- `POST /api/project-work-contexts/renew`
 
 ### task
 
@@ -198,14 +190,6 @@ Preparation snapshots and safely scans the source, rejects unsafe paths, links a
 
 Each created, updated, overwritten, or deleted skill is atomic across its SQLite row and `<ORA_DATA_DIR>/atoms/skills/<name>/` package. The package transaction uses a same-filesystem staging directory and backup, while import sources remain in OS temp because it may be a different filesystem. Startup recovers interrupted package transactions, removes unowned package directories, and refuses to start if a visible row lacks its package or root `SKILL.md`.
 
-### Project work contexts
-
-- `open` creates or switches one `(surface, window_id)` context into a project and refreshes its lease immediately.
-- `renew` extends an existing context lease using backend time.
-- Occupied-project conflicts return a stable HTTP `409` without exposing the owning surface or window id in the response.
-
-See [Project Work Contexts](project-work-contexts.md) for lease timing and current wiring.
-
 ### Filesystem browsing
 
 The filesystem directory route supports the custom Web path picker.
@@ -243,5 +227,5 @@ Long-lived task workspace watch responses defer completion until an end or error
 The runtime uses a file-backed SQLite database bootstrapped through `ora-db`.
 
 - Data persists across process restarts as long as the same `ORA_DATA_DIR` is reused.
-- Readiness depends on successful database bootstrap, repository-pool construction, bootstrap-project reconciliation, and synthetic web work context reconciliation.
+- Readiness depends on successful database bootstrap, repository-pool construction, and bootstrap-project reconciliation.
 - The request seam emits at most one correlated completion event. Ordinary success is `INFO`, health and readiness success are `DEBUG`, and failure levels derive from the shared backend classification.
