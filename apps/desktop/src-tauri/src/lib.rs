@@ -5,6 +5,7 @@ mod error;
 mod skill_marketplace;
 mod spec_commands;
 mod state;
+mod stream_forwarding;
 mod workspace_files;
 
 use crate::config::DesktopConfigStore;

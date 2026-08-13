@@ -1,6 +1,7 @@
-use crate::commands::{forward_workspace_watch, register_contract_stream};
+use crate::commands::register_contract_stream;
 use crate::error::CommandError;
 use crate::state::DesktopState;
+use crate::stream_forwarding::forward_workspace_watch;
 use crate::workspace_files::workspace_file_backend_error;
 use ora_backend::{BackendError, RequestLifecycle, UuidRequestIdGenerator};
 use ora_contracts::*;
