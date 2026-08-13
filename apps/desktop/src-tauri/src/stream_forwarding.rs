@@ -2,7 +2,9 @@
 //!
 //! Every stream started at the command seam is deferred: the command returns before any event
 //! exists, so the forwarding task owns the request's `RequestLifecycle` and is solely responsible
-//! for emitting its single completion event.
+//! for emitting its single completion event. Each way a stream can end — caller cancellation, a
+//! terminal backend error, natural exhaustion, or the frontend Channel disappearing — must claim
+//! that completion, otherwise the request leaves no closing record in the logs.
 
 use crate::workspace_files::workspace_file_backend_error;
 use ora_backend::{BackendError, RequestLifecycle};
@@ -50,7 +52,15 @@ pub(crate) async fn forward_contract_stream<Event>(
                         serde_json::json!({ "type": "end" })
                     },
                 };
-                if on_event.send(frame).is_err() || is_terminal {
+                if on_event.send(frame).is_err() {
+                    // The frontend Channel is gone, so no terminal frame can ever be delivered.
+                    // Record it as a caller-side teardown rather than a backend failure; the
+                    // exactly-once claim makes this a no-op when a terminal frame already
+                    // completed the request just above.
+                    lifecycle.complete_cancellation();
+                    break;
+                }
+                if is_terminal {
                     break;
                 }
             }
@@ -81,14 +91,14 @@ pub(crate) async fn forward_workspace_watch(
                         .send(serde_json::json!({ "type": "data", "data": data }))
                         .is_err()
                     {
-                        break;
+                        return Err(WatchStop::ChannelClosed);
                     }
                 }
                 Ok(Some(_)) | Ok(None) => {}
-                Err(error) => return Err(error),
+                Err(error) => return Err(WatchStop::Watcher(error)),
             }
         }
-        Ok::<(), ora_fs::WorkspaceFileSystemError>(())
+        Ok(())
     })
     .await;
 
@@ -100,7 +110,10 @@ pub(crate) async fn forward_workspace_watch(
                 lifecycle.complete_success();
                 let _ = terminal_channel.send(serde_json::json!({ "type": "end" }));
             }
-            Ok(Err(error)) => {
+            // A closed Channel has no receiver left to inform, so this path only records the
+            // completion that the disconnected caller can no longer observe.
+            Ok(Err(WatchStop::ChannelClosed)) => lifecycle.complete_cancellation(),
+            Ok(Err(WatchStop::Watcher(error))) => {
                 let backend_error = workspace_file_backend_error(error);
                 lifecycle.complete_failure(&backend_error);
                 let _ = terminal_channel.send(serde_json::json!({
@@ -120,6 +133,12 @@ pub(crate) async fn forward_workspace_watch(
         }
     }
     unregister(&registry, &stream_call_id);
+}
+
+/// Distinguishes the two reasons the blocking watch loop stops before cancellation.
+enum WatchStop {
+    ChannelClosed,
+    Watcher(ora_fs::WorkspaceFileSystemError),
 }
 
 /// Releases the private stream id so a later call may reuse it.
@@ -145,5 +164,163 @@ fn to_contract_change(change: ora_fs::WorkspaceChange) -> WorkspaceFileChange {
             path: change.path,
         },
         ora_fs::WorkspaceChangeKind::RescanRequired => WorkspaceFileChange::RescanRequired,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{StreamRegistry, forward_contract_stream};
+    use ora_backend::{AppEventHub, RequestLifecycle, UuidRequestIdGenerator};
+    use ora_logging::with_recorded_trace_logging;
+    use pretty_assertions::assert_eq;
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
+    use tauri::ipc::Channel;
+    use tokio_util::sync::CancellationToken;
+    use tracing::field::{Field, Visit};
+    use tracing_subscriber::layer::{Context, Layer};
+
+    const STREAM_CALL_ID: &str = "test-stream-call-id";
+
+    /// A stream whose frontend Channel disconnects must still record one completion event.
+    ///
+    /// The disconnect happens on a non-terminal data frame, which is the case that previously
+    /// broke out of the forwarding loop without claiming the lifecycle at all.
+    #[test]
+    fn channel_disconnect_on_a_data_frame_completes_the_request_as_cancelled() {
+        let recorder = OutcomeRecorder::default();
+        let registry: StreamRegistry = Arc::new(Mutex::new(HashMap::new()));
+        let cancellation = CancellationToken::new();
+        registry
+            .lock()
+            .unwrap()
+            .insert(STREAM_CALL_ID.to_string(), cancellation.clone());
+
+        with_recorded_trace_logging(recorder.layer(), || {
+            runtime().block_on(async {
+                // `subscribe` seeds the stream with `AppEvent::Ready`, so the first frame the
+                // loop forwards is a non-terminal data frame.
+                let stream = AppEventHub::new().subscribe();
+                forward_contract_stream(
+                    stream,
+                    cancellation,
+                    STREAM_CALL_ID.to_string(),
+                    registry.clone(),
+                    disconnected_channel(),
+                    RequestLifecycle::start("test_stream", &UuidRequestIdGenerator),
+                )
+                .await;
+            });
+        });
+
+        assert_eq!(recorder.outcomes(), vec!["cancelled".to_string()]);
+        assert_eq!(registry.lock().unwrap().keys().count(), 0);
+    }
+
+    /// Cancelling a live stream records exactly one cancellation and releases its registration.
+    ///
+    /// The Channel here stays connected, so the loop leaves through the cancellation branch
+    /// rather than the disconnect branch even when `select!` forwards the seeded event first.
+    #[test]
+    fn cancellation_completes_the_request_once_and_releases_the_registration() {
+        let recorder = OutcomeRecorder::default();
+        let registry: StreamRegistry = Arc::new(Mutex::new(HashMap::new()));
+        let cancellation = CancellationToken::new();
+        registry
+            .lock()
+            .unwrap()
+            .insert(STREAM_CALL_ID.to_string(), cancellation.clone());
+        cancellation.cancel();
+
+        with_recorded_trace_logging(recorder.layer(), || {
+            runtime().block_on(async {
+                let stream = AppEventHub::new().subscribe();
+                forward_contract_stream(
+                    stream,
+                    cancellation,
+                    STREAM_CALL_ID.to_string(),
+                    registry.clone(),
+                    connected_channel(),
+                    RequestLifecycle::start("test_stream", &UuidRequestIdGenerator),
+                )
+                .await;
+            });
+        });
+
+        assert_eq!(recorder.outcomes(), vec!["cancelled".to_string()]);
+        assert_eq!(registry.lock().unwrap().keys().count(), 0);
+    }
+
+    /// Builds the current-thread runtime that keeps the scoped subscriber on the test thread.
+    fn runtime() -> tokio::runtime::Runtime {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+    }
+
+    /// Builds a Channel that behaves like a webview whose listener has already gone away.
+    fn disconnected_channel() -> Channel<serde_json::Value> {
+        Channel::new(|_body| Err(std::io::Error::other("channel closed").into()))
+    }
+
+    /// Builds a Channel that accepts every frame, like a webview still listening.
+    fn connected_channel() -> Channel<serde_json::Value> {
+        Channel::new(|_body| Ok(()))
+    }
+
+    /// Captures the `outcome` field of lifecycle completion events without global subscriber state.
+    #[derive(Clone, Debug, Default)]
+    struct OutcomeRecorder {
+        outcomes: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl OutcomeRecorder {
+        /// Builds the scoped subscriber layer used by one test.
+        fn layer(&self) -> OutcomeRecordingLayer {
+            OutcomeRecordingLayer {
+                outcomes: self.outcomes.clone(),
+            }
+        }
+
+        /// Returns captured completion outcomes in emission order.
+        fn outcomes(&self) -> Vec<String> {
+            self.outcomes.lock().unwrap().clone()
+        }
+    }
+
+    /// Records completion outcomes while leaving production formatting untouched.
+    #[derive(Clone, Debug)]
+    struct OutcomeRecordingLayer {
+        outcomes: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl<S> Layer<S> for OutcomeRecordingLayer
+    where
+        S: tracing::Subscriber,
+    {
+        /// Collects the `outcome` field, which only lifecycle completion events carry.
+        fn on_event(&self, event: &tracing::Event<'_>, _context: Context<'_, S>) {
+            let mut visitor = OutcomeVisitor { outcome: None };
+            event.record(&mut visitor);
+            if let Some(outcome) = visitor.outcome {
+                self.outcomes.lock().unwrap().push(outcome);
+            }
+        }
+    }
+
+    /// Extracts the single `outcome` field from one recorded event.
+    struct OutcomeVisitor {
+        outcome: Option<String>,
+    }
+
+    impl Visit for OutcomeVisitor {
+        fn record_str(&mut self, field: &Field, value: &str) {
+            if field.name() == "outcome" {
+                self.outcome = Some(value.to_string());
+            }
+        }
+
+        fn record_debug(&mut self, _field: &Field, _value: &dyn std::fmt::Debug) {}
     }
 }

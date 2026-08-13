@@ -26,15 +26,6 @@ pub enum DesktopBootstrapError {
 pub struct CommandError(ContractError);
 
 impl CommandError {
-    /// Reports an adapter execution failure without exposing join or runtime internals.
-    pub fn execution() -> Self {
-        Self::from_backend(BackendError::new(
-            ErrorClassification::Internal,
-            PublicError::InternalError(EmptyErrorParams {}),
-            "Desktop command execution failed",
-        ))
-    }
-
     /// Completes one Tauri request and projects its typed public payload.
     pub fn from_backend(error: BackendError) -> Self {
         let lifecycle = RequestLifecycle::start("tauri_command", &UuidRequestIdGenerator);

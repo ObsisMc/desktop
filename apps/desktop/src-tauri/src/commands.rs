@@ -690,15 +690,36 @@ pub async fn cancel_contract_stream(
     state: State<'_, DesktopState>,
     stream_call_id: String,
 ) -> Result<(), CommandError> {
-    if let Some(cancellation) = state
-        .stream_cancellations
-        .lock()
-        .map_err(|_poisoned| CommandError::execution())?
-        .remove(&stream_call_id)
-    {
-        cancellation.cancel();
-    }
-    Ok(())
+    let lifecycle = RequestLifecycle::start("cancel_contract_stream", &UuidRequestIdGenerator);
+    let request_span =
+        ora_logging::span_with_request_id("tauri_command", &lifecycle.request_id().to_string());
+
+    // The body holds a registry lock and never awaits, so the span is entered with `in_scope`
+    // instead of `Instrument`, which would keep a guard alive across the async fn boundary.
+    request_span.in_scope(|| {
+        let registration = state
+            .stream_cancellations
+            .lock()
+            .map(|mut registrations| registrations.remove(&stream_call_id))
+            .map_err(|_poisoned| {
+                CommandError::from_backend_with_lifecycle(
+                    BackendError::internal(
+                        "stream registration state is unavailable",
+                        std::io::Error::other("stream registration lock poisoned"),
+                    ),
+                    &lifecycle,
+                )
+            })?;
+
+        // Cancelling an already-finished stream is not an error: the forwarding task removes its
+        // own registration on completion, so a missing entry only means the race resolved first.
+        if let Some(cancellation) = registration {
+            cancellation.cancel();
+        }
+
+        lifecycle.complete_success();
+        Ok(())
+    })
 }
 
 // =============================================================================
