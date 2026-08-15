@@ -14,7 +14,7 @@
 - Session creation, loading, structured ACP prompting, permissions, stopping, deletion, and model discovery delegate to the agent runtime. Creation also returns the provider's setup-time available-command catalog.
 - Relative project roots are resolved against a bootstrap-injected path base, not live process cwd. Desktop `tauri dev` starts in `src-tauri`; a shared `ORA_DATA_DIR` database stores roots relative to that data directory's parent.
 - `BackendError` retains the internal source chain while exhaustively projecting semantic failures into a typed `PublicError` and one transport-neutral `ErrorClassification`. HTTP derives status from the classification; all adapters serialize the same direct `ContractError`.
-- `RequestLifecycle` gives Web, Tauri, and stream seams one generated request id and an exactly-once success, failure, or cancellation completion event. Failure log levels derive from `ErrorClassification`.
+- `RequestLifecycle` gives Web, Tauri, and stream seams one generated request id and an exactly-once success, failure, or cancellation completion event. Failure log levels derive from `ErrorClassification`. Dropping the last handle without an explicit completion records an `abandoned` outcome, so the one-completion-per-request invariant holds structurally rather than by convention.
 - The configured worktree root affects only task creations that begin after an update. Existing task paths are resolved from persisted worktree identity and Git's authoritative metadata.
 
 ## Ownership boundaries

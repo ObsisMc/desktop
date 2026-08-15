@@ -5,6 +5,11 @@
 //! for emitting its single completion event. Each way a stream can end — caller cancellation, a
 //! terminal backend error, natural exhaustion, or the frontend Channel disappearing — must claim
 //! that completion, otherwise the request leaves no closing record in the logs.
+//!
+//! Terminal frames claim their completion from the backend outcome *before* being sent, so a
+//! Channel that dies while the last frame is in flight keeps the real backend result in the log
+//! rather than rewriting it as a cancellation. The recorded outcome therefore describes how the
+//! backend stream ended, not whether the webview observed its final frame.
 
 use crate::workspace_files::workspace_file_backend_error;
 use ora_backend::{BackendError, RequestLifecycle};
@@ -169,18 +174,23 @@ fn to_contract_change(change: ora_fs::WorkspaceChange) -> WorkspaceFileChange {
 
 #[cfg(test)]
 mod tests {
-    use super::{StreamRegistry, forward_contract_stream};
+    use super::{StreamRegistry, forward_contract_stream, forward_workspace_watch};
     use ora_backend::{AppEventHub, RequestLifecycle, UuidRequestIdGenerator};
     use ora_logging::with_recorded_trace_logging;
     use pretty_assertions::assert_eq;
     use std::collections::HashMap;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex};
+    use std::time::Duration;
     use tauri::ipc::Channel;
     use tokio_util::sync::CancellationToken;
     use tracing::field::{Field, Visit};
     use tracing_subscriber::layer::{Context, Layer};
 
     const STREAM_CALL_ID: &str = "test-stream-call-id";
+
+    /// Bounds the wait for a native filesystem event so a silent platform fails instead of hanging.
+    const NATIVE_EVENT_TIMEOUT: Duration = Duration::from_secs(30);
 
     /// A stream whose frontend Channel disconnects must still record one completion event.
     ///
@@ -195,6 +205,7 @@ mod tests {
             .lock()
             .unwrap()
             .insert(STREAM_CALL_ID.to_string(), cancellation.clone());
+        let send_attempts = Arc::new(AtomicUsize::new(0));
 
         with_recorded_trace_logging(recorder.layer(), || {
             runtime().block_on(async {
@@ -206,13 +217,14 @@ mod tests {
                     cancellation,
                     STREAM_CALL_ID.to_string(),
                     registry.clone(),
-                    disconnected_channel(),
+                    disconnected_channel(send_attempts.clone()),
                     RequestLifecycle::start("test_stream", &UuidRequestIdGenerator),
                 )
                 .await;
             });
         });
 
+        assert_eq!(send_attempts.load(Ordering::SeqCst), 1);
         assert_eq!(recorder.outcomes(), vec!["cancelled".to_string()]);
         assert_eq!(registry.lock().unwrap().keys().count(), 0);
     }
@@ -251,6 +263,50 @@ mod tests {
         assert_eq!(registry.lock().unwrap().keys().count(), 0);
     }
 
+    /// A watch stream whose frontend Channel disconnects completes as cancelled, not success.
+    ///
+    /// The blocking watch loop returns `Ok(())` on both a clean stop and a dead Channel, so this
+    /// pins the outcome that distinguishes them and would silently regress to `success` if the
+    /// disconnect were ever folded back into the normal exit.
+    #[test]
+    fn watch_channel_disconnect_completes_the_request_as_cancelled() {
+        let recorder = OutcomeRecorder::default();
+        let registry: StreamRegistry = Arc::new(Mutex::new(HashMap::new()));
+        let cancellation = CancellationToken::new();
+        registry
+            .lock()
+            .unwrap()
+            .insert(STREAM_CALL_ID.to_string(), cancellation.clone());
+        let workspace = tempfile::TempDir::new().unwrap();
+        let watcher = ora_fs::WorkspaceWatcher::start(workspace.path()).unwrap();
+        // The watcher is already running, so this change is queued before forwarding starts and
+        // the loop's first batch is the data frame whose send must fail.
+        std::fs::write(workspace.path().join("watched.txt"), "changed").unwrap();
+        let send_attempts = Arc::new(AtomicUsize::new(0));
+        let timeout_guard = cancellation.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(NATIVE_EVENT_TIMEOUT);
+            timeout_guard.cancel();
+        });
+
+        with_recorded_trace_logging(recorder.layer(), || {
+            runtime().block_on(forward_workspace_watch(
+                watcher,
+                cancellation,
+                STREAM_CALL_ID.to_string(),
+                registry.clone(),
+                disconnected_channel(send_attempts.clone()),
+                RequestLifecycle::start("test_watch_stream", &UuidRequestIdGenerator),
+            ));
+        });
+
+        // A zero count means the safety net cancelled the stream before any native event arrived,
+        // which would make the expected outcome pass for the wrong reason.
+        assert_eq!(send_attempts.load(Ordering::SeqCst), 1);
+        assert_eq!(recorder.outcomes(), vec!["cancelled".to_string()]);
+        assert_eq!(registry.lock().unwrap().keys().count(), 0);
+    }
+
     /// Builds the current-thread runtime that keeps the scoped subscriber on the test thread.
     fn runtime() -> tokio::runtime::Runtime {
         tokio::runtime::Builder::new_current_thread()
@@ -260,8 +316,11 @@ mod tests {
     }
 
     /// Builds a Channel that behaves like a webview whose listener has already gone away.
-    fn disconnected_channel() -> Channel<serde_json::Value> {
-        Channel::new(|_body| Err(std::io::Error::other("channel closed").into()))
+    fn disconnected_channel(send_attempts: Arc<AtomicUsize>) -> Channel<serde_json::Value> {
+        Channel::new(move |_body| {
+            send_attempts.fetch_add(1, Ordering::SeqCst);
+            Err(std::io::Error::other("channel closed").into())
+        })
     }
 
     /// Builds a Channel that accepts every frame, like a webview still listening.
