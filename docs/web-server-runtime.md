@@ -179,11 +179,11 @@ Unary requests and streams receive a server-generated canonical request id befor
 
 ### Skill imports
 
-`POST /api/skill-imports?mode=folder|archive` accepts one `multipart/form-data` source. Folder parts carry a validated source-relative path as their filename; archive mode accepts exactly one `.zip`, `.skill`, `.tar.gz`, or `.tgz` part. The adapter streams the upload to OS temporary storage before it calls the shared prepare service, so previewing never touches the database or committed skill packages.
+`POST /api/skill-imports?mode=folder|archive` accepts one `multipart/form-data` source. Folder parts carry a validated source-relative path as their filename; archive mode accepts exactly one `.zip`, `.skill`, `.tar.gz`, or `.tgz` part. The adapter writes each multipart chunk to a file under OS temporary storage as it is read, so memory use stays bounded by chunk size rather than by upload size, before it calls the shared prepare service; previewing never touches the database or committed skill packages.
 
 Preparation snapshots and safely scans the source, rejects unsafe paths, links and archive expansion attacks, then returns an opaque session id and every discovered candidate. `GET` renews the prepared session while it is within its idle and absolute lifetime. `POST .../commit` returns `202 Accepted` after it freezes every conflict decision; the background job remains observable via `GET`. `DELETE` cancels only prepared sessions.
 
-Each created, updated, overwritten, or deleted skill is atomic across its SQLite row and `<ORA_DATA_DIR>/atoms/skills/<name>/` package. The package transaction uses a same-filesystem staging directory and backup, while import sources remain in OS temp because it may be a different filesystem. Startup recovers interrupted package transactions, removes unowned package directories, and refuses to start if a visible row lacks its package or root `SKILL.md`.
+Each created, updated, overwritten, or deleted skill is atomic across its SQLite row and `<ORA_DATA_DIR>/atoms/skills/<name>/` package: a same-filesystem rename swaps the formal directory into or out of place before the database commit, and a failed database write rolls that rename back. Once a transaction commits, removing its now-unused staging or backup directory is best-effort — a cleanup failure is logged rather than surfaced to the caller, and the leftover directory is reclaimed the next time the server starts. Startup recovers interrupted package transactions, removes unowned package directories, and refuses to start if a visible row lacks its package or root `SKILL.md`.
 
 ### Filesystem browsing
 
