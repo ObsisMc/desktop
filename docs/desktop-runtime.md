@@ -62,8 +62,11 @@ Desktop initializes `ora-logging` before opening the backend and registers the G
 
 Each unary command or stream emits at most one request-completion event using the same request id as
 its public failure payload or error frame. Cancellation is completed at `DEBUG` and is not projected
-as `internal_error`. If rollback or cleanup also fails, Desktop retains the primary response and
-source chain and records the secondary failure as a separate operation with the same request id.
+as `internal_error`. Git worktree and branch cleanup after a failed task creation or a deletion is
+never attempted inline: it is queued as a durable `git_cleanup` job and executed later by the shared
+backend cleanup worker (see [Task Worktrees](task-worktrees.md)), so the primary response and source
+chain are unaffected by how that later cleanup turns out. The worker logs its own outcomes under
+`operation = "git_cleanup"`, independent of the originating request id.
 
 At startup, Desktop reads the operating system's IANA timezone and fixes it for the process
 lifetime. Structured event timestamps use that timezone. If the system timezone cannot be read or
