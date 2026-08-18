@@ -120,6 +120,8 @@ async function installBinary({
     if (process.platform === "win32" && archiveExtension === "zip") {
       await execFileAsync("powershell", [
         "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
         "-Command",
         `Expand-Archive -LiteralPath '${archivePath}' -DestinationPath '${extractDirectory}' -Force`,
       ]);
