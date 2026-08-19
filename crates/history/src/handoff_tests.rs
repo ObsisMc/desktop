@@ -169,10 +169,7 @@ fn names_the_agent_the_conversation_is_being_taken_from() {
         switched(AgentCli::Codex.agent_ref(), AgentCli::Nga.agent_ref()),
         user("carry on"),
         turn_ended(StopReason::EndTurn),
-        switched(
-            AgentCli::Nga.agent_ref(),
-            AgentCli::CodeAgentCli.agent_ref(),
-        ),
+        switched(AgentCli::Nga.agent_ref(), AgentCli::Codex.agent_ref()),
     ]));
 
     assert!(rendered.unwrap_or_default().contains("(ora-space.nga)"));
@@ -338,10 +335,7 @@ fn a_later_switch_reopens_a_handoff_an_earlier_one_settled() {
         user("carry on"),
         delivered(),
         turn_ended(StopReason::EndTurn),
-        switched(
-            AgentCli::Nga.agent_ref(),
-            AgentCli::CodeAgentCli.agent_ref(),
-        ),
+        switched(AgentCli::Nga.agent_ref(), AgentCli::Codex.agent_ref()),
     ]);
 
     assert_eq!(binding_needs_handoff(&recorded), true);

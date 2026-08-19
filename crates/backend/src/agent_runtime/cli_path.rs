@@ -33,7 +33,6 @@ pub(super) fn resolve_agent_cli_path(
     // per-user directory, which is often absent from a GUI process PATH.
     let install_directory = match agent_cli {
         AgentCli::Nga => ".nga",
-        AgentCli::CodeAgentCli => ".codeagentcli",
         AgentCli::Codex => ".codex",
     };
     let fallback_directory = home_directory.join(install_directory).join("bin");

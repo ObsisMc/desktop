@@ -7,18 +7,16 @@ use crate::AgentRef;
 /// supplies through [`AgentCli::agent_ref`] so that built-in and plugin-provided agents are
 /// indistinguishable everywhere above the launch step.
 ///
-/// The set shrinks as CLIs move out to plugins: OpenCode and Claude Code are no longer here
-/// because `ora-space.opencode` and `ora-space.claude` are supplied by installed agent plugins,
-/// which own their own executable lookup and launch arguments.
+/// The set shrinks as CLIs move out to plugins: OpenCode, Claude Code, and CodeAgentCLI are no
+/// longer here because their installed agent plugins own executable lookup and launch arguments.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AgentCli {
     Nga,
-    CodeAgentCli,
     Codex,
 }
 
 impl AgentCli {
-    pub const ALL: [Self; 3] = [Self::Nga, Self::CodeAgentCli, Self::Codex];
+    pub const ALL: [Self; 2] = [Self::Nga, Self::Codex];
 
     /// Returns the namespaced identity this CLI provides, independent of enum declaration order.
     ///
@@ -27,7 +25,6 @@ impl AgentCli {
     pub fn agent_ref(self) -> AgentRef {
         let value = match self {
             Self::Nga => "ora-space.nga",
-            Self::CodeAgentCli => "ora-space.codeagentcli",
             Self::Codex => "ora-space.codex",
         };
         // The literals above are non-empty, so parsing cannot fail; constructing through `parse`
@@ -39,19 +36,17 @@ impl AgentCli {
     pub fn executable_name(self) -> &'static str {
         match self {
             Self::Nga => "nga",
-            Self::CodeAgentCli => "codeagentcli",
             Self::Codex => "codex-acp",
         }
     }
 
     /// Returns the child process arguments used to start ACP over stdio.
     ///
-    /// Ora's own CLIs (Nga, CodeAgentCli) expose ACP behind an `acp`
-    /// subcommand. Codex is instead fronted by a dedicated `codex-acp` adapter
-    /// binary, which speaks ACP directly with no subcommand.
+    /// Nga exposes ACP behind an `acp` subcommand. Codex is instead fronted by a dedicated
+    /// `codex-acp` adapter binary, which speaks ACP directly with no subcommand.
     pub fn launch_arguments(self) -> &'static [&'static str] {
         match self {
-            Self::Nga | Self::CodeAgentCli => &["acp"],
+            Self::Nga => &["acp"],
             Self::Codex => &[],
         }
     }
