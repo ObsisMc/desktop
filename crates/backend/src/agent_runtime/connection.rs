@@ -790,7 +790,7 @@ mod tests {
     fn supervises_a_plugin_agent_under_its_package_identity() {
         let resolved = resolve_supervised_agents(
             [
-                AgentSource::Cli(AgentCli::Claude),
+                AgentSource::Cli(AgentCli::Nga),
                 plugin_source("acme.my-agent"),
             ]
             .into_iter(),
@@ -802,7 +802,7 @@ mod tests {
                 .map(|(agent_ref, _source)| agent_ref)
                 .collect::<Vec<_>>(),
             vec![
-                AgentCli::Claude.agent_ref(),
+                AgentCli::Nga.agent_ref(),
                 AgentRef::parse("acme.my-agent").expect("parse plugin identity"),
             ]
         );
@@ -813,8 +813,8 @@ mod tests {
     fn refuses_a_plugin_that_shadows_an_installed_identity() {
         let resolved = resolve_supervised_agents(
             [
-                AgentSource::Cli(AgentCli::Claude),
-                plugin_source(AgentCli::Claude.agent_ref().as_str()),
+                AgentSource::Cli(AgentCli::Nga),
+                plugin_source(AgentCli::Nga.agent_ref().as_str()),
                 plugin_source("acme.my-agent"),
             ]
             .into_iter(),
@@ -826,7 +826,7 @@ mod tests {
                 .map(|(agent_ref, source)| (agent_ref, matches!(source, AgentSource::Cli(_))))
                 .collect::<Vec<_>>(),
             vec![
-                (AgentCli::Claude.agent_ref(), true),
+                (AgentCli::Nga.agent_ref(), true),
                 (
                     AgentRef::parse("acme.my-agent").expect("parse plugin identity"),
                     false

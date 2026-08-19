@@ -221,13 +221,7 @@ fn rejects_dot_prefixed_skill_names() {
 fn maps_agent_cli_identities() {
     assert_eq!(
         AgentCli::ALL.map(|agent_cli| agent_cli.agent_ref().to_string()),
-        [
-            "ora-space.nga",
-            "ora-space.codeagentcli",
-            "ora-space.claude",
-            "ora-space.codex",
-        ]
-        .map(str::to_string)
+        ["ora-space.nga", "ora-space.codeagentcli", "ora-space.codex"].map(str::to_string)
     );
 }
 
@@ -251,18 +245,13 @@ fn parses_any_non_blank_agent_reference() {
     );
 }
 
-/// Verifies only Ora's own CLIs require the `acp` subcommand; the Claude/Codex
-/// adapter binaries speak ACP directly with no launch arguments.
+/// Verifies only Ora's own CLIs require the `acp` subcommand; the Codex adapter
+/// binary speaks ACP directly with no launch arguments.
 #[test]
 fn maps_agent_cli_launch_arguments() {
     assert_eq!(
         AgentCli::ALL.map(AgentCli::launch_arguments),
-        [
-            ["acp"].as_slice(),
-            ["acp"].as_slice(),
-            [].as_slice(),
-            [].as_slice(),
-        ]
+        [["acp"].as_slice(), ["acp"].as_slice(), [].as_slice()]
     );
 }
 

@@ -34,7 +34,6 @@ pub(super) fn resolve_agent_cli_path(
     let install_directory = match agent_cli {
         AgentCli::Nga => ".nga",
         AgentCli::CodeAgentCli => ".codeagentcli",
-        AgentCli::Claude => ".claude",
         AgentCli::Codex => ".codex",
     };
     let fallback_directory = home_directory.join(install_directory).join("bin");
