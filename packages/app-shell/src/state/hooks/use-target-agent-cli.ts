@@ -46,7 +46,7 @@ export function useTargetAgentCli(selection: AgentSelection): KnownAgentCli {
     targetKey === null ? undefined : state.selections[targetKey],
   );
   // The wire carries any installed agent's identity as a plain string, but the picker this
-  // hook drives only ever offers Ora's bundled CLIs today, so a bound session is assumed to be
+  // hook drives only ever offers Ora's product-catalogued plugins today, so a bound session is assumed to be
   // one of them. A session bound to a plugin agent the picker cannot yet render falls back to
   // the stored default rather than surfacing an identity nothing here knows how to label.
   const boundAgentCli = sessions.find(

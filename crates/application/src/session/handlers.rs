@@ -174,8 +174,7 @@ mod tests {
         SessionHistoryState as ContractHistoryState, SessionStatus as ContractSessionStatus,
     };
     use ora_domain::{
-        AgentCli, AgentRef, AuditFields, HistoryState, MAX_SESSION_TITLE_CHARS, Session,
-        SessionStatus,
+        AgentRef, AuditFields, HistoryState, MAX_SESSION_TITLE_CHARS, Session, SessionStatus,
     };
     use pretty_assertions::assert_eq;
     use std::sync::Mutex;
@@ -341,7 +340,7 @@ mod tests {
         Session::new(
             SessionId::new("s1"),
             ora_domain::TaskId::new("t1"),
-            AgentCli::Nga.agent_ref(),
+            AgentRef::parse("ora-space.nga").unwrap(),
             "provider-1",
             SessionStatus::Running,
             AuditFields::new(1, 1, false),

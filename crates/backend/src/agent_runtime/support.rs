@@ -87,24 +87,6 @@ pub(super) fn domain_agent_ref(agent_ref: ContractAgentRef) -> Result<AgentRef, 
         .map_err(|error| runtime_internal("agent_cli_not_found", error.to_string()))
 }
 
-/// Drains child stderr so provider diagnostics can never block the shared process.
-pub(super) async fn drain_stderr(mut stderr: tokio::process::ChildStderr) {
-    use tokio::io::AsyncReadExt;
-    let mut tail = Vec::with_capacity(64 * 1024);
-    let mut buffer = [0_u8; 4096];
-    loop {
-        match stderr.read(&mut buffer).await {
-            Ok(0) | Err(_) => return,
-            Ok(read) => {
-                tail.extend_from_slice(&buffer[..read]);
-                if tail.len() > 64 * 1024 {
-                    tail.drain(..tail.len() - 64 * 1024);
-                }
-            }
-        }
-    }
-}
-
 /// Builds the stable public error for an unknown or deleted Ora session.
 pub(super) fn session_not_found(session_id: &str) -> BackendError {
     BackendError::new(

@@ -37,10 +37,8 @@ impl DashboardAgentType {
 
 /// Normalizes one known agent's persisted identity into the dashboard agent family.
 ///
-/// The set is keyed by identity rather than by how the agent is supplied, so an identity keeps its
-/// trace format when it moves from a built-in CLI to a plugin — `ora-space.opencode` and
-/// `ora-space.claude` are both plugin-provided now and still render. Returns `None` for any other
-/// identity: an agent Ora does not know has no trace format the dashboard could render.
+/// The set is keyed by plugin identity, so package-managed agents keep their known trace formats.
+/// Returns `None` for any other identity because Ora has no trace format it could render.
 pub fn dashboard_agent_type(agent_ref: &str) -> Option<DashboardAgentType> {
     match agent_ref {
         "ora-space.opencode" | "ora-space.nga" => Some(DashboardAgentType::Opencode),
@@ -406,7 +404,7 @@ mod tests {
     use std::fs;
     use tempfile::TempDir;
 
-    /// Verifies each built-in agent identity maps to its dashboard agent family.
+    /// Verifies each product-catalogued agent identity maps to its dashboard agent family.
     #[test]
     fn normalizes_agent_ref_to_dashboard_family() {
         assert_eq!(

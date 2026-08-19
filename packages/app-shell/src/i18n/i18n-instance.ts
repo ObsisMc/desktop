@@ -884,8 +884,8 @@ export const translationResources = {
     "settings.plugins.capability.terminal": "终端",
     "settings.plugins.capability.network": "网络",
     "settings.plugins.catalog.opencode": "开源的终端编码 Agent",
-    "settings.plugins.catalog.nga": "Ora 内置的应用级编码 Agent 运行时",
-    "settings.plugins.catalog.codeagentcli": "Ora 内置的通用编码 Agent 运行时",
+    "settings.plugins.catalog.nga": "Ora 应用级编码 Agent 运行时",
+    "settings.plugins.catalog.codeagentcli": "通用编码 Agent 运行时",
     "settings.plugins.catalog.claude": "Anthropic 的编码 Agent 与技能体系",
     "settings.plugins.catalog.codex": "OpenAI 的编码 Agent 与代码审查",
     "settings.plugins.catalog.rtk":
@@ -2365,9 +2365,9 @@ export const translationResources = {
     "settings.plugins.capability.network": "Network",
     "settings.plugins.catalog.opencode": "Open-source terminal coding agent",
     "settings.plugins.catalog.nga":
-      "Ora's built-in application-scoped coding agent runtime",
+      "Ora's application-scoped coding agent runtime",
     "settings.plugins.catalog.codeagentcli":
-      "Ora's built-in general-purpose coding agent runtime",
+      "General-purpose coding agent runtime",
     "settings.plugins.catalog.claude":
       "Anthropic's coding agent and skill system",
     "settings.plugins.catalog.codex": "OpenAI's coding agent and code review",

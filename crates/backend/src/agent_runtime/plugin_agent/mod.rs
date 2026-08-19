@@ -6,7 +6,7 @@ mod transport;
 mod tests;
 
 pub(crate) use control::{PluginAgentError, PluginAgentModel, list_models, stop_agent};
-pub(crate) use transport::{AgentTransport, PluginAcpTransport};
+pub(crate) use transport::PluginAcpTransport;
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;

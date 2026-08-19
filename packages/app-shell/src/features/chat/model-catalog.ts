@@ -1,8 +1,8 @@
 /**
- * Identifies one of Ora's bundled agent CLIs by its persisted, namespaced package id.
+ * Identifies one of Ora's product-catalogued agent plugins by its persisted package id.
  *
- * This is the same identity the backend now accepts for any agent — built-in or
- * plugin-provided — so it is not a generated contract type: `@ora/contracts` carries
+ * This is the same identity the backend accepts for any installed agent, so it is not a
+ * generated contract type: `@ora/contracts` carries
  * agent identity as a plain `string` because which agents exist depends on installed
  * plugins and is not knowable at build time. `KnownAgentCli` is the closed subset this
  * frontend still special-cases with a fixed label, logo, and picker position; any other

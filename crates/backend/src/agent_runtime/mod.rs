@@ -1,5 +1,4 @@
 mod actor;
-mod cli_path;
 mod connection;
 mod events;
 mod handoff;
@@ -18,7 +17,6 @@ mod warm_pool;
 mod history_tests;
 
 use crate::app_event::AppEventPublisher;
-use cli_path::resolve_agent_cli_path;
 use history::{LocalHistoryClock, RecordOutcome, SessionRecorder};
 pub use stream::SessionEventStream;
 use support::*;
@@ -201,7 +199,7 @@ struct OpenedRecorder {
 
 /// Groups the fixed dependencies the agent runtime is constructed from.
 pub(crate) struct AgentRuntimeSetup {
-    /// Agent plugins that join the built-in CLIs as providers, already discovered and validated.
+    /// The complete set of agent providers, already discovered and validated as plugins.
     pub agent_plugins: Vec<AgentPluginPackage>,
     pub pool: RepositoryPool,
     pub home_directory: PathBuf,
@@ -290,8 +288,7 @@ impl AgentRuntimeManager {
     /// Reports the models one agent advertises before any session exists.
     ///
     /// The list is whatever the agent published when its current connection came up. An agent
-    /// that has no pre-session model list returns an empty one rather than an error, because
-    /// "this agent does not advertise models" is a normal answer for built-in CLIs.
+    /// that has no pre-session model list returns an empty one rather than an error.
     pub(crate) fn agent_models(
         &self,
         request: ora_contracts::ListAgentModelsRequest,

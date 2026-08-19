@@ -1,7 +1,7 @@
 # plugin_agent
 
-`plugin_agent` turns one installed agent plugin into something the connection supervisor can treat
-exactly like a built-in CLI. It launches the plugin process, verifies the plugin declared the whole
+`plugin_agent` turns one installed agent plugin into a connection the supervisor can use. It
+launches the plugin process, verifies the plugin declared the whole
 agent contract, brings the agent up, and exposes the plugin's notification channel as an ACP
 message stream and sink.
 
@@ -37,9 +37,9 @@ terminal: the supervisor abandons the agent for the rest of the process instead 
 the same plugin will fail identically every time and retrying only produces a warning per backoff
 interval.
 
-`agent/start` failures split in two. `-32001` means the agent CLI is absent from this machine; that
-is an expected local configuration, so it maps onto the same public error a missing built-in CLI
-produces and is retried without logging. Every other code is a genuine startup failure.
+`agent/start` failures split in two. `-32001` means the agent executable is absent from this
+machine; that is expected local configuration, so it maps onto the stable `agent_cli_not_found`
+public error and is retried without logging. Every other code is a genuine startup failure.
 
 ACP travels as notifications rather than plugin method calls. ACP frames already carry their own
 ids, cancellation, and ordering, so a second correlation layer would mean two timeouts and two

@@ -18,7 +18,7 @@ use ora_application::{
 };
 use ora_contracts::{StartWorkflowRunRequest, WorkflowRunStatus as ContractRunStatus};
 use ora_domain::{
-    AgentCli, AgentDefinition, AgentDefinitionId, AuditFields, HistoryState, Namespace, Project,
+    AgentDefinition, AgentDefinitionId, AgentRef, AuditFields, HistoryState, Namespace, Project,
     ProjectId, Session, SessionId, SessionStatus, SessionTitle, Skill, SkillId, Task, TaskId,
     Workflow, WorkflowId, WorkflowNodeRunId, WorkflowNodeStatus, WorkflowRun, WorkflowRunDetail,
     WorkflowRunId, WorkflowRunStatus, WorkflowRunSummary, WorkflowSnapshot, WorkflowSnapshotId,
@@ -35,6 +35,11 @@ use crate::{
     SqliteWorkflowRunEngineRepository, SqliteWorkflowRunRepository, SqliteWorktreeRepository,
     TimestampSource, default_migration_catalog,
 };
+
+/// Returns the persisted Nga agent identity used by repository fixtures.
+fn nga_agent_ref() -> AgentRef {
+    AgentRef::parse("ora-space.nga").unwrap()
+}
 
 /// Verifies catalog repositories scope duplicate names by namespace and hide soft-deleted rows.
 #[test]
@@ -2422,7 +2427,7 @@ fn session_repository_supports_crud_and_soft_delete() {
     let created_session = Session::new(
         SessionId::new("session-1"),
         TaskId::new("task-1"),
-        AgentCli::Nga.agent_ref(),
+        nga_agent_ref(),
         "provider-1",
         SessionStatus::Running,
         AuditFields::new(12, 12, false),
@@ -2505,15 +2510,9 @@ fn session_repository_updates_do_not_overwrite_unrelated_columns() {
     assert_eq!(titled, expected_titled);
 
     let rebound = repository
-        .update_session_binding(
-            &session_id,
-            AgentCli::Nga.agent_ref(),
-            "provider-2",
-            /*now*/ 41,
-        )
+        .update_session_binding(&session_id, nga_agent_ref(), "provider-2", /*now*/ 41)
         .unwrap();
-    let expected_rebound =
-        expected_titled.with_binding(AgentCli::Nga.agent_ref(), "provider-2", 41);
+    let expected_rebound = expected_titled.with_binding(nga_agent_ref(), "provider-2", 41);
     assert_eq!(rebound, expected_rebound);
 
     let running = repository
@@ -2543,11 +2542,10 @@ fn session_repository_rebinds_a_session_to_another_agent() {
         .unwrap()
         .expect("fixture session");
 
-    let rebound = existing.clone().with_binding(
-        AgentCli::Nga.agent_ref(),
-        "provider-2",
-        /*updated_at*/ 40,
-    );
+    let rebound =
+        existing
+            .clone()
+            .with_binding(nga_agent_ref(), "provider-2", /*updated_at*/ 40);
 
     assert_eq!(
         repository
@@ -2619,7 +2617,7 @@ fn session_repository_rejects_soft_deleted_task() {
     let session = Session::new(
         SessionId::new("session-after-delete"),
         TaskId::new("task-1"),
-        AgentCli::Nga.agent_ref(),
+        nga_agent_ref(),
         "provider-after-delete",
         SessionStatus::Running,
         AuditFields::new(21, 21, false),
@@ -2719,7 +2717,7 @@ fn repository_pool_composes_all_repository_adapters() {
     let session = Session::new(
         SessionId::new("session-1"),
         task.id.clone(),
-        AgentCli::Nga.agent_ref(),
+        nga_agent_ref(),
         "provider-1",
         SessionStatus::Running,
         AuditFields::new(42, 42, false),
@@ -2994,7 +2992,7 @@ fn insert_invalid_session_row(pool: &RepositoryPool) {
             rusqlite::params![
                 "session-invalid",
                 "task-1",
-                AgentCli::Nga.agent_ref().as_str(),
+                nga_agent_ref().as_str(),
                 "provider-invalid",
                 99,
                 61,

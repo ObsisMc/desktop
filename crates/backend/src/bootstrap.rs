@@ -114,8 +114,7 @@ pub struct Backend {
 impl Backend {
     /// Opens persistent storage and constructs every shared CRUD API.
     ///
-    /// `agent_plugins` joins the built-in CLIs as agent providers; supplying an empty list keeps
-    /// the runtime to built-in agents only.
+    /// `agent_plugins` is the complete provider set; an empty list starts no agent supervisors.
     pub fn open(
         paths: BackendPaths,
         agent_plugins: Vec<AgentPluginPackage>,

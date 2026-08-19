@@ -901,19 +901,33 @@ impl Drop for RuntimeActor {
 
 #[cfg(test)]
 mod tests {
-    use super::super::connection::AgentSource;
     use super::*;
     use crate::agent_runtime::connection::ConnectionSupervisor;
+    use crate::agent_runtime::plugin_agent::PluginAgentSpec;
     use crate::agent_runtime::title_acquisition::TitleAcquisition;
     use crate::app_event::AppEventHub;
     use crate::clock::SystemClock;
     use ora_db::{DatabaseLocation, RepositoryPool};
-    use ora_domain::{AgentCli, AuditFields, SessionId, SessionStatus, SessionTitle, TaskId};
+    use ora_domain::{AgentRef, AuditFields, SessionId, SessionStatus, SessionTitle, TaskId};
     use ora_scheduler::Scheduler;
     use std::time::Duration;
     use tempfile::TempDir;
     use tokio::sync::{mpsc, oneshot};
     use tokio::time::timeout;
+
+    /// Returns the opaque plugin identity used by actor tests.
+    fn agent_ref() -> AgentRef {
+        AgentRef::parse("test.agent").expect("parse test agent identity")
+    }
+
+    /// Builds an unavailable plugin source; these tests only need supervisor ownership semantics.
+    fn agent_source(root: &std::path::Path) -> PluginAgentSpec {
+        PluginAgentSpec {
+            plugin_id: agent_ref().to_string(),
+            deno_path: std::path::PathBuf::from("deno"),
+            entrypoint: root.join("missing-agent-plugin.ts"),
+        }
+    }
 
     /// Verifies dropping the manager's last sender lets the actor task terminate and release its dependencies.
     #[tokio::test]
@@ -925,8 +939,8 @@ mod tests {
         .expect("create repository pool");
         let scheduler = Scheduler::new(chrono_tz::UTC);
         let connection = ConnectionSupervisor::start(
-            AgentCli::Codex.agent_ref(),
-            AgentSource::Cli(AgentCli::Codex),
+            agent_ref(),
+            agent_source(temporary.path()),
             pool.clone(),
             temporary.path().to_path_buf(),
             SystemClock,
@@ -942,7 +956,7 @@ mod tests {
         let session = ora_domain::Session::new(
             SessionId::new("session-1"),
             TaskId::new("task-1"),
-            AgentCli::Codex.agent_ref(),
+            agent_ref(),
             "provider-session-1",
             SessionStatus::Stopped,
             AuditFields::new(0, 0, false),
@@ -988,8 +1002,8 @@ mod tests {
         .expect("create repository pool");
         let scheduler = Scheduler::new(chrono_tz::UTC);
         let connection = ConnectionSupervisor::start(
-            AgentCli::Codex.agent_ref(),
-            AgentSource::Cli(AgentCli::Codex),
+            agent_ref(),
+            agent_source(temporary.path()),
             pool.clone(),
             temporary.path().to_path_buf(),
             SystemClock,
@@ -1005,7 +1019,7 @@ mod tests {
         let session = ora_domain::Session::new(
             SessionId::new("session-1"),
             TaskId::new("task-1"),
-            AgentCli::Codex.agent_ref(),
+            agent_ref(),
             "provider-session-1",
             SessionStatus::Stopped,
             AuditFields::new(0, 0, false),

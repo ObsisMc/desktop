@@ -1,14 +1,15 @@
 use crate::{
-    AgentCli, AgentDefinition, AgentDefinitionId, AgentRef, AuditFields, BACKUP_DIR_NAME,
-    DomainModelError, HistoryState, JOURNAL_DIR_NAME, Namespace, Project, ProjectId,
-    STAGING_DIR_NAME, Session, SessionId, SessionStatus, Skill, SkillId, Task, TaskId, TaskType,
-    Worktree, WorktreeActivity, WorktreeBaseline, WorktreeId,
+    AgentDefinition, AgentDefinitionId, AgentRef, AuditFields, BACKUP_DIR_NAME, DomainModelError,
+    HistoryState, JOURNAL_DIR_NAME, Namespace, Project, ProjectId, STAGING_DIR_NAME, Session,
+    SessionId, SessionStatus, Skill, SkillId, Task, TaskId, TaskType, Worktree, WorktreeActivity,
+    WorktreeBaseline, WorktreeId,
 };
 use pretty_assertions::assert_eq;
 
 /// Verifies the domain can represent one fully populated example of each schema-backed entity.
 #[test]
 fn constructs_schema_backed_entities() {
+    let nga_agent_ref = AgentRef::parse("ora-space.nga").unwrap();
     let audit_fields = AuditFields::new(1_700_000_000_000, 1_700_000_000_500, false);
     let project = Project::new(
         ProjectId::new("project-1"),
@@ -35,7 +36,7 @@ fn constructs_schema_backed_entities() {
     let session = Session::new(
         SessionId::new("session-1"),
         task.id.clone(),
-        AgentCli::Nga.agent_ref(),
+        nga_agent_ref.clone(),
         "agent-session-1",
         SessionStatus::Running,
         audit_fields.clone(),
@@ -96,7 +97,7 @@ fn constructs_schema_backed_entities() {
         Session {
             id: SessionId::new("session-1"),
             task_id: TaskId::new("task-1"),
-            agent_ref: AgentCli::Nga.agent_ref(),
+            agent_ref: nga_agent_ref,
             agent_session_id: "agent-session-1".to_string(),
             title: None,
             status: SessionStatus::Running,
@@ -216,15 +217,6 @@ fn rejects_dot_prefixed_skill_names() {
     }
 }
 
-/// Verifies built-in CLIs supply the reviewed namespaced identities persistence already stores.
-#[test]
-fn maps_agent_cli_identities() {
-    assert_eq!(
-        AgentCli::ALL.map(|agent_cli| agent_cli.agent_ref().to_string()),
-        ["ora-space.nga", "ora-space.codex"].map(str::to_string)
-    );
-}
-
 /// Verifies an agent reference accepts any installed provider id and rejects only blank text.
 ///
 /// An identity Ora does not recognize is a provider that is not installed right now, so parsing
@@ -242,15 +234,6 @@ fn parses_any_non_blank_agent_reference() {
     assert_eq!(
         AgentRef::parse("   "),
         Err(DomainModelError::InvalidAgentRef("   ".to_string()))
-    );
-}
-
-/// Verifies Nga requires the `acp` subcommand while the Codex adapter speaks ACP directly.
-#[test]
-fn maps_agent_cli_launch_arguments() {
-    assert_eq!(
-        AgentCli::ALL.map(AgentCli::launch_arguments),
-        [["acp"].as_slice(), [].as_slice()]
     );
 }
 

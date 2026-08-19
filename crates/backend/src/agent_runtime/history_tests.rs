@@ -10,7 +10,7 @@
 use super::history::{RecordOutcome, SessionRecorder};
 use agent_client_protocol_schema::v1::{ContentBlock, TextContent};
 use agent_client_protocol_schema::v1::{ContentChunk, SessionUpdate};
-use ora_domain::{AgentCli, HistoryState};
+use ora_domain::{AgentRef, HistoryState};
 use ora_history::{
     AgentSwitch, FixedHistoryClock, HistoryLine, HistoryRecord, binding_needs_handoff,
     read_session_history,
@@ -24,6 +24,16 @@ const SESSION_ID: &str = "6f1e2d3c-4b5a-6978-8a9b-0c1d2e3f4a5b";
 const NEW_PROVIDER_SESSION_ID: &str = "provider-2";
 /// The instant every line carries, fixed so recorded output stays comparable.
 const RECORDED_AT: &str = "2026-08-03T14:22:31.418+08:00";
+
+/// Returns the persisted Nga agent identity used by recorder fixtures.
+fn nga_agent_ref() -> AgentRef {
+    AgentRef::parse("ora-space.nga").unwrap()
+}
+
+/// Returns the persisted Codex agent identity used by recorder fixtures.
+fn codex_agent_ref() -> AgentRef {
+    AgentRef::parse("ora-space.codex").unwrap()
+}
 
 fn recorder(
     root: &Path,
@@ -53,8 +63,8 @@ fn switch_then_prompt(root: &Path, deliver: Delivery) {
     let mut recorder = recorder(root, 0, &HistoryState::Writable);
     assert_eq!(
         recorder.record_agent_switch(
-            AgentCli::Codex.agent_ref(),
-            AgentCli::Nga.agent_ref(),
+            codex_agent_ref(),
+            nga_agent_ref(),
             NEW_PROVIDER_SESSION_ID.to_string(),
         ),
         RecordOutcome::Continued,
@@ -113,8 +123,8 @@ fn a_settled_handoff_records_the_delivery_after_the_prompt_that_carried_it() {
                 RECORDED_AT,
                 0,
                 HistoryRecord::AgentSwitched(AgentSwitch {
-                    from: AgentCli::Codex.agent_ref(),
-                    to: AgentCli::Nga.agent_ref(),
+                    from: codex_agent_ref(),
+                    to: nga_agent_ref(),
                     agent_session_id: NEW_PROVIDER_SESSION_ID.to_string(),
                 }),
             ),
@@ -146,8 +156,8 @@ fn a_recorder_that_stopped_writing_records_no_delivery_it_cannot_prove() {
     let root = TempDir::new().expect("create history root");
     let mut writable = recorder(root.path(), 0, &HistoryState::Writable);
     writable.record_agent_switch(
-        AgentCli::Codex.agent_ref(),
-        AgentCli::Nga.agent_ref(),
+        codex_agent_ref(),
+        nga_agent_ref(),
         NEW_PROVIDER_SESSION_ID.to_string(),
     );
     let mut degraded = recorder(
