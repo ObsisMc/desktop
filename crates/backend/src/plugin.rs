@@ -11,10 +11,11 @@ use ora_contracts::{
     SyncAvailablePluginsResponse, UninstallPluginRequest, UninstallPluginResponse,
 };
 use ora_db::{RepositoryPool, SqlitePluginStateRepository};
+use ora_domain::PluginId;
 use ora_logging::{ora_info, ora_warn};
 use ora_plugin_lifecycle::{
-    DenoPluginRuntimeLauncher, PluginLifecycle, PluginLifecycleConfig, PluginLifecycleError,
-    PluginRuntimeTimeouts,
+    DenoPluginRuntime, DenoPluginRuntimeLauncher, PluginAttachment, PluginLifecycle,
+    PluginLifecycleConfig, PluginLifecycleError, PluginRuntimeTimeouts,
 };
 use ora_plugin_manager::Installer;
 use ora_plugin_registry::{
@@ -145,7 +146,7 @@ impl PluginApi {
         self.lifecycle.scan_plugins(request).await
     }
 
-    /// Persists plugin eligibility without starting its process.
+    /// Persists plugin eligibility and starts the runtime it implies.
     pub(crate) async fn enable(
         &self,
         request: EnablePluginRequest,
@@ -167,6 +168,18 @@ impl PluginApi {
         request: ActivatePluginRequest,
     ) -> Result<ActivatePluginResponse, PluginLifecycleError> {
         self.lifecycle.activate_plugin(request).await
+    }
+
+    /// Returns a running plugin runtime plus the unclaimed notification stream of that launch.
+    ///
+    /// This is the single seam through which the agent runtime reaches a plugin process. The
+    /// process stays owned by the lifecycle, so an agent connection can never leave one running
+    /// that the settings surface reports as stopped.
+    pub(crate) async fn attach_runtime(
+        &self,
+        plugin_id: &PluginId,
+    ) -> Result<PluginAttachment<DenoPluginRuntime>, PluginLifecycleError> {
+        self.lifecycle.attach_runtime(plugin_id).await
     }
 
     /// Stops one plugin process without changing durable eligibility.

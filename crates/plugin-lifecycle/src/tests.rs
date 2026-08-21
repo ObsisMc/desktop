@@ -146,9 +146,9 @@ fn opens_with_persisted_plugin_eligibility() {
     });
 }
 
-/// Verifies enabling persists eligibility and leaves the process stopped.
+/// Verifies enabling persists eligibility and starts the runtime it implies.
 #[tokio::test]
-async fn enables_plugin_without_activating_it() {
+async fn enables_plugin_and_starts_its_runtime() {
     let _logging = trace_logging_guard();
     let temp_dir = TempDir::new().expect("create plugin lifecycle directory");
     write_plugin_package(temp_dir.path(), "example");
@@ -158,7 +158,19 @@ async fn enables_plugin_without_activating_it() {
             &default_migration_catalog().expect("build migration catalog"),
         )
         .expect("bootstrap plugin lifecycle database");
-    let lifecycle = open_without_runtime(temp_dir.path(), SqlitePluginStateRepository::new(pool));
+    let (runtime, _stop_started, _release_stop) = ControllableStopRuntime::new();
+    let (publisher, mut events) = RecordingStatusPublisher::new();
+    let lifecycle = PluginLifecycle::open(
+        PluginLifecycleConfig {
+            data_directory: temp_dir.path().to_path_buf(),
+            deno_path: PathBuf::from("deno"),
+        },
+        SqlitePluginStateRepository::new(pool),
+        FixedClock,
+        ImmediateRuntimeLauncher { runtime },
+        publisher,
+    )
+    .expect("open plugin lifecycle");
 
     let response = lifecycle
         .enable_plugin(EnablePluginRequest {
@@ -166,18 +178,26 @@ async fn enables_plugin_without_activating_it() {
         })
         .await
         .expect("enable plugin");
-    let expected_plugin = expected_plugin(/*enabled*/ true);
+    assert_eq!(
+        response,
+        EnablePluginResponse {
+            plugin: expected_plugin_with_runtime(
+                PluginEnabledState::Enabled,
+                PluginRuntimeStatus::Starting,
+            ),
+        },
+    );
+    assert_eq!(events.recv().await, Some(PluginId::new("official/example")));
+    assert_eq!(events.recv().await, Some(PluginId::new("official/example")));
 
     assert_eq!(
-        (response, lifecycle.list_installed_plugins()),
-        (
-            EnablePluginResponse {
-                plugin: expected_plugin.clone(),
-            },
-            ListInstalledPluginsResponse {
-                plugins: vec![expected_plugin],
-            },
-        ),
+        lifecycle.list_installed_plugins(),
+        ListInstalledPluginsResponse {
+            plugins: vec![expected_plugin_with_runtime(
+                PluginEnabledState::Enabled,
+                PluginRuntimeStatus::Running,
+            )],
+        },
     );
 }
 
@@ -419,13 +439,23 @@ async fn scan_stops_runtime_for_package_deleted_outside_ora() {
         })
         .await
         .expect("enable plugin");
-    lifecycle
+    // Enabling starts the launch on its own task, and activation shares the plugin's operation
+    // queue, so awaiting it is what makes the settled running runtime observable to the scan.
+    let activation = lifecycle
         .activate_plugin(ActivatePluginRequest {
             plugin_id: "official/example".to_string(),
         })
         .await
         .expect("activate plugin");
-    tokio::task::yield_now().await;
+    assert_eq!(
+        activation,
+        ActivatePluginResponse {
+            plugin: expected_plugin_with_runtime(
+                PluginEnabledState::Enabled,
+                PluginRuntimeStatus::Running,
+            ),
+        },
+    );
     fs::remove_dir_all(
         temp_dir
             .path()
@@ -537,13 +567,6 @@ async fn scan_stops_runtime_invalidated_by_missing_durable_state() {
         .await
         .expect("enable plugin");
     assert_eq!(events.recv().await, Some(PluginId::new("official/example")));
-    lifecycle
-        .activate_plugin(ActivatePluginRequest {
-            plugin_id: "official/example".to_string(),
-        })
-        .await
-        .expect("activate plugin");
-    assert_eq!(events.recv().await, Some(PluginId::new("official/example")));
     assert_eq!(events.recv().await, Some(PluginId::new("official/example")));
     repository_probe
         .delete_plugin_state(&PluginId::new("official/example"))
@@ -574,9 +597,9 @@ async fn scan_stops_runtime_invalidated_by_missing_durable_state() {
     );
 }
 
-/// Verifies activation returns starting before asynchronously transitioning to running.
+/// Verifies enabling returns starting, launches with agent permissions, then reports running.
 #[tokio::test]
-async fn activates_enabled_plugin_and_publishes_each_transition() {
+async fn enabling_launches_the_plugin_and_publishes_each_transition() {
     let _logging = trace_logging_guard();
     let temp_dir = TempDir::new().expect("create plugin lifecycle directory");
     write_plugin_package(temp_dir.path(), "example");
@@ -599,23 +622,15 @@ async fn activates_enabled_plugin_and_publishes_each_transition() {
         publisher,
     )
     .expect("open plugin lifecycle");
-    lifecycle
+    let response = lifecycle
         .enable_plugin(EnablePluginRequest {
             plugin_id: "official/example".to_string(),
         })
         .await
         .expect("enable plugin");
-    assert_eq!(events.recv().await, Some(PluginId::new("official/example")));
-
-    let response = lifecycle
-        .activate_plugin(ActivatePluginRequest {
-            plugin_id: "official/example".to_string(),
-        })
-        .await
-        .expect("activate plugin");
     assert_eq!(
         response,
-        ActivatePluginResponse {
+        EnablePluginResponse {
             plugin: expected_plugin_with_runtime(
                 PluginEnabledState::Enabled,
                 PluginRuntimeStatus::Starting,
@@ -634,19 +649,41 @@ async fn activates_enabled_plugin_and_publishes_each_transition() {
                 .join("installed")
                 .join("example")
                 .join("main.js"),
+            permissions: vec![
+                "--allow-run".to_string(),
+                "--allow-read".to_string(),
+                "--allow-env".to_string(),
+                "--allow-net".to_string(),
+            ],
         }),
     );
 
     release_launch.send(()).expect("release runtime launch");
     assert_eq!(events.recv().await, Some(PluginId::new("official/example")));
+    // Activation of an already running plugin is a read of the live state, never a second launch:
+    // the launcher would panic if it were asked to start the same plugin twice.
+    let activation = lifecycle
+        .activate_plugin(ActivatePluginRequest {
+            plugin_id: "official/example".to_string(),
+        })
+        .await
+        .expect("activate plugin");
     assert_eq!(
-        lifecycle.list_installed_plugins(),
-        ListInstalledPluginsResponse {
-            plugins: vec![expected_plugin_with_runtime(
-                PluginEnabledState::Enabled,
-                PluginRuntimeStatus::Running,
-            )],
-        },
+        (activation, lifecycle.list_installed_plugins()),
+        (
+            ActivatePluginResponse {
+                plugin: expected_plugin_with_runtime(
+                    PluginEnabledState::Enabled,
+                    PluginRuntimeStatus::Running,
+                ),
+            },
+            ListInstalledPluginsResponse {
+                plugins: vec![expected_plugin_with_runtime(
+                    PluginEnabledState::Enabled,
+                    PluginRuntimeStatus::Running,
+                )],
+            },
+        ),
     );
 }
 
@@ -682,13 +719,6 @@ async fn stops_running_plugin_without_disabling_it() {
         })
         .await
         .expect("enable plugin");
-    assert_eq!(events.recv().await, Some(PluginId::new("official/example")));
-    lifecycle
-        .activate_plugin(ActivatePluginRequest {
-            plugin_id: "official/example".to_string(),
-        })
-        .await
-        .expect("activate plugin");
     assert_eq!(events.recv().await, Some(PluginId::new("official/example")));
     assert_eq!(events.recv().await, Some(PluginId::new("official/example")));
 
@@ -755,13 +785,6 @@ async fn disabling_running_plugin_stops_it_first() {
         .await
         .expect("enable plugin");
     assert_eq!(events.recv().await, Some(PluginId::new("official/example")));
-    lifecycle
-        .activate_plugin(ActivatePluginRequest {
-            plugin_id: "official/example".to_string(),
-        })
-        .await
-        .expect("activate plugin");
-    assert_eq!(events.recv().await, Some(PluginId::new("official/example")));
     assert_eq!(events.recv().await, Some(PluginId::new("official/example")));
 
     let disable_lifecycle = lifecycle.clone();
@@ -796,7 +819,7 @@ async fn disabling_running_plugin_stops_it_first() {
 
 /// Verifies disable queues behind an in-flight launch and waits for the resulting runtime stop.
 #[tokio::test]
-async fn queues_disable_behind_starting_activation() {
+async fn queues_disable_behind_the_launch_enabling_started() {
     let _logging = trace_logging_guard();
     let temp_dir = TempDir::new().expect("create plugin lifecycle directory");
     write_plugin_package(temp_dir.path(), "example");
@@ -826,13 +849,8 @@ async fn queues_disable_behind_starting_activation() {
         })
         .await
         .expect("enable plugin");
-    lifecycle
-        .activate_plugin(ActivatePluginRequest {
-            plugin_id: "official/example".to_string(),
-        })
-        .await
-        .expect("activate plugin");
 
+    // Enabling starts the launch, which owns the plugin's operation queue until it settles.
     let disable_lifecycle = lifecycle.clone();
     let disable_task = tokio::spawn(async move {
         disable_lifecycle
@@ -897,13 +915,6 @@ async fn uninstalls_running_plugin_after_stopping_it() {
         })
         .await
         .expect("enable plugin");
-    assert_eq!(events.recv().await, Some(PluginId::new("official/example")));
-    lifecycle
-        .activate_plugin(ActivatePluginRequest {
-            plugin_id: "official/example".to_string(),
-        })
-        .await
-        .expect("activate plugin");
     assert_eq!(events.recv().await, Some(PluginId::new("official/example")));
     assert_eq!(events.recv().await, Some(PluginId::new("official/example")));
 
@@ -980,13 +991,6 @@ async fn uninstall_records_stopped_state_before_package_removal() {
         .await
         .expect("enable plugin");
     assert_eq!(events.recv().await, Some(PluginId::new("official/example")));
-    lifecycle
-        .activate_plugin(ActivatePluginRequest {
-            plugin_id: "official/example".to_string(),
-        })
-        .await
-        .expect("activate plugin");
-    assert_eq!(events.recv().await, Some(PluginId::new("official/example")));
     assert_eq!(events.recv().await, Some(PluginId::new("official/example")));
     fs::remove_dir_all(&package_root).expect("remove package fixture directory");
     fs::write(&package_root, "not a directory").expect("replace package directory with a file");
@@ -1060,13 +1064,6 @@ async fn records_runtime_failure_without_disabling_plugin() {
         })
         .await
         .expect("enable plugin");
-    assert_eq!(events.recv().await, Some(PluginId::new("official/example")));
-    lifecycle
-        .activate_plugin(ActivatePluginRequest {
-            plugin_id: "official/example".to_string(),
-        })
-        .await
-        .expect("activate plugin");
     assert_eq!(events.recv().await, Some(PluginId::new("official/example")));
     assert_eq!(events.recv().await, Some(PluginId::new("official/example")));
 
@@ -1173,16 +1170,38 @@ impl PluginRuntimeLauncher for ControllableRuntimeLauncher {
             release
                 .await
                 .map_err(|_| PluginRuntimeFailure::new("launch release dropped"))?;
-            Ok(FakeRuntime)
+            Ok(FakeRuntime::new())
         }
     }
 }
 
 /// Represents a running fake whose failure future remains pending for this test.
 #[derive(Clone)]
-struct FakeRuntime;
+struct FakeRuntime {
+    /// Models the one-per-process notification stream so attach behavior stays observable.
+    notifications: Arc<Mutex<Option<()>>>,
+}
+
+impl FakeRuntime {
+    /// Creates a fake whose notification stream no consumer has claimed yet.
+    fn new() -> Self {
+        Self {
+            notifications: Arc::new(Mutex::new(Some(()))),
+        }
+    }
+}
 
 impl PluginRuntime for FakeRuntime {
+    type Notifications = ();
+
+    /// Hands the modelled stream to the first caller and nothing to later ones.
+    fn take_notifications(&self) -> Option<Self::Notifications> {
+        self.notifications
+            .lock()
+            .expect("lock fake notification stream")
+            .take()
+    }
+
     /// Stops immediately because this test exercises activation rather than shutdown timing.
     fn stop(&self) -> impl Future<Output = Result<(), PluginRuntimeFailure>> + Send {
         async { Ok(()) }
@@ -1233,6 +1252,13 @@ impl ControllableFailureRuntime {
 }
 
 impl PluginRuntime for ControllableFailureRuntime {
+    type Notifications = ();
+
+    /// Yields the stream unconditionally because the failure test never attaches a consumer.
+    fn take_notifications(&self) -> Option<Self::Notifications> {
+        Some(())
+    }
+
     /// Stops immediately because the failure test never requests explicit shutdown.
     fn stop(&self) -> impl Future<Output = Result<(), PluginRuntimeFailure>> + Send {
         async { Ok(()) }
@@ -1293,6 +1319,13 @@ impl ControllableStopRuntime {
 }
 
 impl PluginRuntime for ControllableStopRuntime {
+    type Notifications = ();
+
+    /// Yields the stream unconditionally because the stop test never attaches a consumer.
+    fn take_notifications(&self) -> Option<Self::Notifications> {
+        Some(())
+    }
+
     /// Records the stop request and waits until the simulated process has exited.
     fn stop(&self) -> impl Future<Output = Result<(), PluginRuntimeFailure>> + Send {
         let stop_started = self.stop_started.clone();

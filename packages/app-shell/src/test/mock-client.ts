@@ -354,6 +354,9 @@ export function createMockClient(state: MockClientState): ContractsClient {
         if (!plugin)
           throw new Error(`installed plugin ${req.pluginId} not found`);
         plugin.enabled = true;
+        // Enabling a plugin is also what starts it, so the backend answers with the
+        // starting runtime and reports running once the process is up.
+        plugin.runtime = "starting";
         return { plugin };
       },
       disable: async (req) => {
@@ -363,6 +366,7 @@ export function createMockClient(state: MockClientState): ContractsClient {
         if (!plugin)
           throw new Error(`installed plugin ${req.pluginId} not found`);
         plugin.enabled = false;
+        plugin.runtime = "stopped";
         return { plugin };
       },
       activate: async (req) => {

@@ -1,6 +1,6 @@
 use super::plugin_agent::{
     self, AgentTransport, LaunchedPluginAgent, PluginAcpTransport, PluginAgentError,
-    PluginAgentModel, PluginAgentSpec,
+    PluginAgentModel,
 };
 use super::restart_circuit::{RestartCircuit, RestartDecision};
 use super::routing::{RouteRegistry, SessionChannel, SessionEvent};
@@ -10,6 +10,7 @@ use super::{
 };
 use crate::BackendError;
 use crate::clock::SystemClock;
+use crate::plugin::PluginApi;
 use agent_client_protocol_schema::ProtocolVersion;
 use agent_client_protocol_schema::v1::AGENT_METHOD_NAMES;
 use agent_client_protocol_schema::v1::{
@@ -19,10 +20,11 @@ use agent_client_protocol_schema::v1::{
 use agent_client_protocol_schema::v1::{RequestPermissionOutcome, RequestPermissionResponse};
 use ora_acp::{AcpClient, AcpInboundEvent, AcpMessages, AcpPeer, NdjsonTransport};
 use ora_application::{Clock, SessionRepository};
-use ora_contracts::PublicError;
+use ora_contracts::{ListInstalledPluginsRequest, PublicError, StopPluginRequest};
 use ora_db::{RepositoryPool, SqliteSessionRepository};
-use ora_domain::{AgentCli, AgentRef, SessionStatus};
+use ora_domain::{AgentCli, AgentRef, PluginId, SessionStatus};
 use ora_logging::{ora_error, ora_info, ora_warn};
+use ora_plugin_lifecycle::PluginLifecycleError;
 use ora_plugin_runtime::PluginRuntime;
 use ora_process::{
     ManagedProcess, ProcessSpawner, ProcessSpec, TokioManagedProcess, TokioProcessSpawner,
@@ -30,8 +32,8 @@ use ora_process::{
 use std::collections::{BTreeMap, BTreeSet};
 use std::future::Future;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, PoisonError, RwLock};
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, watch};
 use tokio::time::timeout;
@@ -55,7 +57,16 @@ pub(super) enum AgentSource {
     /// A CLI Ora launches itself and speaks NDJSON ACP to over its stdio pipes.
     Cli(AgentCli),
     /// A plugin package that owns its agent process and relays ACP frames to the host.
-    Plugin(PluginAgentSpec),
+    ///
+    /// A package carries two distinct identities and both are needed here. `plugin_id` is the
+    /// package address — `namespace/name` — that the plugin lifecycle owns the process under.
+    /// `package_name` is the agent identity the package supplies, which is what sessions persist
+    /// as their `agent_ref`. Supervising a plugin under its package address instead would leave
+    /// every stored binding pointing at an agent no lookup can reach.
+    Plugin {
+        plugin_id: PluginId,
+        package_name: String,
+    },
 }
 
 impl AgentSource {
@@ -63,9 +74,9 @@ impl AgentSource {
     fn agent_ref(&self) -> Result<AgentRef, BackendError> {
         match self {
             Self::Cli(agent_cli) => Ok(agent_cli.agent_ref()),
-            // A plugin id reaches here already validated by discovery, but parsing keeps one
+            // A package name reaches here already validated by discovery, but parsing keeps one
             // construction path for the value object rather than a second, unchecked one.
-            Self::Plugin(spec) => AgentRef::parse(&spec.plugin_id)
+            Self::Plugin { package_name, .. } => AgentRef::parse(package_name)
                 .map_err(|error| runtime_internal("agent_start_failed", error.to_string())),
         }
     }
@@ -74,7 +85,7 @@ impl AgentSource {
     fn label(&self) -> &str {
         match self {
             Self::Cli(agent_cli) => agent_cli.executable_name(),
-            Self::Plugin(spec) => &spec.plugin_id,
+            Self::Plugin { plugin_id, .. } => plugin_id.as_ref(),
         }
     }
 }
@@ -122,6 +133,8 @@ pub(super) enum ConnectionStatus {
 struct SupervisorContext {
     agent_ref: AgentRef,
     source: AgentSource,
+    /// Starts and stops the processes behind plugin-provided agents.
+    plugin_host: Arc<PluginApi>,
     pool: RepositoryPool,
     home_directory: PathBuf,
     clock: SystemClock,
@@ -129,6 +142,7 @@ struct SupervisorContext {
     active_generation: Arc<AtomicU64>,
     routes: Arc<RouteRegistry>,
     shutdown: mpsc::UnboundedReceiver<()>,
+    wake: mpsc::UnboundedReceiver<()>,
 }
 
 /// Gives session actors access to the current connection and central event router.
@@ -139,15 +153,26 @@ pub(super) struct ConnectionSupervisor {
     active_generation: Arc<AtomicU64>,
     routes: Arc<RouteRegistry>,
     shutdown: mpsc::UnboundedSender<()>,
+    /// Cuts the current retry backoff short when something made this agent usable.
+    wake: mpsc::UnboundedSender<()>,
 }
 
 /// Owns one independently supervised connection for every agent Ora can reach.
 ///
 /// Agents are keyed by their persisted namespaced identity rather than by a closed enum, so a
 /// plugin-provided agent is reachable through exactly the same lookup as a built-in CLI.
+///
+/// The set is mutable because installing a plugin adds an agent while Ora is running. It is held
+/// behind a lock rather than rebuilt, so every existing clone — the warm pool, live session
+/// actors — observes an install or uninstall without being handed a new value.
 #[derive(Clone)]
 pub(super) struct ConnectionSupervisors {
-    supervisors: Arc<BTreeMap<AgentRef, ConnectionSupervisor>>,
+    supervisors: Arc<RwLock<BTreeMap<AgentRef, ConnectionSupervisor>>>,
+    /// Retained so a package installed after startup can be supervised without restarting Ora.
+    plugin_host: Arc<PluginApi>,
+    pool: RepositoryPool,
+    home_directory: PathBuf,
+    clock: SystemClock,
 }
 
 impl ConnectionSupervisors {
@@ -155,31 +180,92 @@ impl ConnectionSupervisors {
     ///
     /// Availability stays independent per agent: one provider that is missing or crash-looping
     /// never delays or degrades the others, which is why each gets its own supervisor.
+    ///
+    /// Every installed plugin is supervised regardless of whether it is enabled: eligibility is
+    /// the lifecycle's answer to give, and a disabled plugin simply keeps failing to attach until
+    /// the user enables it.
     pub fn start(
-        agent_plugins: Vec<PluginAgentSpec>,
+        plugin_host: Arc<PluginApi>,
         pool: RepositoryPool,
         home_directory: PathBuf,
         clock: SystemClock,
     ) -> Self {
-        let sources = AgentCli::ALL
+        let supervisors = Self {
+            supervisors: Arc::new(RwLock::new(BTreeMap::new())),
+            plugin_host,
+            pool,
+            home_directory,
+            clock,
+        };
+        supervisors.sync_plugin_agents();
+        supervisors
+    }
+
+    /// Reconciles the supervised agents with the packages currently installed.
+    ///
+    /// Installing a plugin has to make its agent reachable in the running process: the alternative
+    /// is a chat that reports the agent as not installed until Ora is restarted, while the settings
+    /// surface already lists the plugin. Uninstalling one drops its supervisor for the same reason.
+    ///
+    /// Built-in CLIs are always part of the desired set, so they are established on the first call
+    /// and never removed by a later one.
+    pub fn sync_plugin_agents(&self) {
+        let agent_plugins = self
+            .plugin_host
+            .list(ListInstalledPluginsRequest {})
+            .plugins
             .into_iter()
-            .map(AgentSource::Cli)
-            .chain(agent_plugins.into_iter().map(AgentSource::Plugin));
-        let supervisors = resolve_supervised_agents(sources)
-            .into_iter()
-            .map(|(agent_ref, source)| {
-                let supervisor = ConnectionSupervisor::start(
-                    agent_ref.clone(),
-                    source,
-                    pool.clone(),
-                    home_directory.clone(),
-                    clock,
-                );
-                (agent_ref, supervisor)
-            })
-            .collect::<BTreeMap<_, _>>();
-        Self {
-            supervisors: Arc::new(supervisors),
+            .map(|plugin| AgentSource::Plugin {
+                plugin_id: PluginId::new(plugin.id),
+                package_name: plugin.package_name,
+            });
+        let desired = resolve_supervised_agents(
+            AgentCli::ALL
+                .into_iter()
+                .map(AgentSource::Cli)
+                .chain(agent_plugins),
+        );
+
+        let mut supervisors = self
+            .supervisors
+            .write()
+            .unwrap_or_else(PoisonError::into_inner);
+        let desired_refs = desired
+            .iter()
+            .map(|(agent_ref, _source)| agent_ref.clone())
+            .collect::<BTreeSet<_>>();
+        // Dropping the map's handle only signals shutdown once every session actor holding a clone
+        // has released it, so an uninstall never severs a conversation that is still open.
+        supervisors.retain(|agent_ref, _supervisor| desired_refs.contains(agent_ref));
+        for (agent_ref, source) in desired {
+            if supervisors.contains_key(&agent_ref) {
+                continue;
+            }
+            let supervisor = ConnectionSupervisor::start(
+                agent_ref.clone(),
+                source,
+                self.plugin_host.clone(),
+                self.pool.clone(),
+                self.home_directory.clone(),
+                self.clock,
+            );
+            supervisors.insert(agent_ref, supervisor);
+        }
+    }
+
+    /// Retries one agent at once rather than at the end of its current backoff.
+    ///
+    /// Enabling a plugin is the moment its agent becomes usable, and the supervisor that has been
+    /// refusing to attach may be most of a backoff interval away from noticing. An identity this
+    /// host does not supervise is ignored: nothing is waiting on it.
+    pub fn wake_agent(&self, agent_ref: &AgentRef) {
+        if let Some(supervisor) = self
+            .supervisors
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(agent_ref)
+        {
+            supervisor.wake();
         }
     }
 
@@ -188,12 +274,17 @@ impl ConnectionSupervisors {
     /// A miss is a normal runtime state rather than data corruption: a session can outlive the
     /// plugin that provided its agent, and the caller reports that as an unavailable runtime.
     pub fn for_agent(&self, agent_ref: &AgentRef) -> Result<ConnectionSupervisor, BackendError> {
-        self.supervisors.get(agent_ref).cloned().ok_or_else(|| {
-            runtime_internal(
-                "agent_runtime_unavailable",
-                format!("{agent_ref} is not installed"),
-            )
-        })
+        self.supervisors
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(agent_ref)
+            .cloned()
+            .ok_or_else(|| {
+                runtime_internal(
+                    "agent_runtime_unavailable",
+                    format!("{agent_ref} is not installed"),
+                )
+            })
     }
 
     /// Reports every supervised agent with its live status, in stable identity order.
@@ -202,6 +293,8 @@ impl ConnectionSupervisors {
     /// picker: the set is no longer knowable at build time.
     pub fn statuses(&self) -> Vec<(AgentRef, ConnectionStatus)> {
         self.supervisors
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
             .iter()
             .map(|(agent_ref, supervisor)| (agent_ref.clone(), supervisor.status()))
             .collect()
@@ -218,12 +311,14 @@ impl ConnectionSupervisor {
     pub(super) fn start(
         agent_ref: AgentRef,
         source: AgentSource,
+        plugin_host: Arc<PluginApi>,
         pool: RepositoryPool,
         home_directory: PathBuf,
         clock: SystemClock,
     ) -> Self {
         let (state_sender, state) = watch::channel(ConnectionState::Unavailable);
         let (shutdown, shutdown_receiver) = mpsc::unbounded_channel();
+        let (wake, wake_receiver) = mpsc::unbounded_channel();
         let active_generation = Arc::new(AtomicU64::new(0));
         let routes = Arc::new(RouteRegistry::default());
         let label: Arc<str> = Arc::from(source.label());
@@ -233,6 +328,7 @@ impl ConnectionSupervisor {
             run_supervisor(SupervisorContext {
                 agent_ref,
                 source,
+                plugin_host,
                 pool,
                 home_directory,
                 clock,
@@ -240,6 +336,7 @@ impl ConnectionSupervisor {
                 active_generation: active_generation.clone(),
                 routes: routes.clone(),
                 shutdown: shutdown_receiver,
+                wake: wake_receiver,
             }),
         ) {
             ora_warn!(
@@ -254,7 +351,16 @@ impl ConnectionSupervisor {
             active_generation,
             routes,
             shutdown,
+            wake,
         }
+    }
+
+    /// Asks the retry loop to attempt this agent now instead of waiting out its backoff.
+    ///
+    /// A supervisor that has already given up — a crash loop, or a provider that cannot serve this
+    /// host's contract — has ended its loop, so this is deliberately best effort.
+    pub(super) fn wake(&self) {
+        let _ = self.wake.send(());
     }
 
     /// Reports the live tri-state detection status without exposing the connection itself.
@@ -389,39 +495,66 @@ impl Drop for ConnectionSupervisor {
     }
 }
 
-/// Owns whatever process backs one connection generation for that generation's whole lifetime.
+/// Ends whatever process backs one connection generation once that generation is over.
 ///
-/// A built-in CLI is Ora's own child. A plugin instead owns the agent it fronts, so the host holds
-/// the plugin runtime: dropping it sends `ora/shutdown` and reaps the plugin's process tree, which
-/// is the host's standing guarantee regardless of how well the plugin cleans up after itself.
+/// A built-in CLI is Ora's own child, so the supervisor reaps it directly. A plugin process
+/// belongs to the plugin lifecycle instead: this connection only borrowed its ACP stream, so
+/// ending the generation means telling the lifecycle to stop it, which keeps the runtime state
+/// the settings surface reports honest and leaves the next attach to start a fresh process.
 enum AgentProcess {
     // Boxed because a managed child process is far larger than a plugin handle, and every
     // connection would otherwise carry the bigger variant's footprint.
     Cli(Box<TokioManagedProcess>),
-    Plugin(PluginRuntime),
+    Plugin {
+        plugin_id: PluginId,
+        runtime: PluginRuntime,
+        host: Arc<PluginApi>,
+    },
 }
 
 impl AgentProcess {
     /// Reaps a failed generation before its replacement so two generations cannot overlap.
-    async fn terminate_and_reap(&self, plugin_id: &str) {
+    async fn terminate_and_reap(&self) {
         match self {
             Self::Cli(child) => {
                 let _ = child.kill().await;
                 let _ = child.wait().await;
             }
-            Self::Plugin(runtime) => {
-                // Stopping the agent is the plugin's chance to reap the CLI it owns; ending the
-                // plugin itself cannot wait for the last transport clone to be dropped, or a
-                // surviving session actor would keep a failed plugin running.
-                plugin_agent::stop_agent(runtime, plugin_id).await;
-                runtime.shutdown_and_wait().await;
+            Self::Plugin {
+                plugin_id,
+                runtime,
+                host,
+            } => {
+                // Stopping the agent is the plugin's chance to reap the CLI it owns before the
+                // lifecycle ends the plugin process itself.
+                plugin_agent::stop_agent(runtime, plugin_id.as_ref()).await;
+                stop_plugin_runtime(host, plugin_id).await;
             }
         }
     }
 
     /// Bounds application shutdown even when the operating system does not promptly reap a child.
-    async fn stop_with_grace(&self, plugin_id: &str) {
-        let _ = timeout(CANCELLATION_GRACE, self.terminate_and_reap(plugin_id)).await;
+    async fn stop_with_grace(&self) {
+        let _ = timeout(CANCELLATION_GRACE, self.terminate_and_reap()).await;
+    }
+}
+
+/// Asks the lifecycle to end one plugin process after its agent generation failed or shut down.
+///
+/// A stop that itself fails is logged rather than propagated: the caller is already tearing a
+/// generation down, and the next attach restarts the plugin regardless of what this left behind.
+async fn stop_plugin_runtime(host: &PluginApi, plugin_id: &PluginId) {
+    if let Err(error) = host
+        .stop(StopPluginRequest {
+            plugin_id: plugin_id.to_string(),
+        })
+        .await
+    {
+        ora_warn!(
+            plugin_id = %plugin_id,
+            error = %error,
+            "plugin runtime could not be stopped after its agent generation ended"
+        );
     }
 }
 
@@ -466,6 +599,7 @@ async fn run_supervisor(context: SupervisorContext) {
     let SupervisorContext {
         agent_ref,
         source,
+        plugin_host,
         pool,
         home_directory,
         clock,
@@ -473,6 +607,7 @@ async fn run_supervisor(context: SupervisorContext) {
         active_generation,
         routes,
         mut shutdown,
+        mut wake,
     } = context;
     let identifier = agent_ref.as_str();
     let mut retry_delay = INITIAL_RETRY_DELAY;
@@ -480,7 +615,7 @@ async fn run_supervisor(context: SupervisorContext) {
     let mut restart_circuit = RestartCircuit::default();
     loop {
         let _ = state.send(ConnectionState::Starting);
-        match spawn_initialized_process(&source, &home_directory).await {
+        match spawn_initialized_process(&source, &plugin_host, &home_directory).await {
             Ok(mut process) => {
                 generation += 1;
                 retry_delay = INITIAL_RETRY_DELAY;
@@ -505,10 +640,10 @@ async fn run_supervisor(context: SupervisorContext) {
                 routes.fail_generation(generation, error);
                 mark_running_sessions_stopped(&pool, clock, &agent_ref);
                 if shutting_down {
-                    process.process.stop_with_grace(identifier).await;
+                    process.process.stop_with_grace().await;
                     return;
                 }
-                process.process.terminate_and_reap(identifier).await;
+                process.process.terminate_and_reap().await;
                 if restart_circuit.record_failure(Instant::now()) == RestartDecision::Stop {
                     let _ = state.send(ConnectionState::Failing);
                     ora_warn!(
@@ -558,10 +693,14 @@ async fn run_supervisor(context: SupervisorContext) {
             }
         }
         tokio::select! {
-            _ = tokio::time::sleep(retry_delay) => {}
+            _ = tokio::time::sleep(retry_delay) => {
+                retry_delay = (retry_delay * 2).min(MAX_RETRY_DELAY);
+            }
+            // Something outside this loop made the provider usable, so the backoff earned by the
+            // previous failures no longer describes how likely the next attempt is to succeed.
+            _ = wake.recv() => retry_delay = INITIAL_RETRY_DELAY,
             _ = shutdown.recv() => return,
         }
-        retry_delay = (retry_delay * 2).min(MAX_RETRY_DELAY);
     }
 }
 
@@ -618,6 +757,7 @@ async fn run_process_generation(
 /// a session request to a transport that is not yet carrying a live agent.
 async fn spawn_initialized_process(
     source: &AgentSource,
+    plugin_host: &Arc<PluginApi>,
     home_directory: &Path,
 ) -> Result<SharedProcess, StartFailure> {
     let StartedAgent {
@@ -627,7 +767,9 @@ async fn spawn_initialized_process(
         models,
     } = match source {
         AgentSource::Cli(agent_cli) => spawn_cli_connection(*agent_cli, home_directory).await?,
-        AgentSource::Plugin(spec) => spawn_plugin_connection(spec, home_directory).await?,
+        AgentSource::Plugin { plugin_id, .. } => {
+            spawn_plugin_connection(plugin_id, plugin_host, home_directory).await?
+        }
     };
     let peer = AcpPeer::spawn(messages, transport);
     // Config options are only sent by agents that see the client advertise them,
@@ -651,11 +793,11 @@ async fn spawn_initialized_process(
     {
         Ok(Ok(response)) => response,
         Ok(Err(error)) => {
-            process.terminate_and_reap(source.label()).await;
+            process.terminate_and_reap().await;
             return Err(StartFailure::Retryable(map_acp_error(error)));
         }
         Err(_) => {
-            process.terminate_and_reap(source.label()).await;
+            process.terminate_and_reap().await;
             return Err(StartFailure::Retryable(runtime_internal(
                 "agent_initialize_timeout",
                 "agent initialization timed out",
@@ -727,29 +869,70 @@ async fn spawn_cli_connection(
     })
 }
 
-/// Launches one agent plugin and wires ACP over its notification channel.
+/// Attaches to one lifecycle-owned agent plugin and wires ACP over its notification channel.
 async fn spawn_plugin_connection(
-    spec: &PluginAgentSpec,
+    plugin_id: &PluginId,
+    plugin_host: &Arc<PluginApi>,
     home_directory: &Path,
 ) -> Result<StartedAgent, StartFailure> {
-    let LaunchedPluginAgent { runtime, messages } =
-        plugin_agent::launch(spec, home_directory, env!("CARGO_PKG_VERSION"))
-            .await
-            .map_err(plugin_start_error)?;
+    let attachment = plugin_host
+        .attach_runtime(plugin_id)
+        .await
+        .map_err(plugin_attach_error)?;
+    let LaunchedPluginAgent { runtime, messages } = match plugin_agent::attach(
+        attachment,
+        plugin_id.as_ref(),
+        home_directory,
+        env!("CARGO_PKG_VERSION"),
+    )
+    .await
+    {
+        Ok(launched) => launched,
+        Err(error) => {
+            stop_plugin_runtime(plugin_host, plugin_id).await;
+            return Err(plugin_start_error(error));
+        }
+    };
     let models = match plugin_agent::list_models(&runtime).await {
         Ok(models) => models,
         Err(error) => {
-            runtime.shutdown_and_wait().await;
+            plugin_agent::stop_agent(&runtime, plugin_id.as_ref()).await;
+            stop_plugin_runtime(plugin_host, plugin_id).await;
             return Err(plugin_start_error(error));
         }
     };
     let transport = AgentTransport::Plugin(PluginAcpTransport::new(runtime.clone()));
     Ok(StartedAgent {
-        process: AgentProcess::Plugin(runtime),
+        process: AgentProcess::Plugin {
+            plugin_id: plugin_id.clone(),
+            runtime,
+            host: plugin_host.clone(),
+        },
         transport,
         messages,
         models,
     })
+}
+
+/// Maps a lifecycle refusal to start a plugin onto the supervisor's retry classification.
+///
+/// A plugin the user has not enabled, or has uninstalled, is an expected local configuration and
+/// is reported exactly like a missing CLI so the supervisor retries it without logging: the
+/// settings surface already tells the user why that agent is unavailable.
+fn plugin_attach_error(error: PluginLifecycleError) -> StartFailure {
+    match error {
+        PluginLifecycleError::PluginDisabled { .. }
+        | PluginLifecycleError::PluginNotFound { .. } => StartFailure::Retryable(runtime_internal(
+            "agent_cli_not_found",
+            "the plugin behind this agent is not available",
+        )),
+        PluginLifecycleError::RuntimeLaunch { .. }
+        | PluginLifecycleError::RuntimeStop { .. }
+        | PluginLifecycleError::Repository(_)
+        | PluginLifecycleError::PackageRemoval { .. } => {
+            StartFailure::Retryable(runtime_internal("agent_start_failed", error.to_string()))
+        }
+    }
 }
 
 /// Maps a plugin startup failure onto the same public shape a missing CLI already produces.
@@ -792,22 +975,54 @@ fn mark_running_sessions_stopped(pool: &RepositoryPool, clock: SystemClock, agen
 #[cfg(test)]
 mod tests {
     use super::{
-        AgentSource, PluginAgentError, PluginAgentSpec, StartFailure, plugin_start_error,
-        resolve_supervised_agents, spawn_runtime_thread,
+        AgentSource, ConnectionSupervisors, PluginAgentError, PluginLifecycleError, StartFailure,
+        plugin_attach_error, plugin_start_error, resolve_supervised_agents, spawn_runtime_thread,
     };
-    use ora_contracts::PublicError;
-    use ora_domain::{AgentCli, AgentRef};
+    use crate::app_event::AppEventHub;
+    use crate::clock::SystemClock;
+    use crate::plugin::PluginApi;
+    use ora_contracts::{PublicError, ScanPluginsRequest};
+    use ora_db::{DatabaseBootstrapper, DatabaseLocation, default_migration_catalog};
+    use ora_domain::{AgentCli, AgentRef, PluginId};
     use pretty_assertions::assert_eq;
-    use std::path::PathBuf;
+    use std::fs;
+    use std::path::{Path, PathBuf};
+    use std::sync::Arc;
     use std::time::Duration;
+    use tempfile::TempDir;
 
-    /// Builds one agent plugin source with the given package identity.
-    fn plugin_source(plugin_id: &str) -> AgentSource {
-        AgentSource::Plugin(PluginAgentSpec {
-            plugin_id: plugin_id.to_string(),
-            deno_path: PathBuf::from("deno"),
-            entrypoint: PathBuf::from("main.js"),
-        })
+    /// Builds one agent plugin source for a package published under the official namespace.
+    fn plugin_source(package_name: &str) -> AgentSource {
+        AgentSource::Plugin {
+            plugin_id: PluginId::new(format!("official/{package_name}")),
+            package_name: package_name.to_string(),
+        }
+    }
+
+    /// Verifies a plugin is supervised under the agent identity it supplies, not its package
+    /// address.
+    ///
+    /// A package is addressed as `namespace/name` on disk and in the marketplace, while the agent
+    /// it contributes is persisted by every session as the package name alone. Keying supervisors
+    /// by the package address instead would make each stored `agent_ref` unresolvable and report
+    /// an installed plugin's agent as not installed.
+    #[test]
+    fn supervises_a_plugin_under_its_agent_identity_rather_than_its_package_address() {
+        let resolved = resolve_supervised_agents(
+            [AgentSource::Plugin {
+                plugin_id: PluginId::new("official/ora-space.opencode"),
+                package_name: "ora-space.opencode".to_string(),
+            }]
+            .into_iter(),
+        );
+
+        assert_eq!(
+            resolved
+                .into_iter()
+                .map(|(agent_ref, _source)| agent_ref)
+                .collect::<Vec<_>>(),
+            vec![AgentRef::parse("ora-space.opencode").expect("parse plugin identity")]
+        );
     }
 
     /// Verifies a plugin-provided agent is supervised under its own package identity.
@@ -815,7 +1030,7 @@ mod tests {
     /// This is what makes the agent set open: the identity comes from the installed package
     /// rather than from a set fixed when Ora was built.
     #[test]
-    fn supervises_a_plugin_agent_under_its_package_identity() {
+    fn supervises_a_plugin_agent_alongside_the_built_in_clis() {
         let resolved = resolve_supervised_agents(
             [
                 AgentSource::Cli(AgentCli::Claude),
@@ -913,5 +1128,117 @@ mod tests {
         let failure = plugin_start_error(PluginAgentError::Failed("spawn refused".to_string()));
 
         assert!(matches!(failure, StartFailure::Retryable(_)));
+    }
+
+    /// Verifies a disabled plugin is reported exactly like a CLI the user has not installed.
+    ///
+    /// This is what keeps the retry loop silent for a plugin the user simply turned off: the
+    /// supervisor logs only genuine startup failures.
+    #[test]
+    fn treats_a_disabled_plugin_like_a_missing_cli() {
+        let failure = plugin_attach_error(PluginLifecycleError::PluginDisabled {
+            plugin_id: "acme.my-agent".to_string(),
+        });
+
+        let StartFailure::Retryable(error) = failure else {
+            panic!("a disabled plugin must stay retryable");
+        };
+        assert!(matches!(
+            error.public_error(),
+            PublicError::AgentCliNotFound(_)
+        ));
+    }
+
+    /// Writes one minimal agent package into the plugin root a lifecycle discovers.
+    fn write_plugin_package(data_directory: &Path, package_name: &str) {
+        let package_root = data_directory
+            .join("plugins")
+            .join("installed")
+            .join(package_name);
+        fs::create_dir_all(&package_root).expect("create plugin package");
+        fs::write(package_root.join("main.js"), "export {};\n").expect("write plugin entrypoint");
+        fs::write(
+            package_root.join("orax.toml"),
+            format!(
+                "resolver = 1\nname = {package_name:?}\nnamespace = \"official\"\nkind = \"agent\"\nversion = \"1.0.0\"\ndescription = \"Example\"\n"
+            ),
+        )
+        .expect("write plugin manifest");
+    }
+
+    /// Verifies a package installed after startup is supervised without restarting the host.
+    ///
+    /// The supervised set was previously fixed when the backend opened, so a plugin installed
+    /// while Ora ran appeared in settings but was reported as not installed by every chat until
+    /// the next restart. Nothing here starts a plugin process: a freshly discovered package is
+    /// disabled, and this asserts only that its agent became reachable.
+    #[tokio::test]
+    async fn supervises_a_package_that_appears_after_startup() {
+        let temporary = TempDir::new().expect("create supervisor test directory");
+        let pool = DatabaseBootstrapper::system()
+            .bootstrap_repository_pool(
+                &DatabaseLocation::path(temporary.path().join("ora.sqlite3")),
+                &default_migration_catalog().expect("build migration catalog"),
+            )
+            .expect("create repository pool");
+        let plugin_host = Arc::new(
+            PluginApi::open(
+                pool.clone(),
+                temporary.path().to_path_buf(),
+                PathBuf::from("deno"),
+                SystemClock,
+                AppEventHub::new().publisher(),
+            )
+            .expect("open plugin host"),
+        );
+        let supervisors = ConnectionSupervisors::start(
+            plugin_host.clone(),
+            pool,
+            temporary.path().to_path_buf(),
+            SystemClock,
+        );
+        let supervised = |supervisors: &ConnectionSupervisors| {
+            supervisors
+                .statuses()
+                .into_iter()
+                .map(|(agent_ref, _status)| agent_ref)
+                .collect::<Vec<_>>()
+        };
+        // Supervisors are enumerated in identity order rather than in the order they were offered.
+        let mut built_in = AgentCli::ALL
+            .into_iter()
+            .map(|agent_cli| agent_cli.agent_ref())
+            .collect::<Vec<_>>();
+        built_in.sort();
+        assert_eq!(supervised(&supervisors), built_in);
+
+        write_plugin_package(temporary.path(), "example");
+        plugin_host
+            .scan(ScanPluginsRequest {})
+            .await
+            .expect("scan plugins");
+        supervisors.sync_plugin_agents();
+
+        let mut expected = built_in;
+        expected.push(AgentRef::parse("example").expect("parse plugin identity"));
+        expected.sort();
+        assert_eq!(supervised(&supervisors), expected);
+    }
+
+    /// Verifies a plugin process that refused to start is retried as a genuine failure.
+    #[test]
+    fn retries_a_plugin_whose_runtime_could_not_launch() {
+        let failure = plugin_attach_error(PluginLifecycleError::RuntimeLaunch {
+            plugin_id: "acme.my-agent".to_string(),
+            reason: "deno is missing".to_string(),
+        });
+
+        let StartFailure::Retryable(error) = failure else {
+            panic!("a failed launch must stay retryable");
+        };
+        assert!(matches!(
+            error.public_error(),
+            PublicError::InternalError(_)
+        ));
     }
 }

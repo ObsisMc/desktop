@@ -14,12 +14,11 @@ mod workspace_files;
 use crate::config::DesktopConfigStore;
 use crate::error::DesktopBootstrapError;
 use crate::state::{BundledBinaryPaths, DesktopRuntimeGuard, DesktopState};
-use ora_backend::{AgentPluginPackage, Backend, BackendError, BackendPaths};
+use ora_backend::{Backend, BackendError, BackendPaths};
 use ora_logging::{
     FileLoggingConfig, LogLevel, LogOutput, LoggingConfig, RotationPolicy, init_logging, ora_error,
     ora_info, ora_warn, register_gitlancer_logger,
 };
-use ora_plugin_manager::{PluginContribution, PluginManager};
 use ora_runtime_settings::RuntimeLogLevelManager;
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
@@ -245,33 +244,18 @@ fn bootstrap_desktop(
         }
     };
     let ripgrep_path = binary_paths.ripgrep_path().to_path_buf();
-    let plugin_manager = PluginManager::discover(&app_data_directory);
-    for issue in plugin_manager.discovery_issues() {
-        ora_warn!(
-            message = "installed plugin manifest skipped during discovery",
-            path = %issue.path().display(),
-            issue_kind = issue.kind().as_str(),
-            field_path = issue.field_path().unwrap_or(""),
-            reason = issue.message(),
-        );
-    }
-
-    let agent_plugins = agent_plugin_packages(&plugin_manager, binary_paths.deno_path());
-    let backend = Backend::open(
-        BackendPaths {
-            database_path: app_data_directory.join("ora.sqlite3"),
-            data_directory: home_directory.join(PLUGIN_HOME_DIRECTORY_NAME),
-            deno_path: binary_paths.deno_path().to_path_buf(),
-            worktree_root: config_snapshot.worktree_root().to_path_buf(),
-            home_directory,
-            relative_path_base: desktop_relative_path_base(&app_data_directory),
-            sessions_root: app_data_directory.join("sessions"),
-            skills_root: app_data_directory.join("atoms").join("skills"),
-            ripgrep_path: ripgrep_path.clone(),
-            timezone: resolved_timezone.timezone,
-        },
-        agent_plugins,
-    )?;
+    let backend = Backend::open(BackendPaths {
+        database_path: app_data_directory.join("ora.sqlite3"),
+        data_directory: home_directory.join(PLUGIN_HOME_DIRECTORY_NAME),
+        deno_path: binary_paths.deno_path().to_path_buf(),
+        worktree_root: config_snapshot.worktree_root().to_path_buf(),
+        home_directory,
+        relative_path_base: desktop_relative_path_base(&app_data_directory),
+        sessions_root: app_data_directory.join("sessions"),
+        skills_root: app_data_directory.join("atoms").join("skills"),
+        ripgrep_path: ripgrep_path.clone(),
+        timezone: resolved_timezone.timezone,
+    })?;
     let (configured_log_level, resolved_log_level) =
         tauri::async_runtime::block_on(load_desktop_log_level(&backend, startup_override))
             .map_err(DesktopBootstrapError::RuntimePreference)?;
@@ -306,29 +290,6 @@ fn bootstrap_desktop(
             _logging: logging_guard,
         },
     ))
-}
-
-/// Selects the installed plugins that contribute an agent the runtime should supervise.
-///
-/// Every discovered plugin is already validated, so the entrypoint is resolved against the package
-/// root here rather than re-checked; a package that contributes no agent simply has nothing to
-/// supervise.
-fn agent_plugin_packages(
-    plugin_manager: &PluginManager,
-    deno_path: &std::path::Path,
-) -> Vec<AgentPluginPackage> {
-    plugin_manager
-        .installed_plugins()
-        .iter()
-        .map(|plugin| {
-            let PluginContribution::Agent(_) = &plugin.contributes;
-            AgentPluginPackage {
-                id: plugin.id.clone(),
-                deno_path: deno_path.to_path_buf(),
-                entrypoint: plugin.package_root.join(plugin.main.as_str()),
-            }
-        })
-        .collect()
 }
 
 /// Resolves the configured Desktop data root or falls back to Tauri's application data directory.
@@ -600,7 +561,7 @@ mod tests {
     #[tokio::test]
     async fn loads_persisted_desktop_log_level_after_restart() {
         let temp_dir = TempDir::new().unwrap();
-        let first = Backend::open(test_backend_paths(temp_dir.path()), Vec::new()).unwrap();
+        let first = Backend::open(test_backend_paths(temp_dir.path())).unwrap();
         assert_eq!(
             load_desktop_log_level(&first, None).await.unwrap(),
             (
@@ -615,7 +576,7 @@ mod tests {
         first.set_preferred_log_level(LogLevel::Warn).await.unwrap();
         drop(first);
 
-        let restarted = Backend::open(test_backend_paths(temp_dir.path()), Vec::new()).unwrap();
+        let restarted = Backend::open(test_backend_paths(temp_dir.path())).unwrap();
         assert_eq!(
             load_desktop_log_level(&restarted, Some(LogLevel::Trace))
                 .await
@@ -642,7 +603,7 @@ mod tests {
     #[tokio::test]
     async fn rejects_malformed_persisted_desktop_log_level() {
         let temp_dir = TempDir::new().unwrap();
-        let backend = Backend::open(test_backend_paths(temp_dir.path()), Vec::new()).unwrap();
+        let backend = Backend::open(test_backend_paths(temp_dir.path())).unwrap();
         drop(backend);
         rusqlite::Connection::open(temp_dir.path().join("ora.sqlite3"))
             .unwrap()
@@ -651,7 +612,7 @@ mod tests {
                 [],
             )
             .unwrap();
-        let reopened = Backend::open(test_backend_paths(temp_dir.path()), Vec::new()).unwrap();
+        let reopened = Backend::open(test_backend_paths(temp_dir.path())).unwrap();
 
         assert!(load_desktop_log_level(&reopened, None).await.is_err());
     }

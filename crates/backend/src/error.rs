@@ -129,6 +129,7 @@ impl From<PluginLifecycleError> for BackendError {
                 "plugin must be enabled before activation",
             ),
             PluginLifecycleError::Repository(_)
+            | PluginLifecycleError::RuntimeLaunch { .. }
             | PluginLifecycleError::RuntimeStop { .. }
             | PluginLifecycleError::PackageRemoval { .. } => (
                 ErrorClassification::Internal,

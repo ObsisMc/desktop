@@ -24,26 +24,13 @@ use ora_contracts::*;
 use ora_contracts::{EmptyErrorParams, PublicError};
 use ora_db::SqliteWorkflowRunEngineRepository;
 use ora_db::{DatabaseBootstrapper, DatabaseLocation, RepositoryPool, default_migration_catalog};
+use ora_domain::AgentRef;
 use ora_logging::{ora_error, ora_warn};
 use ora_scheduler::Scheduler;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 use thiserror::Error;
-
-/// Describes one installed agent plugin the runtime should supervise.
-///
-/// Discovery and validation belong to the caller, which owns the plugin catalogue; the backend
-/// receives an already-resolved package so it never rediscovers or re-validates plugins itself.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct AgentPluginPackage {
-    /// Plugin package id, which is also this agent's persisted identity.
-    pub id: String,
-    /// Deno executable used to run this plugin's process.
-    pub deno_path: PathBuf,
-    /// Absolute path to the plugin's JavaScript entrypoint.
-    pub entrypoint: PathBuf,
-}
 
 /// Names the persistent paths required to construct the shared backend.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -127,12 +114,9 @@ pub struct Backend {
 impl Backend {
     /// Opens persistent storage and constructs every shared CRUD API.
     ///
-    /// `agent_plugins` joins the built-in CLIs as agent providers; supplying an empty list keeps
-    /// the runtime to built-in agents only.
-    pub fn open(
-        paths: BackendPaths,
-        agent_plugins: Vec<AgentPluginPackage>,
-    ) -> Result<Self, BackendBootstrapError> {
+    /// Installed agent plugins join the built-in CLIs as agent providers; they are discovered by
+    /// the plugin lifecycle under `paths.data_directory`, which also owns their processes.
+    pub fn open(paths: BackendPaths) -> Result<Self, BackendBootstrapError> {
         ensure_directory(
             paths
                 .database_path
@@ -168,7 +152,7 @@ impl Backend {
         let relative_path_base = paths.relative_path_base;
         let agent_runtime = Arc::new(
             AgentRuntimeManager::new(AgentRuntimeSetup {
-                agent_plugins,
+                plugin_host: plugin.clone(),
                 pool: pool.clone(),
                 home_directory: paths.home_directory,
                 relative_path_base: relative_path_base.clone(),
@@ -289,18 +273,33 @@ impl Backend {
         &self,
         request: ScanPluginsRequest,
     ) -> Result<ScanPluginsResponse, BackendError> {
-        self.plugin.scan(request).await.map_err(BackendError::from)
+        let response = self
+            .plugin
+            .scan(request)
+            .await
+            .map_err(BackendError::from)?;
+        self.agent_runtime.sync_plugin_agents();
+        Ok(response)
     }
 
-    /// Persists plugin eligibility without starting its process.
+    /// Persists plugin eligibility, starts its process, and retries the agent it supplies.
+    ///
+    /// Waking the agent here is what makes an enabled plugin usable immediately: its supervisor
+    /// has been refusing to attach a disabled plugin and is otherwise part of a backoff interval
+    /// away from discovering that the user just turned it on.
     pub async fn enable_plugin(
         &self,
         request: EnablePluginRequest,
     ) -> Result<EnablePluginResponse, BackendError> {
-        self.plugin
+        let response = self
+            .plugin
             .enable(request)
             .await
-            .map_err(BackendError::from)
+            .map_err(BackendError::from)?;
+        if let Ok(agent_ref) = AgentRef::parse(&response.plugin.package_name) {
+            self.agent_runtime.wake_agent(&agent_ref);
+        }
+        Ok(response)
     }
 
     /// Stops a plugin when necessary before persisting ineligibility.
@@ -338,19 +337,27 @@ impl Backend {
         &self,
         request: UninstallPluginRequest,
     ) -> Result<UninstallPluginResponse, BackendError> {
-        self.plugin
+        let response = self
+            .plugin
             .uninstall(request)
             .await
-            .map_err(BackendError::from)
+            .map_err(BackendError::from)?;
+        self.agent_runtime.sync_plugin_agents();
+        Ok(response)
     }
 
     /// Installs a marketplace plugin by resolving its release manifest from the synced source and
     /// downloading, verifying, and extracting its package through the network-backed installer.
+    ///
+    /// The agent set is reconciled afterwards so the newly installed package supplies a reachable
+    /// agent in this process rather than only after the next restart.
     pub async fn install_plugin(
         &self,
         request: InstallPluginRequest,
     ) -> Result<InstallPluginResponse, BackendError> {
-        self.plugin.install(request).await
+        let response = self.plugin.install(request).await?;
+        self.agent_runtime.sync_plugin_agents();
+        Ok(response)
     }
 
     /// Starts a workflow run against its frozen snapshot graph.
@@ -1459,21 +1466,18 @@ mod tests {
         let temporary = TempDir::new().expect("create temporary backend directory");
         let database_path = temporary.path().join("data").join("ora.sqlite3");
         let worktree_root = temporary.path().join("worktrees");
-        let backend = Backend::open(
-            BackendPaths {
-                database_path: database_path.clone(),
-                data_directory: temporary.path().to_path_buf(),
-                deno_path: std::path::PathBuf::from("deno"),
-                worktree_root: worktree_root.clone(),
-                home_directory: temporary.path().to_path_buf(),
-                relative_path_base: temporary.path().to_path_buf(),
-                sessions_root: temporary.path().join("sessions"),
-                skills_root: temporary.path().join("atoms").join("skills"),
-                ripgrep_path: std::path::PathBuf::from("rg"),
-                timezone: chrono_tz::UTC,
-            },
-            Vec::new(),
-        )
+        let backend = Backend::open(BackendPaths {
+            database_path: database_path.clone(),
+            data_directory: temporary.path().to_path_buf(),
+            deno_path: std::path::PathBuf::from("deno"),
+            worktree_root: worktree_root.clone(),
+            home_directory: temporary.path().to_path_buf(),
+            relative_path_base: temporary.path().to_path_buf(),
+            sessions_root: temporary.path().join("sessions"),
+            skills_root: temporary.path().join("atoms").join("skills"),
+            ripgrep_path: std::path::PathBuf::from("rg"),
+            timezone: chrono_tz::UTC,
+        })
         .expect("open shared backend");
 
         assert!(database_path.is_file());
@@ -1610,21 +1614,18 @@ mod tests {
     fn update_preserves_other_package_files() {
         let temporary = TempDir::new().expect("create temporary backend directory");
         let skills_root = temporary.path().join("atoms").join("skills");
-        let backend = Backend::open(
-            BackendPaths {
-                database_path: temporary.path().join("ora.sqlite3"),
-                data_directory: temporary.path().to_path_buf(),
-                deno_path: std::path::PathBuf::from("deno"),
-                worktree_root: temporary.path().join("worktrees"),
-                home_directory: temporary.path().to_path_buf(),
-                relative_path_base: temporary.path().to_path_buf(),
-                sessions_root: temporary.path().join("sessions"),
-                skills_root: skills_root.clone(),
-                ripgrep_path: std::path::PathBuf::from("rg"),
-                timezone: chrono_tz::UTC,
-            },
-            Vec::new(),
-        )
+        let backend = Backend::open(BackendPaths {
+            database_path: temporary.path().join("ora.sqlite3"),
+            data_directory: temporary.path().to_path_buf(),
+            deno_path: std::path::PathBuf::from("deno"),
+            worktree_root: temporary.path().join("worktrees"),
+            home_directory: temporary.path().to_path_buf(),
+            relative_path_base: temporary.path().to_path_buf(),
+            sessions_root: temporary.path().join("sessions"),
+            skills_root: skills_root.clone(),
+            ripgrep_path: std::path::PathBuf::from("rg"),
+            timezone: chrono_tz::UTC,
+        })
         .expect("open shared backend");
 
         let skill = backend
@@ -1670,21 +1671,18 @@ mod tests {
             .expect("create repository seed commit");
         let repository_root = scaffold.repo_path().to_path_buf();
         let original_worktree_root = temporary.path().join("original-worktrees");
-        let backend = Backend::open(
-            BackendPaths {
-                database_path: temporary.path().join("ora.sqlite3"),
-                data_directory: temporary.path().to_path_buf(),
-                deno_path: std::path::PathBuf::from("deno"),
-                worktree_root: original_worktree_root.clone(),
-                home_directory: temporary.path().to_path_buf(),
-                relative_path_base: temporary.path().to_path_buf(),
-                sessions_root: temporary.path().join("sessions"),
-                skills_root: temporary.path().join("atoms").join("skills"),
-                ripgrep_path: std::path::PathBuf::from("rg"),
-                timezone: chrono_tz::UTC,
-            },
-            Vec::new(),
-        )
+        let backend = Backend::open(BackendPaths {
+            database_path: temporary.path().join("ora.sqlite3"),
+            data_directory: temporary.path().to_path_buf(),
+            deno_path: std::path::PathBuf::from("deno"),
+            worktree_root: original_worktree_root.clone(),
+            home_directory: temporary.path().to_path_buf(),
+            relative_path_base: temporary.path().to_path_buf(),
+            sessions_root: temporary.path().join("sessions"),
+            skills_root: temporary.path().join("atoms").join("skills"),
+            ripgrep_path: std::path::PathBuf::from("rg"),
+            timezone: chrono_tz::UTC,
+        })
         .expect("open shared backend");
         let project = backend
             .create_project(CreateProjectRequest {

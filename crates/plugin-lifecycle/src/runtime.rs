@@ -3,11 +3,14 @@ use crate::{
     PluginRuntimeLauncher,
 };
 use ora_plugin_runtime::{
-    PluginProcessExit, PluginRuntime as ProcessPluginRuntime, PluginRuntimeConfig,
+    PluginNotification, PluginProcessExit, PluginRuntime as ProcessPluginRuntime,
+    PluginRuntimeConfig,
 };
 use ora_process::TokioProcessSpawner;
 use std::future::Future;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
+use tokio::sync::mpsc;
 
 /// Configures bounded startup, invocation, and shutdown waits for real plugin processes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -44,6 +47,18 @@ impl DenoPluginRuntimeLauncher {
 #[derive(Clone)]
 pub struct DenoPluginRuntime {
     runtime: ProcessPluginRuntime,
+    /// Holds this launch's stream until its single consumer takes it.
+    ///
+    /// Every clone of the runtime shares one slot, so the stream can be taken through whichever
+    /// clone reaches it first and never handed out twice.
+    notifications: Arc<Mutex<Option<mpsc::UnboundedReceiver<PluginNotification>>>>,
+}
+
+impl DenoPluginRuntime {
+    /// Returns the JSON-RPC handle callers invoke plugin methods and notifications through.
+    pub fn process(&self) -> &ProcessPluginRuntime {
+        &self.runtime
+    }
 }
 
 impl PluginRuntimeLauncher for DenoPluginRuntimeLauncher {
@@ -62,20 +77,33 @@ impl PluginRuntimeLauncher for DenoPluginRuntimeLauncher {
                     plugin_id: request.plugin_id.to_string(),
                     deno_path: request.deno_path,
                     entrypoint: request.entrypoint,
-                    permissions: Vec::new(),
+                    permissions: request.permissions,
                     ready_timeout: timeouts.ready,
                     call_timeout: timeouts.call,
                     shutdown_timeout: timeouts.shutdown,
                 },
             )
             .await
-            .map(|(runtime, _notifications)| DenoPluginRuntime { runtime })
+            .map(|(runtime, notifications)| DenoPluginRuntime {
+                runtime,
+                notifications: Arc::new(Mutex::new(Some(notifications))),
+            })
             .map_err(|error| PluginRuntimeFailure::new(error.to_string()))
         }
     }
 }
 
 impl PluginRuntime for DenoPluginRuntime {
+    type Notifications = mpsc::UnboundedReceiver<PluginNotification>;
+
+    /// Hands this launch's notification stream to the first consumer that asks for it.
+    fn take_notifications(&self) -> Option<Self::Notifications> {
+        self.notifications
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take()
+    }
+
     /// Requests shutdown and waits until the complete supervised process tree exits.
     fn stop(&self) -> impl Future<Output = Result<(), PluginRuntimeFailure>> + Send {
         let runtime = self.runtime.clone();

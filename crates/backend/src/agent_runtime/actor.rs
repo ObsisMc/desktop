@@ -962,26 +962,52 @@ mod tests {
     use crate::agent_runtime::title_acquisition::TitleAcquisition;
     use crate::app_event::AppEventHub;
     use crate::clock::SystemClock;
-    use ora_db::{DatabaseLocation, RepositoryPool};
+    use crate::plugin::PluginApi;
+    use ora_db::{
+        DatabaseBootstrapper, DatabaseLocation, RepositoryPool, default_migration_catalog,
+    };
     use ora_domain::{AgentCli, AuditFields, SessionId, SessionStatus, SessionTitle, TaskId};
     use ora_scheduler::Scheduler;
+    use std::path::Path;
     use std::time::Duration;
     use tempfile::TempDir;
     use tokio::sync::{mpsc, oneshot};
     use tokio::time::timeout;
 
+    /// Opens one migrated pool so the plugin host can read its durable eligibility table.
+    fn test_repository_pool(root: &Path) -> RepositoryPool {
+        DatabaseBootstrapper::system()
+            .bootstrap_repository_pool(
+                &DatabaseLocation::path(root.join("test.sqlite")),
+                &default_migration_catalog().expect("build migration catalog"),
+            )
+            .expect("create repository pool")
+    }
+
+    /// Builds a plugin host over an empty package root for these CLI-only supervisor tests.
+    fn test_plugin_host(pool: &RepositoryPool, root: &Path) -> Arc<PluginApi> {
+        Arc::new(
+            PluginApi::open(
+                pool.clone(),
+                root.to_path_buf(),
+                PathBuf::from("deno"),
+                SystemClock,
+                AppEventHub::new().publisher(),
+            )
+            .expect("open plugin host"),
+        )
+    }
+
     /// Verifies dropping the manager's last sender lets the actor task terminate and release its dependencies.
     #[tokio::test]
     async fn actor_exits_after_command_sender_is_dropped() {
         let temporary = TempDir::new().expect("create actor test directory");
-        let pool = RepositoryPool::new(&DatabaseLocation::path(
-            temporary.path().join("test.sqlite"),
-        ))
-        .expect("create repository pool");
+        let pool = test_repository_pool(temporary.path());
         let scheduler = Scheduler::new(chrono_tz::UTC);
         let connection = ConnectionSupervisor::start(
             AgentCli::Codex.agent_ref(),
             AgentSource::Cli(AgentCli::Codex),
+            test_plugin_host(&pool, temporary.path()),
             pool.clone(),
             temporary.path().to_path_buf(),
             SystemClock,
@@ -1037,14 +1063,12 @@ mod tests {
     #[tokio::test]
     async fn user_rename_locks_title_against_later_agent_updates() {
         let temporary = TempDir::new().expect("create actor test directory");
-        let pool = RepositoryPool::new(&DatabaseLocation::path(
-            temporary.path().join("test.sqlite"),
-        ))
-        .expect("create repository pool");
+        let pool = test_repository_pool(temporary.path());
         let scheduler = Scheduler::new(chrono_tz::UTC);
         let connection = ConnectionSupervisor::start(
             AgentCli::Codex.agent_ref(),
             AgentSource::Cli(AgentCli::Codex),
+            test_plugin_host(&pool, temporary.path()),
             pool.clone(),
             temporary.path().to_path_buf(),
             SystemClock,

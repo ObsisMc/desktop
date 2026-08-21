@@ -26,8 +26,8 @@ pub use stream::SessionEventStream;
 use support::*;
 use title_acquisition::TitleAcquisition;
 
-use crate::bootstrap::AgentPluginPackage;
 use crate::clock::SystemClock;
+use crate::plugin::PluginApi;
 use crate::task::{resolve_project_cwd, resolve_task_cwd};
 use crate::{BackendError, ErrorClassification};
 use agent_client_protocol_schema::v1::AvailableCommand;
@@ -55,7 +55,6 @@ use ora_domain::{
 use ora_history::{HistoryIntegrity, binding_needs_handoff, read_session_history};
 use ora_logging::{ora_debug, ora_warn};
 use ora_scheduler::Scheduler;
-use plugin_agent::PluginAgentSpec;
 use routing::{SessionChannel, SessionEvent};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -205,8 +204,8 @@ struct OpenedRecorder {
 
 /// Groups the fixed dependencies the agent runtime is constructed from.
 pub(crate) struct AgentRuntimeSetup {
-    /// Agent plugins that join the built-in CLIs as providers, already discovered and validated.
-    pub agent_plugins: Vec<AgentPluginPackage>,
+    /// Owns the processes behind plugin-provided agents and the set of installed packages.
+    pub plugin_host: Arc<PluginApi>,
     pub pool: RepositoryPool,
     pub home_directory: PathBuf,
     pub relative_path_base: PathBuf,
@@ -220,7 +219,7 @@ impl AgentRuntimeManager {
     /// Builds the manager, reconciles stale rows, and immediately starts the shared supervisor.
     pub(crate) fn new(setup: AgentRuntimeSetup) -> Result<Self, BackendError> {
         let AgentRuntimeSetup {
-            agent_plugins,
+            plugin_host,
             pool,
             home_directory,
             relative_path_base,
@@ -230,15 +229,8 @@ impl AgentRuntimeManager {
             app_events,
         } = setup;
         reconcile_running_sessions(&pool, clock)?;
-        let connections = ConnectionSupervisors::start(
-            agent_plugins
-                .into_iter()
-                .map(PluginAgentSpec::from)
-                .collect(),
-            pool.clone(),
-            home_directory.clone(),
-            clock,
-        );
+        let connections =
+            ConnectionSupervisors::start(plugin_host, pool.clone(), home_directory.clone(), clock);
         Ok(Self {
             inner: Arc::new(ManagerInner {
                 pool,
@@ -289,6 +281,23 @@ impl AgentRuntimeManager {
             session_id: session_id.to_string(),
             config_options,
         })
+    }
+
+    /// Brings the supervised agent set in line with the plugin packages installed right now.
+    ///
+    /// Every plugin operation that changes which packages exist calls this, so a plugin installed
+    /// or removed while Ora runs is reflected in the agent picker and in session routing without a
+    /// restart.
+    pub(crate) fn sync_plugin_agents(&self) {
+        self.inner.connections.sync_plugin_agents();
+    }
+
+    /// Retries one agent's connection at once because something just made it usable.
+    ///
+    /// Enabling a plugin is the case this exists for: its supervisor has been failing to attach a
+    /// disabled plugin and would otherwise sit out the rest of its backoff before noticing.
+    pub(crate) fn wake_agent(&self, agent_ref: &AgentRef) {
+        self.inner.connections.wake_agent(agent_ref);
     }
 
     /// Reports the models one agent advertises before any session exists.
