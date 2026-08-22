@@ -1206,6 +1206,13 @@ export const translationResources = {
     "chat.modelSelector.model": "模型",
     "chat.modelSelector.updating": "更新中…",
     "chat.modelSelector.empty": "该 Agent 未提供可选模型",
+    "chat.agentUnavailable.title": "当前 Agent 不可用",
+    "chat.agentUnavailable.disabled":
+      "{{plugin}} 插件已被禁用，启用后即可继续这段对话。",
+    "chat.agentUnavailable.uninstalled":
+      "提供该 Agent 的插件已被卸载，重新安装后才能继续这段对话。",
+    "chat.agentUnavailable.failed": "{{plugin}} 插件启动失败：{{reason}}",
+    "chat.agentUnavailable.enable": "启用插件",
     "chat.historyDegraded.title": "会话记录已中断",
     "chat.historyDegraded.resume": "恢复记录",
     "chat.historyNotice.title": "会话历史不完整",
@@ -2751,6 +2758,14 @@ export const translationResources = {
     "chat.modelSelector.model": "Model",
     "chat.modelSelector.updating": "Updating…",
     "chat.modelSelector.empty": "This agent offers no model choice",
+    "chat.agentUnavailable.title": "This session's agent is unavailable",
+    "chat.agentUnavailable.disabled":
+      "The {{plugin}} plugin is disabled. Enable it to continue this conversation.",
+    "chat.agentUnavailable.uninstalled":
+      "The plugin that provided this agent was uninstalled. Reinstall it to continue this conversation.",
+    "chat.agentUnavailable.failed":
+      "The {{plugin}} plugin failed to start: {{reason}}",
+    "chat.agentUnavailable.enable": "Enable plugin",
     "chat.historyDegraded.title": "This session's history stopped recording",
     "chat.historyDegraded.resume": "Resume history",
     "chat.historyNotice.title": "This session's history is incomplete",

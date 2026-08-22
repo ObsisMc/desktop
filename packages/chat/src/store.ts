@@ -1,8 +1,10 @@
 import type * as acp from "@agentclientprotocol/sdk";
-import type {
-  ContractsClient,
-  SessionHistoryNotice,
-  SessionPermissionRequest,
+import {
+  type ContractsClient,
+  type PromptSessionEvent,
+  RemoteContractError,
+  type SessionHistoryNotice,
+  type SessionPermissionRequest,
 } from "@ora/contracts";
 import { createStore, type StoreApi } from "zustand/vanilla";
 import type {
@@ -512,9 +514,11 @@ export function createChatStore(
       }
 
       try {
-        for await (const event of client.prompt(
-          { sessionId: key, prompt },
-          { signal: controller.signal },
+        for await (const event of promptWithReattach(
+          client,
+          key,
+          prompt,
+          controller.signal,
         )) {
           if (event.type === "session_update") {
             // The user turn is already materialized, so the echoed prompt chunk
@@ -1307,6 +1311,51 @@ function sessionScopedConfigOptions(
   return update.sessionUpdate === "config_option_update"
     ? update.configOptions
     : null;
+}
+
+/**
+ * Streams one prompt, rebuilding a route that died under a still-open session.
+ *
+ * `sessionStopped` before the first event means the connection generation this
+ * session was routed on is gone — an agent provider that restarted, not a
+ * conversation the user ended. Ora's load path already knows how to re-attach
+ * and restore the agent's context, so the send borrows it once instead of
+ * surfacing a failure that the very next message would have repaired anyway.
+ *
+ * The reload is streamed and discarded: the caller's transcript is already the
+ * session's history, so applying the replay would only repaint what is on
+ * screen. Nothing is retried once an event has been delivered — a stream that
+ * broke midway has already shown the user part of a turn, and sending the same
+ * prompt again would duplicate it.
+ */
+async function* promptWithReattach(
+  client: ChatSessionClient,
+  sessionId: string,
+  prompt: acp.ContentBlock[],
+  signal: AbortSignal,
+): AsyncGenerator<PromptSessionEvent> {
+  let delivered = false;
+  try {
+    for await (const event of client.prompt(
+      { sessionId, prompt },
+      { signal },
+    )) {
+      delivered = true;
+      yield event;
+    }
+    return;
+  } catch (error) {
+    if (delivered || !isSessionStoppedError(error)) throw error;
+  }
+  await loadSessionConversation(client, sessionId, signal);
+  yield* client.prompt({ sessionId, prompt }, { signal });
+}
+
+/** Reports whether a failure is the backend refusing a session that holds no live route. */
+function isSessionStoppedError(error: unknown): boolean {
+  return (
+    error instanceof RemoteContractError && error.code === "session_stopped"
+  );
 }
 
 /**

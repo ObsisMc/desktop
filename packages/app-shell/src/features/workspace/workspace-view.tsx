@@ -50,6 +50,7 @@ import { DragRegion } from "../../components/drag-region";
 import { WindowControls } from "../../components/window-controls";
 import { ChatView } from "../chat/chat-view";
 import { ComposerContextBar } from "../chat/composer-context-bar";
+import { SessionAgentBanner } from "../chat/session-agent-banner";
 import { SessionHistoryBanner } from "../chat/session-history-banner";
 import { WorkflowStepper } from "../workflow/workflow-stepper";
 import { useWorkflowDetection } from "../workflow/use-workflow-detection";
@@ -670,6 +671,7 @@ export function WorkspaceView({ userName }: WorkspaceViewProps) {
           </Button>
           <WindowControls />
         </div>
+        <SessionAgentBanner session={session} />
         <SessionHistoryBanner
           session={session}
           notices={conversation?.historyNotices ?? []}

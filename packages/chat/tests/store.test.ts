@@ -1,10 +1,11 @@
 import type * as acp from "@agentclientprotocol/sdk";
 import assert from "node:assert/strict";
 import test from "node:test";
-import type {
-  LoadSessionEvent,
-  PromptSessionEvent,
-  PromptSessionRequest,
+import {
+  type LoadSessionEvent,
+  type PromptSessionEvent,
+  type PromptSessionRequest,
+  RemoteContractError,
 } from "@ora/contracts";
 import { createChatStore, type ChatSessionClient } from "../src/index.js";
 
@@ -1426,4 +1427,136 @@ test("keeps one marker per point in the thread while the model is cycled", async
   assert.deepEqual(store.getState().conversations["ora-1"]?.modelChanges, [
     { id: "local-4", afterTurnCount: 1, modelName: "Fast", createdAt: 42 },
   ]);
+});
+
+/** Builds the backend's refusal of a session that currently holds no live route. */
+function sessionStoppedError(): RemoteContractError {
+  return new RemoteContractError(
+    {
+      code: "session_stopped",
+      params: {},
+      requestId: "00000000-0000-4000-8000-000000000000",
+    },
+    null,
+  );
+}
+
+test("re-attaches and retries once when the route died before the prompt was accepted", async () => {
+  let loads = 0;
+  let prompts = 0;
+  const client: ChatSessionClient = {
+    load: () => {
+      loads += 1;
+      return events<LoadSessionEvent>([{ type: "completed" }]);
+    },
+    // The provider process restarted between turns, so the first send is refused
+    // before a single event exists; the second runs against the rebuilt route.
+    prompt: () => {
+      prompts += 1;
+      if (prompts === 1) throw sessionStoppedError();
+      return events<PromptSessionEvent>([
+        textEvent(
+          "agent_message_chunk",
+          "back online",
+          "agent-1",
+        ) as PromptSessionEvent,
+        { type: "completed", stopReason: "end_turn" },
+      ]);
+    },
+    respondToPermission: async () => ({}),
+    setConfig: async () => ({ configOptions: [] }),
+  };
+  let nextId = 0;
+  const store = createChatStore(client, {
+    createId: () => `local-${++nextId}`,
+    now: () => 42,
+  });
+
+  await store.getState().loadSession("ora-1");
+  await store.getState().sendMessage({ oraSessionId: "ora-1", text: "hello" });
+
+  // One load opened the conversation and one rebuilt the route the send needed.
+  assert.equal(loads, 2);
+  assert.equal(prompts, 2);
+  const conversation = store.getState().conversations["ora-1"]!;
+  // The reconnect never reaches the user: the optimistic turn streams straight
+  // through and the conversation carries no error.
+  assert.equal(conversation.error, null);
+  assert.equal(conversation.turns.length, 1);
+  const [turn] = conversation.turns;
+  assert.equal(turn?.status, "completed");
+  assert.deepEqual(
+    turn?.items.map((item) => item.kind === "message" && item.content),
+    ["back online"],
+  );
+});
+
+test("does not retry a stopped session once the prompt has streamed anything", async () => {
+  let loads = 0;
+  let prompts = 0;
+  const client: ChatSessionClient = {
+    load: () => {
+      loads += 1;
+      return events<LoadSessionEvent>([{ type: "completed" }]);
+    },
+    prompt: async function* () {
+      prompts += 1;
+      yield textEvent(
+        "agent_message_chunk",
+        "partial",
+        "agent-1",
+      ) as PromptSessionEvent;
+      throw sessionStoppedError();
+    },
+    respondToPermission: async () => ({}),
+    setConfig: async () => ({ configOptions: [] }),
+  };
+  let nextId = 0;
+  const store = createChatStore(client, {
+    createId: () => `local-${++nextId}`,
+    now: () => 42,
+  });
+
+  await store.getState().loadSession("ora-1");
+  await assert.rejects(
+    store.getState().sendMessage({ oraSessionId: "ora-1", text: "hello" }),
+  );
+
+  // Half a turn is already on screen, so resending would duplicate it.
+  assert.equal(loads, 1);
+  assert.equal(prompts, 1);
+  assert.equal(
+    store.getState().conversations["ora-1"]?.turns[0]?.status,
+    "failed",
+  );
+});
+
+test("does not re-attach for a failure that is not a stopped session", async () => {
+  let loads = 0;
+  let prompts = 0;
+  const client: ChatSessionClient = {
+    load: () => {
+      loads += 1;
+      return events<LoadSessionEvent>([{ type: "completed" }]);
+    },
+    prompt: () => {
+      prompts += 1;
+      throw new Error("agent runtime is unavailable");
+    },
+    respondToPermission: async () => ({}),
+    setConfig: async () => ({ configOptions: [] }),
+  };
+  let nextId = 0;
+  const store = createChatStore(client, {
+    createId: () => `local-${++nextId}`,
+    now: () => 42,
+  });
+
+  await store.getState().loadSession("ora-1");
+  await assert.rejects(
+    store.getState().sendMessage({ oraSessionId: "ora-1", text: "hello" }),
+  );
+
+  assert.equal(loads, 1);
+  assert.equal(prompts, 1);
 });
