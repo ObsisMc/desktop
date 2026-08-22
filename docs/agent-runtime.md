@@ -150,11 +150,20 @@ two stores held the _older_, pre-namespaced spellings and are worth knowing abou
 
 Two limits are deliberate rather than incidental:
 
-- **The chat model picker still offers only the five built-in CLIs.** A plugin-provided agent is
-  supervised, bindable by id, and reported by the runtime status endpoint, but the picker does not
-  enumerate it: rendering one needs a label and a logo, which are product decisions rather than
-  runtime ones. The frontend keeps a closed `KnownAgentCli` subset so this boundary is visible in
-  the types instead of implied.
+- **The chat model picker offers only the agents it has a label and a logo for.** A plugin-provided
+  agent is supervised, bindable by id, and reported by the runtime status endpoint, but the picker
+  does not enumerate arbitrary ones: rendering one needs a label and a logo, which are product
+  decisions rather than runtime ones. The frontend keeps a closed `KnownAgentCli` subset so this
+  boundary is visible in the types instead of implied. Within that subset an entry is offered only
+  while `getAgentRuntimeStatus` reports it `Ready` or `Starting`. That one answer already covers
+  every way an agent can be out of reach — a built-in CLI missing from this machine, a plugin
+  package that was never installed and so has no supervisor, and one the user disabled, which the
+  supervisor reports exactly like a missing CLI — so the client models none of them separately.
+  `Unavailable` is polled on at a slow cadence because it is expected configuration that can
+  resolve itself; `Failing` is not, because the restart circuit is open for the rest of the
+  process. A stored default naming an agent that is no longer reachable yields to the first one
+  that is, but a session's own binding is still reported as written — the conversation genuinely
+  runs on that agent.
 - **`agent_cli_not_found` keeps its name.** The code is part of the public error contract and its
   translations; renaming it is unrelated to how identity is modelled, and what an uninstalled agent
   should look like in the UI is still an open question.

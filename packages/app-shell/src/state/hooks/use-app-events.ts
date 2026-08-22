@@ -23,6 +23,19 @@ export function useAppEvents(client: ContractsClient) {
     const invalidateSessions = () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.sessions });
     };
+    // A plugin's eligibility decides whether the agent it supplies can be reached
+    // at all, and the lifecycle changes it from places no mutation on this client
+    // passes through — a background launch settling, a scan, a crash. Both the
+    // settings snapshot and the agent detection the pickers read from are asked
+    // again, because enabling or removing a package moves them together.
+    const invalidatePluginState = () => {
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.installedPlugins,
+      });
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.agentRuntimeStatus,
+      });
+    };
     const scheduleReconnect = () => {
       if (disposed) return;
       reconnectTimer = setTimeout(() => {
@@ -52,6 +65,8 @@ export function useAppEvents(client: ContractsClient) {
             refetchSessions();
           } else if (event.type === "session_title_updated") {
             invalidateSessions();
+          } else if (event.type === "plugin_status_changed") {
+            invalidatePluginState();
           }
         }
         handleDisconnect();

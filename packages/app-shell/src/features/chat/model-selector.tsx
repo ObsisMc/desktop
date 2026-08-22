@@ -21,22 +21,24 @@ import {
   warmTargetKey,
 } from "../../state/hooks/use-warm-session";
 import { useTargetAgentCli } from "../../state/hooks/use-target-agent-cli";
+import { useAvailableAgentClis } from "../../state/hooks/use-available-agent-clis";
 import {
   usePendingAgentStore,
   usePendingSwitch,
 } from "../../state/stores/pending-agent-store";
 import { useAgentModelStore } from "../../state/stores/agent-model-store";
 import { currentValueName, findModelOption, selectableValues } from "@ora/chat";
-import { AGENT_CLI_LABELS, AGENT_CLI_ORDER } from "./model-catalog";
+import { AGENT_CLI_LABELS } from "./model-catalog";
 import { ProviderLogo } from "./provider-logos";
 
 /**
  * The composer's agent and model picker.
  *
- * Both lists describe the session the composer will send into. Which CLIs exist
- * is static; which models are available is whatever that CLI reported for this
- * session, so the model list has three states rather than two — still arriving,
- * genuinely offering no choice, or a real set to pick from.
+ * Both lists describe the session the composer will send into. Which agents exist
+ * is whatever this installation can actually reach; which models are available is
+ * whatever the chosen agent reported for this session, so the model list has three
+ * states rather than two — still arriving, genuinely offering no choice, or a real
+ * set to pick from.
  *
  * With a session selected, choosing a different CLI moves that conversation onto
  * it rather than only changing the default for the next one. Ora owns the
@@ -78,6 +80,10 @@ export function ModelSelector({ disabled = false }: { disabled?: boolean }) {
   // Resolved centrally so this and the composer cannot disagree: they share one
   // warm-session query key, and the CLI is part of that key.
   const agentCli = useTargetAgentCli(selection);
+  // Which agents the runtime actually reports reaching here. An agent whose CLI
+  // is absent, or whose plugin package was disabled or uninstalled, drops out of
+  // the list rather than being offered and then failing on the first message.
+  const availableAgentClis = useAvailableAgentClis();
 
   // Shares the workspace's warm-session query key, so this is a cache read
   // rather than a second provider session.
@@ -235,7 +241,7 @@ export function ModelSelector({ disabled = false }: { disabled?: boolean }) {
           <DropdownMenuLabel className="px-2 py-1.5 text-xs font-normal text-muted-foreground">
             {t("chat.modelSelector.agent")}
           </DropdownMenuLabel>
-          {AGENT_CLI_ORDER.map((candidate) => (
+          {availableAgentClis.map((candidate) => (
             <DropdownMenuItem
               key={candidate}
               className="gap-1.5 rounded-sm px-2 py-1.5 text-xs"

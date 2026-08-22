@@ -1,6 +1,7 @@
 import type * as acp from "@agentclientprotocol/sdk";
 import type {
   Agent,
+  AgentRuntimeStatus,
   AvailablePlugin,
   ContractsClient,
   InstalledPlugin,
@@ -63,6 +64,12 @@ export interface MockClientState {
   agents: Agent[];
   skills: Skill[];
   installedPlugins: InstalledPlugin[];
+  /**
+   * What the agent runtime reports reaching, which is what decides the agents the pickers offer.
+   *
+   * An agent missing from this list is one nothing supervises — an uninstalled plugin package.
+   */
+  agentRuntimeStatuses: AgentRuntimeStatus[];
   availablePlugins: AvailablePlugin[];
   availablePluginsUpdatedAt: bigint;
   developerMode: { enabled: boolean };
@@ -81,6 +88,20 @@ export interface MockClientState {
   warmModelsByCli?: Partial<Record<string, acp.SessionConfigOption[] | null>>;
 }
 
+/**
+ * Every agent identity the frontend has a picker entry for, all detected by default.
+ *
+ * A test that needs one to be missing or unreachable overrides `agentRuntimeStatuses` rather than
+ * rebuilding the whole list.
+ */
+const AGENT_REFS = [
+  "ora-space.opencode",
+  "ora-space.nga",
+  "ora-space.codeagentcli",
+  "ora-space.claude",
+  "ora-space.codex",
+];
+
 /** Creates a fresh in-memory mock state with no records. */
 export function createMockClientState(): MockClientState {
   return {
@@ -90,6 +111,10 @@ export function createMockClientState(): MockClientState {
     agents: [],
     skills: [],
     installedPlugins: [],
+    agentRuntimeStatuses: AGENT_REFS.map((agentRef) => ({
+      agentRef,
+      status: "ready",
+    })),
     availablePlugins: [],
     availablePluginsUpdatedAt: 0n,
     developerMode: { enabled: false },
@@ -328,13 +353,7 @@ export function createMockClient(state: MockClientState): ContractsClient {
       },
     },
     agentRuntime: {
-      getStatus: async () => ({
-        statuses: [
-          { agentRef: "ora-space.opencode", status: "ready" },
-          { agentRef: "ora-space.nga", status: "ready" },
-          { agentRef: "ora-space.codeagentcli", status: "ready" },
-        ],
-      }),
+      getStatus: async () => ({ statuses: [...state.agentRuntimeStatuses] }),
     },
     plugin: {
       listInstalled: async () => ({ plugins: [...state.installedPlugins] }),
