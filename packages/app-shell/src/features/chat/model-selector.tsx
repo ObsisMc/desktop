@@ -50,13 +50,24 @@ import { ProviderLogo } from "./provider-logos";
  * anything is committed. Choosing a CLI therefore leaves the menu open: picking
  * one of those models is the other half of the same decision.
  */
-export function ModelSelector({ disabled = false }: { disabled?: boolean }) {
+export function ModelSelector({
+  disabled = false,
+  sessionId,
+}: {
+  disabled?: boolean;
+  /** Session whose model configuration should be displayed instead of workspace selection. */
+  sessionId?: string;
+}) {
   const { t } = useTranslation();
   const updateSettings = useSettingsStore((state) => state.updateSettings);
   const selection = useWorkspaceSelectionStore((state) => state.selection);
   const chatStore = useChatStore();
   const setSessionConfig = useSetSessionConfig();
   const { data: sessions = [] } = useSessions();
+  // Workflow node sessions live inside the run workspace without becoming the global workspace
+  // selection. Binding the picker explicitly keeps its read-only label attached to that node.
+  const modelSelection =
+    sessionId === undefined ? selection : { ...selection, sessionId };
 
   // Having a binding is what makes a session persisted, and only a persisted one
   // can be rebound; a warm session has no row to move. The bound CLI is also what
@@ -64,9 +75,9 @@ export function ModelSelector({ disabled = false }: { disabled?: boolean }) {
   // at all — the resolved agent below cannot answer that, since it already
   // reports whatever move is pending.
   const boundSession = sessions.find(
-    (session) => session.id === selection.sessionId,
+    (session) => session.id === modelSelection.sessionId,
   );
-  const targetKey = warmTargetKey(selection);
+  const targetKey = warmTargetKey(modelSelection);
   const setPickedForTarget = usePendingAgentStore(
     (state) => state.setPendingAgent,
   );
@@ -76,10 +87,10 @@ export function ModelSelector({ disabled = false }: { disabled?: boolean }) {
   const clearPendingSwitch = usePendingAgentStore(
     (state) => state.clearPendingSwitch,
   );
-  const pendingSwitch = usePendingSwitch(selection.sessionId);
+  const pendingSwitch = usePendingSwitch(modelSelection.sessionId);
   // Resolved centrally so this and the composer cannot disagree: they share one
   // warm-session query key, and the CLI is part of that key.
-  const agentCli = useTargetAgentCli(selection);
+  const agentCli = useTargetAgentCli(modelSelection);
   // Which agents the runtime actually reports reaching here. An agent whose CLI
   // is absent, or whose plugin package was disabled or uninstalled, drops out of
   // the list rather than being offered and then failing on the first message.
@@ -87,7 +98,7 @@ export function ModelSelector({ disabled = false }: { disabled?: boolean }) {
 
   // Shares the workspace's warm-session query key, so this is a cache read
   // rather than a second provider session.
-  const warmSession = useWarmSession(selection, agentCli);
+  const warmSession = useWarmSession(modelSelection, agentCli);
   // A warm session, when there is one, always describes the CLI on screen —
   // including the one a pending move is heading for, whose models and model
   // choice live on it rather than on the session being moved. While that
@@ -96,7 +107,7 @@ export function ModelSelector({ disabled = false }: { disabled?: boolean }) {
   // incoming agent's.
   const activeSessionId =
     warmSession.sessionId ??
-    (pendingSwitch === undefined ? selection.sessionId : null);
+    (pendingSwitch === undefined ? modelSelection.sessionId : null);
   // Selected narrowly rather than as one conversation object, so a streaming
   // turn does not re-render the picker on every token.
   const liveOptions = useStore(chatStore, (state) =>

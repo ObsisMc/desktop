@@ -31,6 +31,10 @@ interface ChatViewProps {
   error: string | null;
   pendingPermissions?: SessionPermissionRequest[];
   disabled?: boolean;
+  /** Keeps the current model visible while preventing model changes on this surface. */
+  modelSelectorDisabled?: boolean;
+  /** Session whose model configuration the selector should display. */
+  modelSelectorSessionId?: string;
   /** Hides message composition while retaining the ordinary transcript and trailing actions. */
   composerVisible?: boolean;
   onSend: (text: string, images?: acp.ImageContent[]) => void;
@@ -90,6 +94,8 @@ export function ChatView({
   error,
   pendingPermissions = [],
   disabled = false,
+  modelSelectorDisabled = false,
+  modelSelectorSessionId,
   composerVisible = true,
   onSend,
   onEmptySubmit,
@@ -278,6 +284,8 @@ export function ChatView({
                   isResponding={isResponding}
                   isStreaming={isStreaming}
                   disabled={disabled}
+                  modelSelectorDisabled={modelSelectorDisabled}
+                  modelSelectorSessionId={modelSelectorSessionId}
                   skills={skills}
                   availableCommands={availableCommands}
                 />

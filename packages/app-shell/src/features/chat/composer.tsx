@@ -96,6 +96,10 @@ interface ComposerProps {
    */
   isStreaming?: boolean;
   disabled?: boolean;
+  /** Keeps the current model visible while preventing model changes on this surface. */
+  modelSelectorDisabled?: boolean;
+  /** Session whose model configuration the selector should display. */
+  modelSelectorSessionId?: string;
   placeholder?: string;
   autoFocus?: boolean;
   skills?: Skill[];
@@ -134,6 +138,8 @@ export function Composer({
   isResponding,
   isStreaming = false,
   disabled = false,
+  modelSelectorDisabled = false,
+  modelSelectorSessionId,
   placeholder,
   autoFocus = false,
   skills = [],
@@ -982,7 +988,12 @@ export function Composer({
             ref={rightControlsRef}
             className="flex shrink-0 items-center gap-2"
           >
-            {showModelSelector && <ModelSelector disabled={disabled} />}
+            {showModelSelector && (
+              <ModelSelector
+                disabled={disabled || modelSelectorDisabled}
+                sessionId={modelSelectorSessionId}
+              />
+            )}
             <Button
               size="icon"
               // A live turn always stops on click, whether it is still starting up
