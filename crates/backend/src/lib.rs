@@ -21,9 +21,9 @@ mod skill_reconciliation;
 mod source_boundary;
 mod spec;
 mod task;
-mod task_diff;
 mod user_config;
 mod workflow;
+mod workspace_diff;
 
 pub use agent_runtime::{SessionEventStream, SessionLocator};
 pub use app_event::AppEventHub;

@@ -17,9 +17,9 @@
 - Shared developer-mode, preferred-log-level, and network-proxy operations delegate to typed
   `ora-application` use cases; raw SQLite keys and values remain inside `ora-db`, and request-time
   repository work runs on the blocking pool.
-- `TaskDiffApi` composes the task-diff handlers with SQLite and Gitlancer. It resolves an agent's live isolated-worktree task cwd and uses the persisted creation commit as the stable diff baseline.
+- `WorkspaceDiffApi` composes the workspace-diff handlers with SQLite and Gitlancer, keyed by `WorkspaceId` for either an isolated task worktree or a project's main checkout. It resolves the workspace's live cwd and, when a `Worktree` row is recorded for it, uses the persisted creation commit as the stable diff baseline; a workspace with no such row has no baseline (only the `Unstaged`/`Staged` scopes apply) and its writes go through unverified.
 - `SpecApi` composes target resolution, automatic bounded ripgrep discovery, safe Markdown reads, and watcher-root resolution. Tauri remains a transport-only adapter.
-- Task diff reads, commits, and pushes preserve the same public error projection as the rest of the backend. Git and SQLite sources remain internal diagnostics and are rendered once by the adapter-owned request lifecycle.
+- Workspace diff reads, commits, and pushes preserve the same public error projection as the rest of the backend. Git and SQLite sources remain internal diagnostics and are rendered once by the adapter-owned request lifecycle.
 - Session creation, loading, structured ACP prompting, permissions, stopping, deletion, and model discovery delegate to the agent runtime. Creation also returns the provider's setup-time available-command catalog.
 - Relative local Workspace locations are resolved against a bootstrap-injected path base, not live process cwd. Desktop `tauri dev` starts in `src-tauri`; a shared `ORA_DATA_DIR` database stores locations relative to that data directory's parent.
 - `BackendError` retains the internal source chain while exhaustively projecting semantic failures into a typed `PublicError` and one transport-neutral `ErrorClassification`. Tauri commands and channels serialize the same direct `ContractError`.

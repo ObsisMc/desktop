@@ -122,9 +122,9 @@ pub enum PublicError {
     TaskBaseBranchRequired(EmptyErrorParams),
     TaskBaseBranchNotFound(TaskBaseBranchNotFoundParams),
     WorktreeNotFound(EmptyErrorParams),
-    TaskDiffBaselineUnavailable(EmptyErrorParams),
-    TaskDiffCommitMessageBlank(EmptyErrorParams),
-    TaskDiffTooLarge(EmptyErrorParams),
+    WorkspaceDiffBaselineUnavailable(EmptyErrorParams),
+    WorkspaceDiffCommitMessageBlank(EmptyErrorParams),
+    WorkspaceDiffTooLarge(EmptyErrorParams),
     SessionNotFound(EmptyErrorParams),
     AgentCliNotFound(EmptyErrorParams),
     AgentRuntimeUnavailable(EmptyErrorParams),
@@ -235,9 +235,9 @@ impl PublicError {
             Self::TaskBaseBranchRequired(_) => "task_base_branch_required",
             Self::TaskBaseBranchNotFound(_) => "task_base_branch_not_found",
             Self::WorktreeNotFound(_) => "worktree_not_found",
-            Self::TaskDiffBaselineUnavailable(_) => "task_diff_baseline_unavailable",
-            Self::TaskDiffCommitMessageBlank(_) => "task_diff_commit_message_blank",
-            Self::TaskDiffTooLarge(_) => "task_diff_too_large",
+            Self::WorkspaceDiffBaselineUnavailable(_) => "workspace_diff_baseline_unavailable",
+            Self::WorkspaceDiffCommitMessageBlank(_) => "workspace_diff_commit_message_blank",
+            Self::WorkspaceDiffTooLarge(_) => "workspace_diff_too_large",
             Self::SessionNotFound(_) => "session_not_found",
             Self::AgentCliNotFound(_) => "agent_cli_not_found",
             Self::AgentRuntimeUnavailable(_) => "agent_runtime_unavailable",
@@ -405,9 +405,9 @@ mod tests {
                 branch_name: "main".to_string(),
             }),
             PublicError::WorktreeNotFound(empty),
-            PublicError::TaskDiffBaselineUnavailable(empty),
-            PublicError::TaskDiffCommitMessageBlank(empty),
-            PublicError::TaskDiffTooLarge(empty),
+            PublicError::WorkspaceDiffBaselineUnavailable(empty),
+            PublicError::WorkspaceDiffCommitMessageBlank(empty),
+            PublicError::WorkspaceDiffTooLarge(empty),
             PublicError::SessionNotFound(empty),
             PublicError::AgentCliNotFound(empty),
             PublicError::AgentRuntimeUnavailable(empty),
@@ -507,9 +507,9 @@ mod tests {
                 | PublicError::TaskBaseBranchRequired(_)
                 | PublicError::TaskBaseBranchNotFound(_)
                 | PublicError::WorktreeNotFound(_)
-                | PublicError::TaskDiffBaselineUnavailable(_)
-                | PublicError::TaskDiffCommitMessageBlank(_)
-                | PublicError::TaskDiffTooLarge(_)
+                | PublicError::WorkspaceDiffBaselineUnavailable(_)
+                | PublicError::WorkspaceDiffCommitMessageBlank(_)
+                | PublicError::WorkspaceDiffTooLarge(_)
                 | PublicError::SessionNotFound(_)
                 | PublicError::AgentCliNotFound(_)
                 | PublicError::AgentRuntimeUnavailable(_)

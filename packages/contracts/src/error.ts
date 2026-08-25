@@ -51,9 +51,15 @@ export type ContractError =
       "params": TaskBaseBranchNotFoundParams;
     }
     | { "code": "worktree_not_found"; "params": EmptyErrorParams }
-    | { "code": "task_diff_baseline_unavailable"; "params": EmptyErrorParams }
-    | { "code": "task_diff_commit_message_blank"; "params": EmptyErrorParams }
-    | { "code": "task_diff_too_large"; "params": EmptyErrorParams }
+    | {
+      "code": "workspace_diff_baseline_unavailable";
+      "params": EmptyErrorParams;
+    }
+    | {
+      "code": "workspace_diff_commit_message_blank";
+      "params": EmptyErrorParams;
+    }
+    | { "code": "workspace_diff_too_large"; "params": EmptyErrorParams }
     | { "code": "session_not_found"; "params": EmptyErrorParams }
     | { "code": "agent_cli_not_found"; "params": EmptyErrorParams }
     | { "code": "agent_runtime_unavailable"; "params": EmptyErrorParams }
@@ -218,9 +224,15 @@ export type PublicError =
     "params": TaskBaseBranchNotFoundParams;
   }
   | { "code": "worktree_not_found"; "params": EmptyErrorParams }
-  | { "code": "task_diff_baseline_unavailable"; "params": EmptyErrorParams }
-  | { "code": "task_diff_commit_message_blank"; "params": EmptyErrorParams }
-  | { "code": "task_diff_too_large"; "params": EmptyErrorParams }
+  | {
+    "code": "workspace_diff_baseline_unavailable";
+    "params": EmptyErrorParams;
+  }
+  | {
+    "code": "workspace_diff_commit_message_blank";
+    "params": EmptyErrorParams;
+  }
+  | { "code": "workspace_diff_too_large"; "params": EmptyErrorParams }
   | { "code": "session_not_found"; "params": EmptyErrorParams }
   | { "code": "agent_cli_not_found"; "params": EmptyErrorParams }
   | { "code": "agent_runtime_unavailable"; "params": EmptyErrorParams }

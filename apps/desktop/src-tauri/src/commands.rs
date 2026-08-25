@@ -277,25 +277,25 @@ pub async fn delete_task(
         .map_err(CommandError::from)
 }
 backend_command!(
-    get_task_diff,
-    GetTaskDiffRequest,
-    GetTaskDiffResponse,
-    get_task_diff,
-    "Reads one task diff through the shared Backend."
+    get_workspace_diff,
+    GetWorkspaceDiffRequest,
+    GetWorkspaceDiffResponse,
+    get_workspace_diff,
+    "Reads one workspace diff through the shared Backend."
 );
 backend_command!(
-    commit_task_changes,
-    CommitTaskChangesRequest,
-    CommitTaskChangesResponse,
-    commit_task_changes,
-    "Commits one task worktree through the shared Backend."
+    commit_workspace_changes,
+    CommitWorkspaceChangesRequest,
+    CommitWorkspaceChangesResponse,
+    commit_workspace_changes,
+    "Commits one workspace checkout through the shared Backend."
 );
 backend_command!(
-    push_task_branch,
-    PushTaskBranchRequest,
-    PushTaskBranchResponse,
-    push_task_branch,
-    "Pushes one task worktree branch through the shared Backend."
+    push_workspace_branch,
+    PushWorkspaceBranchRequest,
+    PushWorkspaceBranchResponse,
+    push_workspace_branch,
+    "Pushes one workspace checkout's branch through the shared Backend."
 );
 
 // =============================================================================

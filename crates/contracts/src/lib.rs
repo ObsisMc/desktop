@@ -16,10 +16,10 @@ pub mod skill;
 pub mod skill_import;
 pub mod spec;
 pub mod task;
-pub mod task_diff;
 pub mod workflow;
 pub mod workflow_run;
 pub mod workspace;
+pub mod workspace_diff;
 pub use agent_import::*;
 pub use app_event::*;
 
@@ -39,11 +39,11 @@ pub use skill_import::*;
 pub use spec::*;
 use std::path::Path;
 pub use task::*;
-pub use task_diff::*;
 use ts_rs::{Config, ExportError};
 pub use workflow::*;
 pub use workflow_run::*;
 pub use workspace::*;
+pub use workspace_diff::*;
 
 /// Exports every contract DTO family into the shared TypeScript package for frontend consumers.
 ///
@@ -71,10 +71,10 @@ pub fn export_typescript_bindings_to(
     skill_import::export(&config)?;
     spec::export(&config)?;
     task::export(&config)?;
-    task_diff::export(&config)?;
     workflow::export(&config)?;
     workflow_run::export(&config)?;
     workspace::export(&config)?;
+    workspace_diff::export(&config)?;
 
     Ok(())
 }

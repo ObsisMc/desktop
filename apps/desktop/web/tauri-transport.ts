@@ -36,10 +36,17 @@ const tauriCommands = {
   createProject: "create_project",
   getProject: "get_project",
   listProjects: "list_projects",
-  listWorkspaces: "list_workspaces",
   listProjectBranches: "list_project_branches",
   updateProject: "update_project",
   deleteProject: "delete_project",
+
+  // =============================================================================
+  // workspace
+  // =============================================================================
+  listWorkspaces: "list_workspaces",
+  getWorkspaceDiff: "get_workspace_diff",
+  commitWorkspaceChanges: "commit_workspace_changes",
+  pushWorkspaceBranch: "push_workspace_branch",
 
   // =============================================================================
   // task
@@ -50,9 +57,6 @@ const tauriCommands = {
   updateTask: "update_task",
   deleteTask: "delete_task",
   getTaskWorkspace: "get_task_workspace",
-  getTaskDiff: "get_task_diff",
-  commitTaskChanges: "commit_task_changes",
-  pushTaskBranch: "push_task_branch",
 
   // =============================================================================
   // fileSystem

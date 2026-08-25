@@ -6,14 +6,14 @@ import {
   type ChatStore,
   type SessionConversation,
 } from "@ora/chat";
-import type { Session, Task } from "@ora/contracts";
+import type { Session } from "@ora/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createMockClient,
   createMockClientState,
 } from "../../test/mock-client";
 import { queryKeys } from "./query-keys";
-import { useTaskDiffLiveSync } from "./use-task-diff-live-sync";
+import { useWorkspaceDiffLiveSync } from "./use-workspace-diff-live-sync";
 
 const SESSION: Session = {
   id: "session-1",
@@ -22,12 +22,6 @@ const SESSION: Session = {
   status: "running",
   title: null,
   historyState: { type: "writable" },
-};
-const TASK: Task = {
-  id: "task-1",
-  projectId: "project-1",
-  workspaceId: "workspace-1",
-  title: "Task",
 };
 
 /** Builds one conversation state with just enough lifecycle data for diff syncing. */
@@ -101,15 +95,15 @@ function wrapper(queryClient: QueryClient) {
 beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
 
-describe("useTaskDiffLiveSync", () => {
-  it("invalidates the aggregate task diff after a live file change completes", async () => {
+describe("useWorkspaceDiffLiveSync", () => {
+  it("invalidates the aggregate workspace diff after a live file change completes", async () => {
     const chatStore = makeChatStore();
     chatStore.setState({
       conversations: { [SESSION.id]: conversation(true, "in_progress") },
     });
     const queryClient = new QueryClient();
     const invalidate = vi.spyOn(queryClient, "invalidateQueries");
-    renderHook(() => useTaskDiffLiveSync(chatStore, [SESSION], [TASK]), {
+    renderHook(() => useWorkspaceDiffLiveSync(chatStore, [SESSION]), {
       wrapper: wrapper(queryClient),
     });
 
@@ -122,7 +116,7 @@ describe("useTaskDiffLiveSync", () => {
 
     expect(invalidate).toHaveBeenCalledOnce();
     expect(invalidate).toHaveBeenCalledWith({
-      queryKey: queryKeys.taskDiffs(TASK.id),
+      queryKey: queryKeys.workspaceDiffs(SESSION.workspaceId),
     });
   });
 
@@ -133,7 +127,7 @@ describe("useTaskDiffLiveSync", () => {
     });
     const queryClient = new QueryClient();
     const invalidate = vi.spyOn(queryClient, "invalidateQueries");
-    renderHook(() => useTaskDiffLiveSync(chatStore, [SESSION], [TASK]), {
+    renderHook(() => useWorkspaceDiffLiveSync(chatStore, [SESSION]), {
       wrapper: wrapper(queryClient),
     });
 
@@ -154,7 +148,7 @@ describe("useTaskDiffLiveSync", () => {
     const chatStore = makeChatStore();
     const queryClient = new QueryClient();
     const invalidate = vi.spyOn(queryClient, "invalidateQueries");
-    renderHook(() => useTaskDiffLiveSync(chatStore, [SESSION], [TASK]), {
+    renderHook(() => useWorkspaceDiffLiveSync(chatStore, [SESSION]), {
       wrapper: wrapper(queryClient),
     });
 

@@ -423,10 +423,10 @@ impl From<ApplicationError> for BackendError {
                 PublicError::WorktreeNotFound(EmptyErrorParams {}),
                 "worktree not found",
             ),
-            ApplicationError::TaskDiffCommitMessageBlank => (
+            ApplicationError::WorkspaceDiffCommitMessageBlank => (
                 ErrorClassification::InvalidRequest,
-                PublicError::TaskDiffCommitMessageBlank(EmptyErrorParams {}),
-                "task diff commit message must not be blank",
+                PublicError::WorkspaceDiffCommitMessageBlank(EmptyErrorParams {}),
+                "workspace diff commit message must not be blank",
             ),
             ApplicationError::SessionNotFound { .. } => (
                 ErrorClassification::NotFound,
@@ -452,7 +452,7 @@ impl From<ApplicationError> for BackendError {
             | ApplicationError::TaskWorktreeRootUnavailable
             | ApplicationError::TaskFilesystem { .. }
             | ApplicationError::TaskWorktreeProvisioner { .. }
-            | ApplicationError::TaskDiff { .. }
+            | ApplicationError::WorkspaceDiff { .. }
             | ApplicationError::WorktreeRepository { .. }
             | ApplicationError::SessionRepository { .. }
             | ApplicationError::UserConfigRepository { .. }
@@ -683,31 +683,31 @@ mod tests {
         );
     }
 
-    /// Verifies a blank task commit message is reported as a client-correctable request error.
+    /// Verifies a blank workspace commit message is reported as a client-correctable request error.
     #[test]
-    fn maps_blank_task_commit_messages_to_invalid_request() {
-        let error = BackendError::from(ApplicationError::TaskDiffCommitMessageBlank);
+    fn maps_blank_workspace_commit_messages_to_invalid_request() {
+        let error = BackendError::from(ApplicationError::WorkspaceDiffCommitMessageBlank);
 
         assert_eq!(
             (error.classification(), error.public_error().clone()),
             (
                 ErrorClassification::InvalidRequest,
-                PublicError::TaskDiffCommitMessageBlank(EmptyErrorParams {})
+                PublicError::WorkspaceDiffCommitMessageBlank(EmptyErrorParams {})
             )
         );
     }
 
-    /// Verifies task-diff infrastructure failures retain their concrete source chain.
+    /// Verifies workspace-diff infrastructure failures retain their concrete source chain.
     #[test]
-    fn retains_task_diff_source_chain_through_the_backend_projection() {
-        let application_error = ApplicationError::TaskDiff {
+    fn retains_workspace_diff_source_chain_through_the_backend_projection() {
+        let application_error = ApplicationError::WorkspaceDiff {
             source: Box::new(std::io::Error::other("git process failed")),
         };
         let backend_error = BackendError::from(application_error);
 
         assert_eq!(
             backend_error.source().map(ToString::to_string),
-            Some("task diff operation failed".to_string())
+            Some("workspace diff operation failed".to_string())
         );
         assert_eq!(
             backend_error

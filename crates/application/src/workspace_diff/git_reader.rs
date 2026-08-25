@@ -1,19 +1,20 @@
 use super::ports::{
-    ReadTaskDiffRequest, ReadTaskDiffScope, TaskDiffReader, TaskDiffReaderError, TaskDiffSnapshot,
+    ReadWorkspaceDiffRequest, ReadWorkspaceDiffScope, WorkspaceDiffReader,
+    WorkspaceDiffReaderError, WorkspaceDiffSnapshot,
 };
 use gitlancer::git::diff::{DiffRequest, DiffResponse, DiffScope};
 use gitlancer::git::worktree::FindWorktreeRequest;
 use gitlancer::{CliGitRunner, CommitId, Git, RepoRoot, Repository};
 use std::path::PathBuf;
 
-/// Reads task-scoped unified diffs through the shared Gitlancer runtime.
+/// Reads workspace-scoped unified diffs through the shared Gitlancer runtime.
 #[derive(Clone, Debug)]
-pub struct GitTaskDiffReader {
+pub struct GitWorkspaceDiffReader {
     git: Git<CliGitRunner>,
     repository: Repository,
 }
 
-impl GitTaskDiffReader {
+impl GitWorkspaceDiffReader {
     /// Builds a Git-backed reader for one configured project repository.
     pub fn new(project_root: PathBuf) -> Self {
         Self {
@@ -23,60 +24,60 @@ impl GitTaskDiffReader {
     }
 }
 
-impl TaskDiffReader for GitTaskDiffReader {
-    /// Resolves the backend-owned worktree before computing its fixed-baseline diff.
-    fn read_task_diff(
+impl WorkspaceDiffReader for GitWorkspaceDiffReader {
+    /// Resolves the backend-owned worktree before computing its diff against the given baseline.
+    fn read_workspace_diff(
         &self,
-        request: ReadTaskDiffRequest,
-    ) -> Result<TaskDiffSnapshot, TaskDiffReaderError> {
+        request: ReadWorkspaceDiffRequest,
+    ) -> Result<WorkspaceDiffSnapshot, WorkspaceDiffReaderError> {
         let worktree = self
             .git
             .find_worktree(FindWorktreeRequest {
                 repository: &self.repository,
                 candidate_path: &request.worktree_path,
             })
-            .map_err(task_diff_operation_error)?;
-        let base_commit_id = CommitId::new(request.base_commit_id);
+            .map_err(workspace_diff_operation_error)?;
+        let base_commit_id = request.base_commit_id.map(CommitId::new);
 
         self.git
             .diff(DiffRequest {
                 worktree: &worktree,
-                base_commit_id: &base_commit_id,
+                base_commit_id: base_commit_id.as_ref(),
                 scope: map_diff_scope(request.scope),
             })
             .map(map_diff_response)
-            .map_err(task_diff_operation_error)
+            .map_err(workspace_diff_operation_error)
     }
 }
 
 /// Maps the application comparison choice into Gitlancer's command vocabulary.
-fn map_diff_scope(scope: ReadTaskDiffScope) -> DiffScope {
+fn map_diff_scope(scope: ReadWorkspaceDiffScope) -> DiffScope {
     match scope {
-        ReadTaskDiffScope::Branch => DiffScope::Branch,
-        ReadTaskDiffScope::Unstaged => DiffScope::Unstaged,
-        ReadTaskDiffScope::Staged => DiffScope::Staged,
-        ReadTaskDiffScope::Committed => DiffScope::Committed,
+        ReadWorkspaceDiffScope::Branch => DiffScope::Branch,
+        ReadWorkspaceDiffScope::Unstaged => DiffScope::Unstaged,
+        ReadWorkspaceDiffScope::Staged => DiffScope::Staged,
+        ReadWorkspaceDiffScope::Committed => DiffScope::Committed,
     }
 }
 
 /// Maps Gitlancer's internal response into the application-owned snapshot.
-fn map_diff_response(response: DiffResponse) -> TaskDiffSnapshot {
-    TaskDiffSnapshot {
+fn map_diff_response(response: DiffResponse) -> WorkspaceDiffSnapshot {
+    WorkspaceDiffSnapshot {
         head_commit_id: response.head_commit_id.as_str().to_string(),
         patch: response.patch,
     }
 }
 
 /// Hides Git and filesystem diagnostics behind a stable application-port error.
-fn task_diff_operation_error(error: gitlancer::GitlancerError) -> TaskDiffReaderError {
+fn workspace_diff_operation_error(error: gitlancer::GitlancerError) -> WorkspaceDiffReaderError {
     match error {
         gitlancer::GitlancerError::DiffTooLarge {
             byte_count,
             max_byte_count,
-        } => TaskDiffReaderError::TooLarge {
+        } => WorkspaceDiffReaderError::TooLarge {
             byte_count,
             max_byte_count,
         },
-        error => TaskDiffReaderError::operation_failed(error),
+        error => WorkspaceDiffReaderError::operation_failed(error),
     }
 }

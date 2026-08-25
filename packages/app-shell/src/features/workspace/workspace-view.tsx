@@ -65,7 +65,7 @@ import {
   WorkspaceReviewLayout,
   type WorkspaceReviewContext,
 } from "./workspace-review-layout";
-import { useTaskDiffLiveSync } from "../../state/hooks/use-task-diff-live-sync";
+import { useWorkspaceDiffLiveSync } from "../../state/hooks/use-workspace-diff-live-sync";
 
 interface WorkspaceViewProps {
   userName: string;
@@ -169,7 +169,7 @@ export function WorkspaceView({ userName }: WorkspaceViewProps) {
   const openDashboardPanel = useUiStore((s) => s.openDashboardPanel);
 
   const chatStore = useChatStore();
-  useTaskDiffLiveSync(chatStore, sessions, tasks);
+  useWorkspaceDiffLiveSync(chatStore, sessions);
   const client = useContractsClient();
   const queryClient = useQueryClient();
   // Opens the provider session for this surface before anything is sent, so the
@@ -219,11 +219,20 @@ export function WorkspaceView({ userName }: WorkspaceViewProps) {
   const reviewContext = useMemo<WorkspaceReviewContext>(
     () =>
       task !== undefined && project !== undefined
-        ? { kind: "task", taskId: task.id, projectId: project.id }
+        ? {
+            kind: "task",
+            taskId: task.id,
+            projectId: project.id,
+            workspaceId: task.workspaceId,
+          }
         : project !== undefined
-          ? { kind: "project", projectId: project.id }
+          ? {
+              kind: "project",
+              projectId: project.id,
+              workspaceId: selectedWorkspaceId,
+            }
           : { kind: "none" },
-    [project, task],
+    [project, task, selectedWorkspaceId],
   );
   const conversation = useStore(chatStore, (state) =>
     conversationSessionId === null
@@ -352,7 +361,7 @@ export function WorkspaceView({ userName }: WorkspaceViewProps) {
           task === undefined
             ? Promise.resolve()
             : queryClient.invalidateQueries({
-                queryKey: queryKeys.taskDiffs(task.id),
+                queryKey: queryKeys.workspaceDiffs(task.workspaceId),
               }),
         ]);
       }
@@ -537,11 +546,9 @@ export function WorkspaceView({ userName }: WorkspaceViewProps) {
       endDraftSend();
       await Promise.all([
         sessionsQuery.refetch(),
-        taskId === null
-          ? Promise.resolve()
-          : queryClient.invalidateQueries({
-              queryKey: queryKeys.taskDiffs(taskId),
-            }),
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.workspaceDiffs(workspaceId),
+        }),
       ]);
     }
   };

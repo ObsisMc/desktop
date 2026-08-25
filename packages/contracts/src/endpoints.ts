@@ -14,10 +14,10 @@ import type { CreateSkillRequest, CreateSkillResponse, DeleteSkillRequest, Delet
 import type { CancelSkillImportRequest, CancelSkillImportResponse, CommitSkillImportRequest, CommitSkillImportResponse, GetSkillImportSessionRequest, GetSkillImportSessionResponse, PrepareSkillImportRequest, PrepareSkillImportResponse } from "./skill-import.js";
 import type { GetSpecCatalogRequest, ReadSpecRequest, ReadSpecResponse, SpecCatalogResponse, WatchSpecsRequest } from "./spec.js";
 import type { CreateTaskRequest, CreateTaskResponse, DeleteTaskRequest, DeleteTaskResponse, GetTaskRequest, GetTaskResponse, GetTaskWorkspaceRequest, GetTaskWorkspaceResponse, ListTasksRequest, ListTasksResponse, UpdateTaskRequest, UpdateTaskResponse } from "./task.js";
-import type { CommitTaskChangesRequest, CommitTaskChangesResponse, GetTaskDiffRequest, GetTaskDiffResponse, PushTaskBranchRequest, PushTaskBranchResponse } from "./task_diff.js";
 import type { ActivateWorkflowRequest, ActivateWorkflowResponse, CreateWorkflowRequest, CreateWorkflowResponse, DeleteSnapshotRequest, DeleteSnapshotResponse, DeleteWorkflowRequest, DeleteWorkflowResponse, GetDraftRequest, GetDraftResponse, GetVersionRequest, GetVersionResponse, GetWorkflowRequest, GetWorkflowResponse, GetWorkflowSnapshotRequest, GetWorkflowSnapshotResponse, ListVersionsRequest, ListVersionsResponse, ListWorkflowsRequest, ListWorkflowsResponse, PublishWorkflowRequest, PublishWorkflowResponse, RollbackWorkflowRequest, RollbackWorkflowResponse, UpdateDraftRequest, UpdateDraftResponse, UpdateWorkflowRequest, UpdateWorkflowResponse } from "./workflow.js";
 import type { CancelWorkflowRunRequest, CancelWorkflowRunResponse, CompleteWorkflowNodeRequest, CompleteWorkflowNodeResponse, CreateWorkflowRunRequest, CreateWorkflowRunResponse, DeleteWorkflowRunRequest, DeleteWorkflowRunResponse, GetWorkflowRunRequest, GetWorkflowRunResponse, ListWorkflowNodeRunsRequest, ListWorkflowNodeRunsResponse, ListWorkflowRunsByWorkflowRequest, ListWorkflowRunsByWorkflowResponse, ListWorkflowRunsRequest, ListWorkflowRunsResponse, RenameWorkflowRunRequest, RenameWorkflowRunResponse, RestartWorkflowRunRequest, RestartWorkflowRunResponse, StartWorkflowRunRequest, StartWorkflowRunResponse, UpdateWorkflowRunInputRequest, UpdateWorkflowRunInputResponse } from "./workflowRun.js";
 import type { ListWorkspacesRequest, ListWorkspacesResponse } from "./workspace.js";
+import type { CommitWorkspaceChangesRequest, CommitWorkspaceChangesResponse, GetWorkspaceDiffRequest, GetWorkspaceDiffResponse, PushWorkspaceBranchRequest, PushWorkspaceBranchResponse } from "./workspace_diff.js";
 export type FrontendEndpointDefinition = {
   operationName: string;
   namespace: string;
@@ -44,9 +44,6 @@ export type RequestByOperation = {
   updateTask: UpdateTaskRequest;
   deleteTask: DeleteTaskRequest;
   getTaskWorkspace: GetTaskWorkspaceRequest;
-  getTaskDiff: GetTaskDiffRequest;
-  commitTaskChanges: CommitTaskChangesRequest;
-  pushTaskBranch: PushTaskBranchRequest;
   warmSession: WarmSessionRequest;
   setSessionConfig: SetSessionConfigRequest;
   attachSession: AttachSessionRequest;
@@ -136,6 +133,9 @@ export type RequestByOperation = {
   updateWorkflowRunInput: UpdateWorkflowRunInputRequest;
   completeWorkflowNode: CompleteWorkflowNodeRequest;
   listWorkspaces: ListWorkspacesRequest;
+  getWorkspaceDiff: GetWorkspaceDiffRequest;
+  commitWorkspaceChanges: CommitWorkspaceChangesRequest;
+  pushWorkspaceBranch: PushWorkspaceBranchRequest;
 };
 
 export type ResponseByOperation = {
@@ -155,9 +155,6 @@ export type ResponseByOperation = {
   updateTask: UpdateTaskResponse;
   deleteTask: DeleteTaskResponse;
   getTaskWorkspace: GetTaskWorkspaceResponse;
-  getTaskDiff: GetTaskDiffResponse;
-  commitTaskChanges: CommitTaskChangesResponse;
-  pushTaskBranch: PushTaskBranchResponse;
   warmSession: WarmSessionResponse;
   setSessionConfig: SetSessionConfigResponse;
   attachSession: AttachSessionResponse;
@@ -247,6 +244,9 @@ export type ResponseByOperation = {
   updateWorkflowRunInput: UpdateWorkflowRunInputResponse;
   completeWorkflowNode: CompleteWorkflowNodeResponse;
   listWorkspaces: ListWorkspacesResponse;
+  getWorkspaceDiff: GetWorkspaceDiffResponse;
+  commitWorkspaceChanges: CommitWorkspaceChangesResponse;
+  pushWorkspaceBranch: PushWorkspaceBranchResponse;
 };
 
 export type EndpointOperation = keyof RequestByOperation;
@@ -378,30 +378,6 @@ export const endpoints = {
     memberName: "getWorkspace",
     requestType: "GetTaskWorkspaceRequest",
     responseType: "GetTaskWorkspaceResponse",
-    responseMode: "unary",
-  },
-  getTaskDiff: {
-    operationName: "getTaskDiff",
-    namespace: "task",
-    memberName: "getDiff",
-    requestType: "GetTaskDiffRequest",
-    responseType: "GetTaskDiffResponse",
-    responseMode: "unary",
-  },
-  commitTaskChanges: {
-    operationName: "commitTaskChanges",
-    namespace: "task",
-    memberName: "commitChanges",
-    requestType: "CommitTaskChangesRequest",
-    responseType: "CommitTaskChangesResponse",
-    responseMode: "unary",
-  },
-  pushTaskBranch: {
-    operationName: "pushTaskBranch",
-    namespace: "task",
-    memberName: "pushBranch",
-    requestType: "PushTaskBranchRequest",
-    responseType: "PushTaskBranchResponse",
     responseMode: "unary",
   },
   warmSession: {
@@ -1114,6 +1090,30 @@ export const endpoints = {
     memberName: "list",
     requestType: "ListWorkspacesRequest",
     responseType: "ListWorkspacesResponse",
+    responseMode: "unary",
+  },
+  getWorkspaceDiff: {
+    operationName: "getWorkspaceDiff",
+    namespace: "workspace",
+    memberName: "getDiff",
+    requestType: "GetWorkspaceDiffRequest",
+    responseType: "GetWorkspaceDiffResponse",
+    responseMode: "unary",
+  },
+  commitWorkspaceChanges: {
+    operationName: "commitWorkspaceChanges",
+    namespace: "workspace",
+    memberName: "commitChanges",
+    requestType: "CommitWorkspaceChangesRequest",
+    responseType: "CommitWorkspaceChangesResponse",
+    responseMode: "unary",
+  },
+  pushWorkspaceBranch: {
+    operationName: "pushWorkspaceBranch",
+    namespace: "workspace",
+    memberName: "pushBranch",
+    requestType: "PushWorkspaceBranchRequest",
+    responseType: "PushWorkspaceBranchResponse",
     responseMode: "unary",
   },
 } as const satisfies Record<EndpointOperation, FrontendEndpointDefinition>;

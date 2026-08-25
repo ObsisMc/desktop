@@ -39,9 +39,10 @@ export const translationResources = {
     "errors.task_base_branch_required": "worktree 模式任务必须选择基础分支。",
     "errors.task_base_branch_not_found": "未找到基础分支 {{branchName}}。",
     "errors.worktree_not_found": "未找到该工作树。",
-    "errors.task_diff_baseline_unavailable": "该任务的 Diff 基线不可用。",
-    "errors.task_diff_commit_message_blank": "提交信息不能为空。",
-    "errors.task_diff_too_large": "任务变更过大，无法显示完整 Diff。",
+    "errors.workspace_diff_baseline_unavailable":
+      "该工作区的 Diff 基线不可用。",
+    "errors.workspace_diff_commit_message_blank": "提交信息不能为空。",
+    "errors.workspace_diff_too_large": "变更过大，无法显示完整 Diff。",
     "errors.session_not_found": "未找到该会话。",
     "errors.agent_cli_not_found": "未找到所选 Agent CLI。",
     "errors.agent_runtime_unavailable": "Agent 运行时当前不可用。",
@@ -1476,12 +1477,12 @@ export const translationResources = {
     "errors.task_base_branch_not_found":
       "The base branch {{branchName}} was not found.",
     "errors.worktree_not_found": "The worktree was not found.",
-    "errors.task_diff_baseline_unavailable":
-      "The task diff baseline is unavailable.",
-    "errors.task_diff_commit_message_blank":
+    "errors.workspace_diff_baseline_unavailable":
+      "The workspace diff baseline is unavailable.",
+    "errors.workspace_diff_commit_message_blank":
       "The commit message must not be blank.",
-    "errors.task_diff_too_large":
-      "The task changes are too large to display as a complete diff.",
+    "errors.workspace_diff_too_large":
+      "The changes are too large to display as a complete diff.",
     "errors.session_not_found": "The session was not found.",
     "errors.agent_cli_not_found": "The selected agent CLI was not found.",
     "errors.agent_runtime_unavailable": "The agent runtime is unavailable.",

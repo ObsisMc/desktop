@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { ChatStore, ChatToolCall, SessionConversation } from "@ora/chat";
-import type { Session, Task } from "@ora/contracts";
+import type { Session } from "@ora/contracts";
 import { queryKeys } from "./query-keys";
 
 const DIFF_REFRESH_DEBOUNCE_MS = 400;
@@ -12,28 +12,19 @@ interface ConversationDiffSnapshot {
 }
 
 /**
- * Invalidates task diff snapshots after each completed file-change item and
- * once more when its turn ends.
+ * Invalidates workspace diff snapshots after each completed file-change item and
+ * once more when its turn ends. Applies to any session's workspace checkout — an
+ * isolated task worktree or a project's main checkout alike.
  */
-export function useTaskDiffLiveSync(
+export function useWorkspaceDiffLiveSync(
   chatStore: ChatStore,
   sessions: Session[],
-  tasks: readonly Task[] = [],
 ): void {
   const queryClient = useQueryClient();
 
   useEffect(() => {
-    const taskByWorkspace = new Map(
-      tasks.map((task) => [task.workspaceId, task.id]),
-    );
-    const taskBySession = new Map(
-      sessions.map((session) => [
-        session.id,
-        taskByWorkspace.get(session.workspaceId),
-      ]),
-    );
     const snapshots = new Map<string, ConversationDiffSnapshot>();
-    const pendingTaskIds = new Set<string>();
+    const pendingWorkspaceIds = new Set<string>();
     let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 
     for (const [sessionId, conversation] of Object.entries(
@@ -44,24 +35,27 @@ export function useTaskDiffLiveSync(
 
     // A short debounce collapses agents that finish several file edits back-to-back
     // into one Git diff computation while retaining operation-level feedback.
-    const scheduleRefresh = (taskId: string) => {
-      pendingTaskIds.add(taskId);
+    const scheduleRefresh = (workspaceId: string) => {
+      pendingWorkspaceIds.add(workspaceId);
       if (refreshTimer !== null) clearTimeout(refreshTimer);
       refreshTimer = setTimeout(() => {
         refreshTimer = null;
-        const taskIds = [...pendingTaskIds];
-        pendingTaskIds.clear();
-        for (const pendingTaskId of taskIds) {
+        const workspaceIds = [...pendingWorkspaceIds];
+        pendingWorkspaceIds.clear();
+        for (const pendingWorkspaceId of workspaceIds) {
           void queryClient.invalidateQueries({
-            queryKey: queryKeys.taskDiffs(pendingTaskId),
+            queryKey: queryKeys.workspaceDiffs(pendingWorkspaceId),
           });
         }
       }, DIFF_REFRESH_DEBOUNCE_MS);
     };
 
+    const workspaceIdBySession = new Map(
+      sessions.map((session) => [session.id, session.workspaceId]),
+    );
+
     const unsubscribe = chatStore.subscribe((state) => {
-      for (const [sessionId, taskId] of taskBySession) {
-        if (taskId === undefined) continue;
+      for (const [sessionId, workspaceId] of workspaceIdBySession) {
         const conversation = state.conversations[sessionId];
         if (conversation === undefined) continue;
 
@@ -82,7 +76,7 @@ export function useTaskDiffLiveSync(
             (previous.isResponding || next.isResponding)) ||
           turnCompleted
         ) {
-          scheduleRefresh(taskId);
+          scheduleRefresh(workspaceId);
         }
       }
     });
@@ -91,10 +85,10 @@ export function useTaskDiffLiveSync(
       unsubscribe();
       if (refreshTimer !== null) clearTimeout(refreshTimer);
     };
-  }, [chatStore, queryClient, sessions, tasks]);
+  }, [chatStore, queryClient, sessions]);
 }
 
-/** Captures only the lifecycle facts that can advance the aggregate task diff. */
+/** Captures only the lifecycle facts that can advance the aggregate workspace diff. */
 function conversationDiffSnapshot(
   conversation: SessionConversation,
 ): ConversationDiffSnapshot {

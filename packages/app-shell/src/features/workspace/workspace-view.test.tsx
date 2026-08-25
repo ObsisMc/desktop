@@ -116,6 +116,78 @@ describe("WorkspaceView", () => {
     );
   });
 
+  it("shows the Changes button for a selected task's review panel", async () => {
+    const state = createMockClientState();
+    state.projects = [{ id: "p1", name: "Ora" }];
+    state.tasks = [
+      {
+        id: "t1",
+        projectId: "p1",
+        workspaceId: "workspace-t1",
+        title: "Worktree task",
+      },
+    ];
+    const client = createMockClient(state);
+    const chatStore = createChatStore(client.session);
+    const Wrapper = createHookWrapper(
+      client,
+      createTestQueryClient(),
+      chatStore,
+    );
+    useWorkspaceSelectionStore.getState().selectTask("t1", "p1");
+
+    render(
+      <Wrapper>
+        <AppI18nProvider>
+          <PlatformProvider adapter={createStubPlatform()}>
+            <TooltipProvider>
+              <WorkspaceView userName="Eric" />
+            </TooltipProvider>
+          </PlatformProvider>
+        </AppI18nProvider>
+      </Wrapper>,
+    );
+
+    const toolbar = await screen.findByRole("group", {
+      name: /工作区审查面板|Workspace review panels/,
+    });
+    expect(
+      within(toolbar).getByRole("button", { name: /^变更$|^Changes$/ }),
+    ).toBeInTheDocument();
+  });
+
+  it("shows the Changes button for a selected project with no task open", async () => {
+    const state = createMockClientState();
+    state.projects = [{ id: "p1", name: "Ora" }];
+    const client = createMockClient(state);
+    const chatStore = createChatStore(client.session);
+    const Wrapper = createHookWrapper(
+      client,
+      createTestQueryClient(),
+      chatStore,
+    );
+    useWorkspaceSelectionStore.getState().selectProject("p1");
+
+    render(
+      <Wrapper>
+        <AppI18nProvider>
+          <PlatformProvider adapter={createStubPlatform()}>
+            <TooltipProvider>
+              <WorkspaceView userName="Eric" />
+            </TooltipProvider>
+          </PlatformProvider>
+        </AppI18nProvider>
+      </Wrapper>,
+    );
+
+    const toolbar = await screen.findByRole("group", {
+      name: /工作区审查面板|Workspace review panels/,
+    });
+    expect(
+      within(toolbar).getByRole("button", { name: /^变更$|^Changes$/ }),
+    ).toBeInTheDocument();
+  });
+
   it("warns when loaded history contains records whose positions are unknown", async () => {
     const state = createMockClientState();
     state.projects = [{ id: "p1", name: "Ora" }];

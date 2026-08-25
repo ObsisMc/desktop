@@ -255,6 +255,17 @@ export function createMockClient(state: MockClientState): ContractsClient {
     },
     workspace: {
       list: async () => ({ workspaces: visibleWorkspaces(state) }),
+      getDiff: async () => ({
+        baseCommitId: "base",
+        headCommitId: "head",
+        patch: "",
+      }),
+      commitChanges: async () => {
+        throw new Error("commitChanges not implemented in mock");
+      },
+      pushBranch: async () => {
+        throw new Error("pushBranch not implemented in mock");
+      },
     },
     task: {
       list: async () => ({ tasks: [...state.tasks] }),
@@ -300,17 +311,6 @@ export function createMockClient(state: MockClientState): ContractsClient {
           branchName: `task/${req.taskId}`,
         },
       }),
-      getDiff: async () => ({
-        baseCommitId: "base",
-        headCommitId: "head",
-        patch: "",
-      }),
-      commitChanges: async () => {
-        throw new Error("commitChanges not implemented in mock");
-      },
-      pushBranch: async () => {
-        throw new Error("pushBranch not implemented in mock");
-      },
     },
     session: {
       list: async () => ({ sessions: [...state.sessions] }),

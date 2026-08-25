@@ -1,4 +1,4 @@
-import type { TaskDiffScope, WarmSessionTarget } from "@ora/contracts";
+import type { WarmSessionTarget, WorkspaceDiffScope } from "@ora/contracts";
 
 /**
  * Centralised react-query cache keys for the app shell.
@@ -38,9 +38,10 @@ export const queryKeys = {
   taskWorkspace: (taskId: string) => ["task-workspace", taskId] as const,
   workspaceCwd: (workspaceId: string) =>
     ["workspace-cwd", workspaceId] as const,
-  taskDiffs: (taskId: string) => ["task-diff", taskId] as const,
-  taskDiff: (taskId: string, scope: TaskDiffScope) =>
-    ["task-diff", taskId, scope] as const,
+  workspaceDiffs: (workspaceId: string) =>
+    ["workspace-diff", workspaceId] as const,
+  workspaceDiff: (workspaceId: string, scope: WorkspaceDiffScope) =>
+    ["workspace-diff", workspaceId, scope] as const,
   workspaceFiles: (taskId: string) => ["workspace-files", taskId] as const,
   workspaceDirectory: (taskId: string, path: string) =>
     ["workspace-files", taskId, "directory", path] as const,

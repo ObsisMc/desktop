@@ -13,13 +13,13 @@ use crate::session::SessionApi;
 use crate::skill::SkillApi;
 use crate::spec::SpecApi;
 use crate::task::TaskApi;
-use crate::task_diff::TaskDiffApi;
 use crate::user_config::{BackendPreferredLogLevelStore, UserConfigApi};
 use crate::workflow::WorkflowApi;
 use crate::workflow::run::WorkflowRunApi;
 use crate::workflow::run::{
     ConcreteWorkflowRunControl, ConcreteWorkflowRunEngine, build_workflow_run_engine,
 };
+use crate::workspace_diff::WorkspaceDiffApi;
 use ora_application::{ApplicationError, Clock, WorkflowRunEngineRepository};
 use ora_contracts::*;
 use ora_contracts::{EmptyErrorParams, PublicError};
@@ -91,7 +91,7 @@ pub struct Backend {
     worktree_root: Arc<RwLock<PathBuf>>,
     project: Arc<ProjectApi>,
     task: Arc<TaskApi>,
-    task_diff: Arc<TaskDiffApi>,
+    workspace_diff: Arc<WorkspaceDiffApi>,
     user_config: Arc<UserConfigApi>,
     session: Arc<SessionApi>,
     agent_runtime: Arc<AgentRuntimeManager>,
@@ -214,7 +214,7 @@ impl Backend {
                 repository_gates,
                 clock,
             )),
-            task_diff: Arc::new(TaskDiffApi::new(
+            workspace_diff: Arc::new(WorkspaceDiffApi::new(
                 pool.clone(),
                 git_cleanup.clone(),
                 relative_path_base.clone(),
@@ -932,30 +932,31 @@ impl Backend {
     }
 
     // =============================================================================
-    // taskDiff
+    // workspaceDiff
     // =============================================================================
-    /// Returns the current Git snapshot for the task directory used by its agent session.
-    pub fn get_task_diff(
+    /// Returns the current Git snapshot for one workspace checkout — a task's isolated worktree
+    /// or a project's main checkout alike.
+    pub fn get_workspace_diff(
         &self,
-        request: GetTaskDiffRequest,
-    ) -> Result<GetTaskDiffResponse, BackendError> {
-        self.task_diff.get_diff(request)
+        request: GetWorkspaceDiffRequest,
+    ) -> Result<GetWorkspaceDiffResponse, BackendError> {
+        self.workspace_diff.get_diff(request)
     }
 
-    /// Commits every current change in one isolated task worktree.
-    pub fn commit_task_changes(
+    /// Commits every current change in one workspace checkout.
+    pub fn commit_workspace_changes(
         &self,
-        request: CommitTaskChangesRequest,
-    ) -> Result<CommitTaskChangesResponse, BackendError> {
-        self.task_diff.commit_changes(request)
+        request: CommitWorkspaceChangesRequest,
+    ) -> Result<CommitWorkspaceChangesResponse, BackendError> {
+        self.workspace_diff.commit_changes(request)
     }
 
-    /// Pushes the verified branch owned by one isolated task worktree.
-    pub fn push_task_branch(
+    /// Pushes one workspace checkout's branch, verified when it has a recorded `Worktree` row.
+    pub fn push_workspace_branch(
         &self,
-        request: PushTaskBranchRequest,
-    ) -> Result<PushTaskBranchResponse, BackendError> {
-        self.task_diff.push_branch(request)
+        request: PushWorkspaceBranchRequest,
+    ) -> Result<PushWorkspaceBranchResponse, BackendError> {
+        self.workspace_diff.push_branch(request)
     }
 
     // =============================================================================

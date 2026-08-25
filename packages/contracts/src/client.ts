@@ -66,6 +66,12 @@ export function createContractsClient(
     workspace: {
       list: (request, options) =>
         executeOperation("listWorkspaces", request, transport, options),
+      getDiff: (request, options) =>
+        executeOperation("getWorkspaceDiff", request, transport, options),
+      commitChanges: (request, options) =>
+        executeOperation("commitWorkspaceChanges", request, transport, options),
+      pushBranch: (request, options) =>
+        executeOperation("pushWorkspaceBranch", request, transport, options),
     },
     task: {
       create: (request, options) =>
@@ -80,12 +86,6 @@ export function createContractsClient(
         executeOperation("updateTask", request, transport, options),
       delete: (request, options) =>
         executeOperation("deleteTask", request, transport, options),
-      getDiff: (request, options) =>
-        executeOperation("getTaskDiff", request, transport, options),
-      commitChanges: (request, options) =>
-        executeOperation("commitTaskChanges", request, transport, options),
-      pushBranch: (request, options) =>
-        executeOperation("pushTaskBranch", request, transport, options),
     },
     session: {
       warm: (request, options) =>
