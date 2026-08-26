@@ -7,6 +7,16 @@ Task Changes panel: parsed worktree patches, file tree, and git commit/push acti
 - Render unified/split diffs for a task scope (`branch` / staged / unstaged / commit).
 - Collapse distant unchanged context and restore it on demand.
 - Jump from chat file links to a new-side line inside the active patch.
+- Own `TaskChangesNavigationContext` (`task-changes-navigation-context.ts` /
+  `task-changes-navigation.tsx`): `openDiff`, `openWorkspaceFile`,
+  `openWorkspaceDirectory`, and `openWorkspaceArtifact`, implemented by
+  `WorkspaceReviewLayout`. Both assistant chat links (`chat-link/`) and
+  user-authored reference chips (`file-ref-chip-navigation.ts`) route through
+  these calls, so the Files/Changes highlight visuals stay in one place
+  regardless of who authored the reference. User-authored chips only ever use
+  `openDiff` / `openWorkspaceFile` / `openWorkspaceDirectory` — they always
+  know their own kind, so they never need `openWorkspaceArtifact`'s
+  parent-listing resolution.
 - Quote visible diff lines into the chat composer via gutter `+` (click) or
   gutter/`+` drag-release. Clicking a line number pins a highlight on that
   side only (shift-click extends within the same side); Ctrl/Cmd+Enter on a

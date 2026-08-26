@@ -5,22 +5,33 @@ import {
 } from "@ora/editor/composer";
 import { IconX } from "@tabler/icons-react";
 import { NodeViewWrapper, type NodeViewProps } from "@tiptap/react";
+import { useRef } from "react";
 import type {
   DragEvent as ReactDragEvent,
   MouseEvent as ReactMouseEvent,
 } from "react";
 import { useTranslation } from "react-i18next";
+import { useTaskChangesNavigation } from "../diff/task-changes-navigation-context";
+import { navigateToFileRef } from "../file-ref-chip-navigation";
 import { FileRefChipContent } from "../file-ref-chip";
 
 /**
  * Inline path mention chip: type/folder icon + basename, Cursor-style (no pill).
  * Wired through `AppComposerFile` so the explorer and @ picker share one visual.
+ *
+ * A plain single click jumps to the reference's Files/Changes location, same
+ * as the read-only history chip. Double-click and Ctrl/Cmd-click keep their
+ * existing node-selection behaviour (for delete/drag) instead of navigating.
  */
 export function ComposerFileChipView({ node, editor, getPos }: NodeViewProps) {
   const { t } = useTranslation();
   const attrs = composerFileAttrsFromUnknown(node.attrs);
   const kind = attrs.kind === "directory" ? "directory" : "file";
   const title = composerFileChipTitle(attrs);
+  const navigation = useTaskChangesNavigation();
+  // Armed by the select-only mousedown branch so the click completing that
+  // same press does not also navigate.
+  const suppressNextClickRef = useRef(false);
 
   const selectOnlyThisChip = (event: ReactMouseEvent<HTMLElement>): void => {
     event.preventDefault();
@@ -49,6 +60,7 @@ export function ComposerFileChipView({ node, editor, getPos }: NodeViewProps) {
       className="composer-file-ref"
       data-composer-file={attrs.path}
       data-kind={kind}
+      {...(navigation === null ? {} : { "data-navigable": "true" })}
       {...(attrs.startLine === undefined
         ? {}
         : { "data-start-line": String(attrs.startLine) })}
@@ -64,10 +76,25 @@ export function ComposerFileChipView({ node, editor, getPos }: NodeViewProps) {
       onMouseDown={(event: ReactMouseEvent<HTMLElement>) => {
         if (event.button !== 0) return;
         if (event.detail >= 2 || event.ctrlKey || event.metaKey) {
+          // Armed here rather than inside the shared handler: only a mousedown
+          // is followed by a click that must not also navigate. `dblclick`
+          // fires after its own click was already consumed, so arming there
+          // would strand the flag and swallow the chip next genuine click.
+          suppressNextClickRef.current = true;
           selectOnlyThisChip(event);
         }
       }}
       onDoubleClick={selectOnlyThisChip}
+      onClick={(event: ReactMouseEvent<HTMLElement>) => {
+        if (suppressNextClickRef.current) {
+          suppressNextClickRef.current = false;
+          return;
+        }
+        if (event.button !== 0 || navigation === null) return;
+        event.preventDefault();
+        event.stopPropagation();
+        navigateToFileRef(attrs, navigation);
+      }}
     >
       {editor.isEditable && (
         <button

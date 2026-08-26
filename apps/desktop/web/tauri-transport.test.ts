@@ -17,6 +17,36 @@ describe("createTauriTransport", () => {
     expect(invoke).toHaveBeenCalledWith("list_projects", { request: {} });
   });
 
+  it("maps workspace listing to the Desktop command", async () => {
+    const response = { workspaces: [] };
+    const invoke = vi.fn().mockResolvedValue(response);
+    const transport = createTauriTransport(invoke);
+
+    await expect(
+      transport.send({
+        operationName: "listWorkspaces",
+        request: {},
+      }),
+    ).resolves.toEqual(response);
+    expect(invoke).toHaveBeenCalledWith("list_workspaces", { request: {} });
+  });
+
+  it("maps workflow run rename to the Desktop command", async () => {
+    const response = { workflowRun: {} };
+    const invoke = vi.fn().mockResolvedValue(response);
+    const transport = createTauriTransport(invoke);
+
+    await expect(
+      transport.send({
+        operationName: "renameWorkflowRun",
+        request: {},
+      }),
+    ).resolves.toEqual(response);
+    expect(invoke).toHaveBeenCalledWith("rename_workflow_run", {
+      request: {},
+    });
+  });
+
   it("maps installed plugin discovery to the Desktop snapshot command", async () => {
     const response = { plugins: [] };
     const invoke = vi.fn().mockResolvedValue(response);

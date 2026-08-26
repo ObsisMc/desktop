@@ -19,6 +19,10 @@ Files viewer, the Diff viewer, or ACP tool collection with line-diff counts.
 
 - Bottom-of-turn “edited N files” summaries (`turn-diff-files.ts` / `TurnDiffSummary`)
 - Specs `MarkdownDocument`, conversation previews, user messages, thoughts, workflow cards
+  (user-authored file reference chips — composer `@` mentions and sent-history
+  quotes — are `../../file-ref-chip.tsx` / `../../file-ref-chip-navigation.ts`;
+  they carry structured `ComposerFileAttrs` already, so they route straight to
+  `TaskChangesNavigation` instead of this module's text classification)
 - Workspace existence probes or a new `openUrl` platform API
 
 ## Invariants

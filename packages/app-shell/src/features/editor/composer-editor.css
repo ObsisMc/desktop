@@ -392,6 +392,13 @@
   stroke-width: 2.5;
 }
 
+/* A chip with an active TaskChangesNavigationContext jumps to its source on
+ * plain click; the shared default above stays for the (rare) case where the
+ * composer renders outside that context. */
+.composer-editor-shell .composer-file-ref[data-navigable="true"] {
+  cursor: pointer;
+}
+
 .composer-editor-shell .composer-file-ref::selection,
 .composer-editor-shell .composer-file-ref *::selection {
   background: transparent;

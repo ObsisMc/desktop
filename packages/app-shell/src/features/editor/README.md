@@ -49,6 +49,15 @@ App-shell wrapper around `@ora/editor` for prompt boxes.
   newline outside fences (including runs of one-character lines). `/` skills
   and `$` commands are mint-wash pills with forest green ink (Cursor-style;
   no neon glow).
+- A file chip's plain single click jumps to its Files/Changes location
+  (`file-ref-chip-navigation.ts`, routed by `kind`/`origin` to
+  `TaskChangesNavigation.openWorkspaceFile` / `.openDiff` / `.openWorkspaceDirectory`)
+  when a `TaskChangesNavigationContext` is in scope, marking the chip
+  `data-navigable` for the hover/focus underline. Ctrl/Cmd-click and
+  double-click keep selecting the chip (for delete/drag) instead of
+  navigating; the node view suppresses the click that follows that mousedown
+  so the two behaviours never both fire. The remove control claims its own
+  mousedown so a press on it can never node-select the chip first.
 - Sent user messages stay `documentPlainText` in the store and render read-only
   via chat `MarkdownDocument` (`density="compact"`). Compact mode expands
   TipTap single newlines outside fences, maps `==highlight==` to `<mark>`, and

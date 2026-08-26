@@ -5,6 +5,7 @@ import { AppI18nProvider } from "../../i18n/i18n";
 import { composerFilePlainText } from "@ora/editor/composer";
 import { PlatformProvider } from "../../platform";
 import { createStubPlatform } from "../../test/stub-platform";
+import { TaskChangesNavigationProvider } from "../diff/task-changes-navigation";
 import { MarkdownDocument, MarkdownMessage } from "./markdown-message";
 
 /** Renders Markdown with the production translation provider used by code controls. */
@@ -754,5 +755,59 @@ describe("MarkdownMessage chat links", () => {
     renderMarkdown("See `src/main.rs`");
     expect(screen.queryByRole("button", { name: /src\/main\.rs/ })).toBeNull();
     expect(screen.getByText("src/main.rs").tagName).toBe("CODE");
+  });
+});
+
+describe("sent file-quote chip navigation", () => {
+  it("opens the quoted file in Files, at its start line, when clicked", async () => {
+    const user = userEvent.setup();
+    const openWorkspaceFile = vi.fn();
+    const content = composerFilePlainText({
+      path: "src/main.py",
+      startLine: 9,
+      endLine: 14,
+      snippet: "import os",
+    });
+    render(
+      <AppI18nProvider>
+        <TaskChangesNavigationProvider
+          onOpenDiff={vi.fn()}
+          onOpenWorkspaceFile={openWorkspaceFile}
+        >
+          <MarkdownDocument density="compact" content={content} />
+        </TaskChangesNavigationProvider>
+      </AppI18nProvider>,
+    );
+
+    const chip = screen.getByRole("button", { name: /main\.py/ });
+    expect(chip).toHaveClass("composer-file-ref");
+    await user.click(chip);
+    expect(openWorkspaceFile).toHaveBeenCalledWith("src/main.py", 9);
+  });
+
+  it("opens a diff-origin quote in Changes at its start line when clicked", async () => {
+    const user = userEvent.setup();
+    const openDiff = vi.fn();
+    const content = composerFilePlainText({
+      path: "src/example.ts",
+      startLine: 2,
+      endLine: 40,
+      snippet: " keep\n+added",
+      origin: "diff",
+      diffSide: "new",
+    });
+    render(
+      <AppI18nProvider>
+        <TaskChangesNavigationProvider
+          onOpenDiff={openDiff}
+          onOpenWorkspaceFile={vi.fn()}
+        >
+          <MarkdownDocument density="compact" content={content} />
+        </TaskChangesNavigationProvider>
+      </AppI18nProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: /example\.ts/ }));
+    expect(openDiff).toHaveBeenCalledWith("src/example.ts", 2);
   });
 });
