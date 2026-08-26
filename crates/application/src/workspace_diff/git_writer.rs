@@ -5,6 +5,7 @@ use super::ports::{
 use gitlancer::git::commit::{CommitRequest, StageAllRequest};
 use gitlancer::git::worktree::FindWorktreeRequest;
 use gitlancer::{CliGitRunner, Git, RepoRoot, Repository, WorktreeHandle};
+use ora_utils::path::canonicalize_longest_existing_prefix;
 use std::path::PathBuf;
 
 /// Writes commits and pushes through the shared Gitlancer runtime.
@@ -30,13 +31,17 @@ impl GitWorkspaceGitWriter {
         expected_branch_name: &str,
     ) -> Result<WorktreeHandle, WorkspaceGitWriterError> {
         let worktree = self.resolve_worktree(worktree_path)?;
-        if worktree.worktree_root().as_path() != worktree_path
+        // Compare canonicalized roots, matching how `find_worktree` itself resolves
+        // `worktree_path` against `git worktree list` output: a raw lexical comparison would
+        // false-negative on symlink differences (e.g. macOS `/tmp` -> `/private/tmp`).
+        if canonicalize_longest_existing_prefix(worktree.worktree_root().as_path())
+            != canonicalize_longest_existing_prefix(worktree_path)
             || worktree.branch_name().map(gitlancer::BranchName::as_str)
                 != Some(expected_branch_name)
         {
             return Err(WorkspaceGitWriterError::operation_failed(
                 std::io::Error::other(
-                    "task worktree path or branch no longer matches persisted state",
+                    "workspace worktree path or branch no longer matches persisted state",
                 ),
             ));
         }

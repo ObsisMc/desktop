@@ -38,16 +38,33 @@ impl WorkspaceDiffReader for GitWorkspaceDiffReader {
             })
             .map_err(workspace_diff_operation_error)?;
         let base_commit_id = request.base_commit_id.map(CommitId::new);
+        let scope = map_diff_scope(request.scope);
+        // Defense in depth: `Git::diff` panics if `Branch`/`Committed` reach it without a
+        // baseline. The backend rejects that combination before calling this reader, but any
+        // other caller (a future adapter, a direct consumer of this crate) must get an error
+        // here instead of a crash.
+        if base_commit_id.is_none() && scope_requires_baseline(scope) {
+            return Err(WorkspaceDiffReaderError::operation_failed(
+                std::io::Error::other(
+                    "Branch/Committed diff scope requires a recorded baseline commit",
+                ),
+            ));
+        }
 
         self.git
             .diff(DiffRequest {
                 worktree: &worktree,
                 base_commit_id: base_commit_id.as_ref(),
-                scope: map_diff_scope(request.scope),
+                scope,
             })
             .map(map_diff_response)
             .map_err(workspace_diff_operation_error)
     }
+}
+
+/// Reports whether a scope compares against a fixed baseline commit.
+fn scope_requires_baseline(scope: DiffScope) -> bool {
+    matches!(scope, DiffScope::Branch | DiffScope::Committed)
 }
 
 /// Maps the application comparison choice into Gitlancer's command vocabulary.

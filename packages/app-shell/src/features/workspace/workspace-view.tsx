@@ -358,11 +358,9 @@ export function WorkspaceView({ userName }: WorkspaceViewProps) {
         // lifecycle snapshot after every finite prompt without polling idle sessions.
         await Promise.all([
           sessionsQuery.refetch(),
-          task === undefined
-            ? Promise.resolve()
-            : queryClient.invalidateQueries({
-                queryKey: queryKeys.workspaceDiffs(task.workspaceId),
-              }),
+          queryClient.invalidateQueries({
+            queryKey: queryKeys.workspaceDiffs(session.workspaceId),
+          }),
         ]);
       }
       return;
