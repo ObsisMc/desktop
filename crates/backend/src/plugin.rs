@@ -1,5 +1,6 @@
 use crate::app_event::AppEventPublisher;
 use crate::clock::SystemClock;
+use crate::effect_worker::EffectWorkerHandle;
 use crate::error::{BackendError, ErrorClassification};
 use gitlancer::{BranchName, CliGitRunner, Git};
 use ora_application::Clock;
@@ -32,7 +33,7 @@ use ora_plugin_registry::{
 use ora_utils::http::{DownloadSource, ProxyConfig, ReqwestDownloader};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::Duration;
 use tokio::sync::{broadcast, mpsc};
 
@@ -173,6 +174,11 @@ pub(crate) struct PluginApi {
     effect_repository: SqliteEffectRepository,
     workspace_repository: SqliteWorkspaceRepository,
     agent_effect_surfaces: Mutex<BTreeMap<PluginId, Vec<FilesystemSkillSurface>>>,
+    /// Set once the Effect worker exists, which is after this API the worker itself borrows.
+    ///
+    /// Its absence only costs latency: a declaration change is already durable before the wake
+    /// would fire, so the worker's periodic scan still converges the surface.
+    effect_reconcile: OnceLock<EffectWorkerHandle>,
     clock: SystemClock,
 }
 
@@ -221,8 +227,17 @@ impl PluginApi {
             effect_repository: SqliteEffectRepository::new(pool.clone()),
             workspace_repository: SqliteWorkspaceRepository::new(pool),
             agent_effect_surfaces: Mutex::new(BTreeMap::new()),
+            effect_reconcile: OnceLock::new(),
             clock,
         })
+    }
+
+    /// Connects the Effect worker's wake handle once it exists.
+    ///
+    /// The worker borrows this API, so it cannot be built before it; wiring the wake afterwards
+    /// keeps that one-way dependency instead of making the two constructors mutually recursive.
+    pub(crate) fn set_effect_reconcile(&self, handle: EffectWorkerHandle) {
+        let _ = self.effect_reconcile.set(handle);
     }
 
     /// Rebuilds catalog projections for every Skill plugin already installed on disk.
@@ -400,6 +415,11 @@ impl PluginApi {
                 .map_err(|error| {
                     BackendError::internal("failed to persist Agent Effect surfaces", error)
                 })?;
+        }
+        // Waking after the commit, never before it: the request the worker will read is already
+        // durable, so a wake lost to a crash costs a scan interval rather than a reconcile.
+        if let Some(reconcile) = self.effect_reconcile.get() {
+            reconcile.notify();
         }
         Ok(())
     }

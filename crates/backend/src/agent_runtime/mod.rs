@@ -4,7 +4,7 @@ mod connection;
 mod events;
 mod handoff;
 mod history;
-mod plugin_agent;
+pub(crate) mod plugin_agent;
 mod replay;
 mod restart_circuit;
 mod routing;

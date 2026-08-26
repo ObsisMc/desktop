@@ -89,10 +89,6 @@ pub(crate) fn registered_skill_surfaces(
 }
 
 /// Asks the plugin to wait for all affected Agent instances to become idle and hold a barrier.
-#[allow(
-    dead_code,
-    reason = "the Effect worker will call this IPC seam once Agent plugins ship"
-)]
 pub(crate) async fn wait_for_idle(
     runtime: &PluginRuntime,
     surface_key: &SurfaceKey,
@@ -103,10 +99,6 @@ pub(crate) async fn wait_for_idle(
 }
 
 /// Restarts every affected Agent instance and releases the barrier for the applied generation.
-#[allow(
-    dead_code,
-    reason = "the Effect worker will call this IPC seam once Agent plugins ship"
-)]
 pub(crate) async fn restart(
     runtime: &PluginRuntime,
     surface_key: &SurfaceKey,

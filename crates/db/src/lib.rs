@@ -21,10 +21,11 @@ pub use error::{DatabaseError, MigrationDirection};
 pub use location::DatabaseLocation;
 pub use migration::{AppliedMigration, Migration, MigrationCatalog, default_migration_catalog};
 pub use repository::{
-    CascadeDeleteOutcome, PluginSkillProjection, RepositoryPool, SourceMutationOutcome,
-    SourcePublication, SqliteAgentDefinitionRepository, SqliteCascadeRepository,
-    SqliteEffectRepository, SqliteGitCleanupJobRepository, SqlitePluginStateRepository,
-    SqliteProjectRepository, SqliteSessionRepository, SqliteSkillRepository, SqliteTaskRepository,
+    CascadeDeleteOutcome, ClaimedReconcile, DueSurfaceReconcile, PluginSkillProjection,
+    ReconcileClaim, RepositoryPool, SourceMutationOutcome, SourcePublication,
+    SqliteAgentDefinitionRepository, SqliteCascadeRepository, SqliteEffectRepository,
+    SqliteGitCleanupJobRepository, SqlitePluginStateRepository, SqliteProjectRepository,
+    SqliteSessionRepository, SqliteSkillRepository, SqliteTaskRepository,
     SqliteTaskWorkspaceRepository, SqliteUserConfigRepository, SqliteWorkflowRepository,
     SqliteWorkflowRunEngineRepository, SqliteWorkflowRunRepository, SqliteWorkspaceRepository,
     SqliteWorktreeProvisioningLeaseRepository, SqliteWorktreeRepository,

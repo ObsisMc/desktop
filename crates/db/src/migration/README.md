@@ -16,6 +16,11 @@ This module owns Ora's linear, reversible SQLite schema history and reconciles a
   normalized Workspace Desired items; Surface and Consumer declarations/status; Managed ownership;
   current Conditions; durable reconcile/propagation requests; mutation Operations and recovery
   Artifacts; and append-only Audit events.
+- A reconcile request carries its own scheduling state: `pending`, `claimed`, `blocked`, or
+  `retry_scheduled`, plus the lease that proves who currently owns the surface and the
+  `request_token` that fences that owner's writes. Only one worker can hold a surface, an expired
+  lease makes it claimable again so a crashed worker cannot strand it, and the retry delay lives in
+  the row so a restart cannot turn a backing-off surface back into an immediate retry.
 - Every Workspace has exactly one Effect aggregate. The first release installs every active Skill
   Source by default: publishing a new local or plugin Skill adds it to all existing Workspaces, and
   the Workspace insert trigger selects all active Skill Heads for a newly created Workspace.

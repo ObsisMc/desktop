@@ -194,6 +194,13 @@ impl Backend {
         let repository_gates = git_cleanup_worker.repository_gates();
         let git_cleanup = git_cleanup_worker.spawn();
 
+        // Durable Effect reconciliation: the first pass replays every surface a previous process
+        // left short of its Desired generation, including the retirement cleanup an uninstall
+        // started but could not finish.
+        let effect_worker = crate::effect_worker::EffectWorker::new(pool.clone(), plugin.clone());
+        effect_worker.recover();
+        plugin.set_effect_reconcile(effect_worker.spawn());
+
         Ok(Self {
             project: Arc::new(ProjectApi::new(pool.clone(), sessions_root.clone(), clock)),
             task: Arc::new(TaskApi::new(

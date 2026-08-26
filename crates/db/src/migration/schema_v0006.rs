@@ -88,13 +88,21 @@ CREATE UNIQUE INDEX effect_conditions_consumer_unique
 CREATE TABLE effect_reconcile_requests (
     surface_id TEXT PRIMARY KEY REFERENCES effect_surfaces(id) ON DELETE CASCADE,
     requested_generation INTEGER NOT NULL, request_token TEXT NOT NULL,
+    state TEXT NOT NULL DEFAULT 'pending', wake_reason TEXT NOT NULL DEFAULT 'desired_changed',
+    blocked_reason TEXT, lease_owner TEXT, lease_expires_at INTEGER,
     attempt_count INTEGER NOT NULL DEFAULT 0, requested_at INTEGER NOT NULL,
     not_before_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
     CHECK (requested_generation >= 0), CHECK (attempt_count >= 0),
-    CHECK (not_before_at >= requested_at), CHECK (updated_at >= requested_at)
+    CHECK (not_before_at >= requested_at), CHECK (updated_at >= requested_at),
+    CHECK (state IN ('pending', 'claimed', 'blocked', 'retry_scheduled')),
+    CHECK ((state = 'claimed') = (lease_owner IS NOT NULL)),
+    CHECK ((state = 'claimed') = (lease_expires_at IS NOT NULL)),
+    CHECK ((state = 'blocked') = (blocked_reason IS NOT NULL))
 );
 CREATE INDEX effect_reconcile_requests_due
-    ON effect_reconcile_requests(not_before_at, requested_at, surface_id);
+    ON effect_reconcile_requests(state, not_before_at, requested_at, surface_id);
+CREATE INDEX effect_reconcile_requests_leases
+    ON effect_reconcile_requests(lease_expires_at) WHERE state = 'claimed';
 CREATE TABLE effect_propagation_requests (
     source_id TEXT PRIMARY KEY REFERENCES effect_sources(id) ON DELETE CASCADE,
     head_revision_id TEXT NOT NULL, request_token TEXT NOT NULL, attempt_count INTEGER NOT NULL DEFAULT 0,

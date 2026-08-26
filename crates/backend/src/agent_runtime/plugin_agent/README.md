@@ -99,10 +99,11 @@ has also blocked new turns that could read the surface. The barrier remains held
 reinitialize every affected Agent instance before releasing the barrier. Ora can retry either call
 after a process or database failure, so both methods must be idempotent.
 
-The IPC seam has a fake runtime test because no production Agent plugin implements this contract
-yet. Surface declarations already persist durable reconcile requests; the worker-side invocation
-is intentionally isolated behind the same seam so introducing the first real plugin does not
-change locator or coordination semantics.
+`ora_backend::effect_worker` drives both calls. It claims a durable reconcile request and holds
+that claim's lease while coordination waits on a consumer, so a plugin that never answers costs one
+lease interval rather than the surface. A consumer whose plugin is not currently running is skipped
+rather than started: it holds no turn a mutation could corrupt, and it reads the surface fresh when
+it next starts.
 
 ## Sandboxing
 

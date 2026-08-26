@@ -191,7 +191,14 @@ pub(super) fn enqueue_workspace_surfaces(
              WHERE surface_id = ?1",
             params![&key, generation_to_sql(generation)?, requested_at],
         )?;
-        upsert_reconcile_request(transaction, workspace_id, &key, generation, requested_at)?;
+        upsert_reconcile_request(
+            transaction,
+            workspace_id,
+            &key,
+            generation,
+            requested_at,
+            "desired_changed",
+        )?;
     }
     Ok(())
 }
@@ -313,22 +320,32 @@ pub(super) fn upsert_reconcile_request(
     surface_key: &str,
     generation: Generation,
     requested_at: i64,
+    wake_reason: &str,
 ) -> Result<(), DatabaseError> {
     transaction.execute(
+        // A wakeup re-arms whatever the last attempt decided: a newer Desired may be exactly what
+        // clears a transient failure or an unmet precondition, so backoff and blocked reasons are
+        // dropped rather than carried forward. A claim in flight is deliberately left alone — its
+        // worker still owns the surface, and raising the generation is enough to stop it from
+        // completing away work it never observed.
         "INSERT INTO effect_reconcile_requests (
-             surface_id, requested_generation, request_token, attempt_count,
-             requested_at, not_before_at, updated_at
-         ) VALUES (?1, ?2, ?3, 0, ?4, ?4, ?4)
+             surface_id, requested_generation, request_token, state, wake_reason,
+             blocked_reason, attempt_count, requested_at, not_before_at, updated_at
+         ) VALUES (?1, ?2, ?3, 'pending', ?5, NULL, 0, ?4, ?4, ?4)
          ON CONFLICT(surface_id) DO UPDATE SET
              requested_generation = MAX(requested_generation, excluded.requested_generation),
-             request_token = excluded.request_token, attempt_count = 0,
-             requested_at = excluded.requested_at, not_before_at = excluded.not_before_at,
+             request_token = CASE WHEN state = 'claimed'
+                 THEN request_token ELSE excluded.request_token END,
+             state = CASE WHEN state = 'claimed' THEN 'claimed' ELSE 'pending' END,
+             wake_reason = excluded.wake_reason, blocked_reason = NULL, attempt_count = 0,
+             not_before_at = MAX(requested_at, excluded.not_before_at),
              updated_at = excluded.updated_at",
         params![
             surface_key,
             generation_to_sql(generation)?,
             Uuid::new_v4().to_string(),
             requested_at,
+            wake_reason,
         ],
     )?;
     Ok(())

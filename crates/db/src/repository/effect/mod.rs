@@ -4,14 +4,16 @@ use crate::{DatabaseError, RepositoryPool};
 use mapping::*;
 use ora_domain::WorkspaceId;
 use ora_effect::{
-    ConsumerStatus, DesiredSkillState, Digest, EffectOperation, EffectRepository, Generation,
-    LedgerTransition, ManagedIdentity, ManagedSkill, ReplaceEffectOutcome, RepositoryError,
-    SkillSelectionKey, SourceError, SourceProvider, SourceSnapshot, SourceVersion,
-    SurfaceDescriptorSet, SurfaceStatus, WorkspaceEffect, WorkspaceEffectSpec,
+    ConsumerCoordination, ConsumerId, ConsumerStatus, DesiredSkillState, Digest, EffectOperation,
+    EffectRepository, Generation, LedgerTransition, ManagedIdentity, ManagedSkill,
+    MaterializationFormat, ReplaceEffectOutcome, RepositoryError, SkillSelectionKey, SourceError,
+    SourceProvider, SourceSnapshot, SourceVersion, SurfaceDescriptorSet, SurfaceKey,
+    SurfaceLifecycle, SurfacePath, SurfaceStatus, WorkspaceEffect, WorkspaceEffectSpec,
 };
 use rusqlite::{OptionalExtension, TransactionBehavior, params};
+use std::collections::BTreeMap;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
 /// Selects whether publishing a source revision should wake existing Desired references.
@@ -291,6 +293,7 @@ impl SqliteEffectRepository {
                         &surface_key,
                         generation,
                         updated_at,
+                        "surface_retiring",
                     )?;
                 }
             }
@@ -388,6 +391,7 @@ impl SqliteEffectRepository {
                     surface.surface_key.as_str(),
                     generation,
                     updated_at,
+                    "surface_declared",
                 )?;
             }
             transaction.commit()?;
@@ -508,6 +512,386 @@ impl SqliteEffectRepository {
             }
             Ok(requests)
         })
+    }
+
+    /// Atomically takes ownership of the surfaces currently owed a reconcile.
+    ///
+    /// The rows are durable level-triggered state, not an event log: a worker reads what is owed
+    /// now rather than replaying how it came to be owed, which is what lets repeated wakeups merge
+    /// into one request. Claiming inside a single immediate transaction is what makes two workers
+    /// unable to hold the same surface, and a claim whose lease has expired is reclaimable so a
+    /// crashed worker cannot strand a surface forever.
+    ///
+    /// The returned token fences every later transition: a worker that lost its lease while it was
+    /// stalled finds its token replaced and can no longer write the outcome of stale work.
+    pub fn claim_due_reconcile_requests(
+        &self,
+        worker_id: &str,
+        now: i64,
+        lease_expires_at: i64,
+        limit: usize,
+    ) -> Result<Vec<ClaimedReconcile>, DatabaseError> {
+        self.pool.with_connection_mut(|connection| {
+            let transaction =
+                connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            let claimable = {
+                let mut statement = transaction.prepare(
+                    "SELECT surface_id FROM effect_reconcile_requests
+                     WHERE (state IN ('pending', 'retry_scheduled') AND not_before_at <= ?1)
+                        OR (state = 'claimed' AND lease_expires_at <= ?1)
+                     ORDER BY not_before_at, requested_at, surface_id
+                     LIMIT ?2",
+                )?;
+                let mut rows = statement.query(params![now, limit as i64])?;
+                let mut keys = Vec::new();
+                while let Some(row) = rows.next()? {
+                    keys.push(row.get::<_, String>(0)?);
+                }
+                keys
+            };
+
+            let mut claimed = Vec::new();
+            for surface_key in claimable {
+                let token = Uuid::new_v4().to_string();
+                let taken = transaction.execute(
+                    "UPDATE effect_reconcile_requests
+                     SET state = 'claimed', lease_owner = ?2, lease_expires_at = ?3,
+                         request_token = ?4, blocked_reason = NULL,
+                         attempt_count = attempt_count + 1, updated_at = ?5
+                     WHERE surface_id = ?1
+                       AND ((state IN ('pending', 'retry_scheduled') AND not_before_at <= ?5)
+                            OR (state = 'claimed' AND lease_expires_at <= ?5))",
+                    params![&surface_key, worker_id, lease_expires_at, &token, now],
+                )?;
+                if taken == 0 {
+                    continue;
+                }
+                let (mapped, attempt) = transaction.query_row(
+                    "SELECT surfaces.id, surfaces.workspace_id, surfaces.locator_key,
+                            surfaces.locator_json, surfaces.format_kind, surfaces.lifecycle,
+                            requests.requested_generation, requests.attempt_count
+                     FROM effect_reconcile_requests requests
+                     JOIN effect_surfaces surfaces ON surfaces.id = requests.surface_id
+                     WHERE requests.surface_id = ?1",
+                    params![&surface_key],
+                    |row| Ok((map_due_reconcile(row), row.get::<_, i64>(7)?)),
+                )?;
+                let mut due = mapped?;
+                {
+                    let mut statement = transaction.prepare(
+                        "SELECT consumer_id, coordination_kind FROM effect_surface_consumers
+                         WHERE surface_id = ?1 ORDER BY consumer_id",
+                    )?;
+                    let mut rows = statement.query(params![&surface_key])?;
+                    while let Some(row) = rows.next()? {
+                        let consumer = ConsumerId::new(row.get::<_, String>(0)?);
+                        let coordination = parse_coordination(&row.get::<_, String>(1)?)?;
+                        due.descriptor.consumers.insert(consumer, coordination);
+                    }
+                }
+                claimed.push(ClaimedReconcile {
+                    claim: ReconcileClaim {
+                        surface_key: due.descriptor.surface_key.clone(),
+                        token,
+                        attempt,
+                    },
+                    due,
+                });
+            }
+            transaction.commit()?;
+            Ok(claimed)
+        })
+    }
+
+    /// Extends a claim that is still genuinely held, reporting whether it survived.
+    ///
+    /// A `false` answer means the lease was taken over while this worker was busy. That is the one
+    /// moment a worker must stop touching the surface: another worker is already reconciling it,
+    /// and continuing would apply two plans to the same targets.
+    pub fn renew_reconcile_claim(
+        &self,
+        claim: &ReconcileClaim,
+        worker_id: &str,
+        lease_expires_at: i64,
+        now: i64,
+    ) -> Result<bool, DatabaseError> {
+        self.pool.with_connection_mut(|connection| {
+            let renewed = connection.execute(
+                "UPDATE effect_reconcile_requests
+                 SET lease_expires_at = ?3, updated_at = ?4
+                 WHERE surface_id = ?1 AND request_token = ?2 AND state = 'claimed'
+                   AND lease_owner = ?5",
+                params![
+                    claim.surface_key.as_str(),
+                    &claim.token,
+                    lease_expires_at,
+                    now,
+                    worker_id,
+                ],
+            )?;
+            Ok(renewed > 0)
+        })
+    }
+
+    /// Clears the request when the reconcile reached the generation it was asked for.
+    ///
+    /// A Desired edit landing mid-reconcile raises `requested_generation`, so an unconditional
+    /// delete would drop a wakeup nothing would re-create. Falling back to `pending` instead of
+    /// deleting is what lets the worker loop straight onto the newer generation.
+    pub fn complete_reconcile_request(
+        &self,
+        claim: &ReconcileClaim,
+        completed_generation: Generation,
+        now: i64,
+    ) -> Result<bool, DatabaseError> {
+        self.pool.with_connection_mut(|connection| {
+            let transaction =
+                connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            let removed = transaction.execute(
+                "DELETE FROM effect_reconcile_requests
+                 WHERE surface_id = ?1 AND request_token = ?2
+                   AND requested_generation <= ?3",
+                params![
+                    claim.surface_key.as_str(),
+                    &claim.token,
+                    generation_to_sql(completed_generation)?,
+                ],
+            )?;
+            if removed == 0 {
+                transaction.execute(
+                    "UPDATE effect_reconcile_requests
+                     SET state = 'pending', lease_owner = NULL, lease_expires_at = NULL,
+                         blocked_reason = NULL, attempt_count = 0,
+                         not_before_at = MAX(requested_at, ?3), updated_at = ?3
+                     WHERE surface_id = ?1 AND request_token = ?2 AND state = 'claimed'",
+                    params![claim.surface_key.as_str(), &claim.token, now],
+                )?;
+            }
+            transaction.commit()?;
+            Ok(removed > 0)
+        })
+    }
+
+    /// Parks a request until an external fact changes, without scheduling a timed retry.
+    ///
+    /// A surface waiting on an idle Session, a missing consumer, or an unresolved conflict cannot
+    /// be helped by trying again sooner, so it is left owed but not runnable. The safety scan and
+    /// the next Desired or declaration change are what re-arm it.
+    pub fn block_reconcile_request(
+        &self,
+        claim: &ReconcileClaim,
+        reason: &str,
+        now: i64,
+    ) -> Result<bool, DatabaseError> {
+        self.pool.with_connection_mut(|connection| {
+            let blocked = connection.execute(
+                "UPDATE effect_reconcile_requests
+                 SET state = 'blocked', blocked_reason = ?3, lease_owner = NULL,
+                     lease_expires_at = NULL, updated_at = ?4
+                 WHERE surface_id = ?1 AND request_token = ?2 AND state = 'claimed'",
+                params![claim.surface_key.as_str(), &claim.token, reason, now],
+            )?;
+            Ok(blocked > 0)
+        })
+    }
+
+    /// Schedules the next attempt after a transient failure, persisting the backoff itself.
+    ///
+    /// The delay lives in the row rather than in the worker, so a restart cannot turn a backing-off
+    /// surface back into an immediate retry and spin on the same failure.
+    pub fn retry_reconcile_request(
+        &self,
+        claim: &ReconcileClaim,
+        reason: &str,
+        not_before_at: i64,
+        now: i64,
+    ) -> Result<bool, DatabaseError> {
+        self.pool.with_connection_mut(|connection| {
+            let scheduled = connection.execute(
+                "UPDATE effect_reconcile_requests
+                 SET state = 'retry_scheduled', blocked_reason = NULL, wake_reason = ?3,
+                     lease_owner = NULL, lease_expires_at = NULL,
+                     not_before_at = MAX(requested_at, ?4), updated_at = ?5
+                 WHERE surface_id = ?1 AND request_token = ?2 AND state = 'claimed'",
+                params![
+                    claim.surface_key.as_str(),
+                    &claim.token,
+                    reason,
+                    not_before_at,
+                    now,
+                ],
+            )?;
+            Ok(scheduled > 0)
+        })
+    }
+
+    /// Rebuilds durable work that a crash, a lost notification, or drift left unscheduled.
+    ///
+    /// Correctness cannot rest on a process staying alive, so this recreates a request for every
+    /// surface whose durable state still proves work is owed: a generation short of applied, an
+    /// operation left unfinished, or a retirement that never completed. Requests already claimed by
+    /// a live lease are left alone.
+    pub fn recover_reconcile_requests(&self, now: i64) -> Result<usize, DatabaseError> {
+        self.pool.with_connection_mut(|connection| {
+            let transaction =
+                connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            // A lease that outlived its worker is released rather than reclaimed here, so the
+            // ordinary claim path decides who picks it up next.
+            let released = transaction.execute(
+                "UPDATE effect_reconcile_requests
+                 SET state = 'pending', lease_owner = NULL, lease_expires_at = NULL,
+                     not_before_at = MAX(requested_at, ?1), updated_at = ?1
+                 WHERE state = 'claimed' AND lease_expires_at <= ?1",
+                params![now],
+            )?;
+            let unconverged = transaction.execute(
+                "INSERT INTO effect_reconcile_requests (
+                     surface_id, requested_generation, request_token, state, wake_reason,
+                     blocked_reason, attempt_count, requested_at, not_before_at, updated_at
+                 )
+                 SELECT status.surface_id, status.desired_generation, ?2, 'pending',
+                        'startup_recovery', NULL, 0, ?1, ?1, ?1
+                 FROM effect_surface_status status
+                 JOIN effect_surfaces surfaces ON surfaces.id = status.surface_id
+                 WHERE (status.applied_generation < status.desired_generation
+                        OR surfaces.lifecycle = 'retiring'
+                        OR EXISTS (
+                            SELECT 1 FROM effect_operations operations
+                            WHERE operations.surface_id = status.surface_id
+                              AND operations.phase != 'finalized'
+                        ))
+                   AND NOT EXISTS (
+                       SELECT 1 FROM effect_reconcile_requests existing
+                       WHERE existing.surface_id = status.surface_id
+                   )",
+                params![now, Uuid::new_v4().to_string()],
+            )?;
+            transaction.commit()?;
+            Ok(released + unconverged)
+        })
+    }
+
+    /// Re-arms blocked requests so a lost runtime event cannot park a surface permanently.
+    ///
+    /// Blocking is correct — nothing is gained by retrying a surface waiting on a busy Session —
+    /// but the event that should unblock it travels in process and can be lost to a crash. This is
+    /// the low-frequency safety net for that, not the primary schedule.
+    pub fn rearm_blocked_reconcile_requests(&self, now: i64) -> Result<usize, DatabaseError> {
+        self.pool.with_connection_mut(|connection| {
+            let rearmed = connection.execute(
+                "UPDATE effect_reconcile_requests
+                 SET state = 'pending', blocked_reason = NULL, wake_reason = 'safety_scan',
+                     not_before_at = MAX(requested_at, ?1), updated_at = ?1
+                 WHERE state = 'blocked'",
+                params![now],
+            )?;
+            Ok(rearmed)
+        })
+    }
+
+    /// Ends a retired surface's lifecycle once its ownership ledger is provably empty.
+    ///
+    /// Deletion is refused while any Managed item still names the surface: that ledger is the only
+    /// proof of what Ora may still touch on disk, so it has to outlive the declaration that created
+    /// it instead of disappearing through a cascade.
+    pub fn delete_retired_surface(&self, surface_key: &SurfaceKey) -> Result<bool, DatabaseError> {
+        self.pool.with_connection_mut(|connection| {
+            let transaction =
+                connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            let managed: i64 = transaction.query_row(
+                "SELECT count(*) FROM effect_managed_items WHERE surface_id = ?1",
+                params![surface_key.as_str()],
+                |row| row.get(0),
+            )?;
+            if managed > 0 {
+                transaction.commit()?;
+                return Ok(false);
+            }
+            let deleted = transaction.execute(
+                "DELETE FROM effect_surfaces WHERE id = ?1 AND lifecycle = 'retiring'",
+                params![surface_key.as_str()],
+            )?;
+            transaction.commit()?;
+            Ok(deleted > 0)
+        })
+    }
+}
+
+/// One surface owing a reconcile, with the Workspace root its adapter must be rooted at.
+#[derive(Clone, Debug)]
+pub struct DueSurfaceReconcile {
+    pub workspace_id: WorkspaceId,
+    pub workspace_root: PathBuf,
+    pub descriptor: SurfaceDescriptorSet,
+    pub requested_generation: Generation,
+}
+
+/// Proof that one worker currently owns a surface, and the fence its writes are checked against.
+///
+/// The token is regenerated on every claim, so a worker whose lease expired and was taken over
+/// cannot commit the outcome of work the new owner has already redone.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReconcileClaim {
+    pub surface_key: SurfaceKey,
+    pub token: String,
+    /// How many attempts this request has cost, including the one just claimed; drives backoff.
+    pub attempt: i64,
+}
+
+/// A claimed request together with everything the reconciler needs to serve it.
+#[derive(Clone, Debug)]
+pub struct ClaimedReconcile {
+    pub claim: ReconcileClaim,
+    pub due: DueSurfaceReconcile,
+}
+
+/// Rebuilds one descriptor from its persisted locator, leaving consumers for the caller to attach.
+fn map_due_reconcile(row: &rusqlite::Row<'_>) -> Result<DueSurfaceReconcile, DatabaseError> {
+    let locator: serde_json::Value =
+        serde_json::from_str(&row.get::<_, String>(3)?).map_err(effect_json_error)?;
+    let workspace_root = locator
+        .get("workspace_root")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| {
+            DatabaseError::CorruptEffectState(
+                "Effect surface locator is missing workspace_root".to_string(),
+            )
+        })?;
+    let lifecycle = match row.get::<_, String>(5)?.as_str() {
+        "active" => SurfaceLifecycle::Active,
+        "retiring" => SurfaceLifecycle::Retiring,
+        other => {
+            return Err(DatabaseError::CorruptEffectState(format!(
+                "unknown Effect surface lifecycle {other}"
+            )));
+        }
+    };
+    Ok(DueSurfaceReconcile {
+        workspace_id: WorkspaceId::new(row.get::<_, String>(1)?),
+        workspace_root: PathBuf::from(workspace_root),
+        descriptor: SurfaceDescriptorSet {
+            surface_key: SurfaceKey::new(row.get::<_, String>(0)?),
+            path: SurfacePath::parse(&row.get::<_, String>(2)?).map_err(|error| {
+                DatabaseError::CorruptEffectState(format!("invalid Effect surface path: {error}"))
+            })?,
+            format: MaterializationFormat::named(row.get::<_, String>(4)?).map_err(|error| {
+                DatabaseError::CorruptEffectState(format!("invalid Effect surface format: {error}"))
+            })?,
+            consumers: BTreeMap::new(),
+            lifecycle,
+        },
+        requested_generation: generation_from_sql(row.get::<_, i64>(6)?)?,
+    })
+}
+
+/// Maps the persisted coordination policy back onto its domain value.
+fn parse_coordination(value: &str) -> Result<ConsumerCoordination, DatabaseError> {
+    match value {
+        "uninterrupted" => Ok(ConsumerCoordination::Uninterrupted),
+        "wait_for_idle_and_restart" => Ok(ConsumerCoordination::WaitForIdleAndRestart),
+        other => Err(DatabaseError::CorruptEffectState(format!(
+            "unknown Effect consumer coordination {other}"
+        ))),
     }
 }
 
@@ -875,6 +1259,7 @@ impl EffectRepository for SqliteEffectRepository {
                         surface_key.as_str(),
                         current_generation(&transaction, workspace_id)?,
                         requested_at,
+                        "user_retry",
                     )?;
                 }
                 transaction.commit()?;
