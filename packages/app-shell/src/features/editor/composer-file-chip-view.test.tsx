@@ -150,6 +150,12 @@ describe("ComposerFileChipView navigation", () => {
     fireEvent.mouseDown(chip, { button: 0, detail: 2 });
     fireEvent.click(chip, { button: 0, detail: 2 });
     fireEvent.dblClick(chip, { button: 0, detail: 2 });
+    // The node-selection dispatch from `dblClick` re-renders the ProseMirror
+    // node view on a microtask; flush it before the next click so that
+    // update lands inside `act` instead of leaking into the assertion below.
+    await act(async () => {
+      await Promise.resolve();
+    });
     openWorkspaceFile.mockClear();
 
     // A later plain click must not be eaten by a flag stranded by `dblclick`.
