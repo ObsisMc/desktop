@@ -263,6 +263,22 @@ impl ConnectionSupervisors {
         }
     }
 
+    /// Resolves a plugin package address onto the agent identity its sessions are bound to.
+    ///
+    /// A package carries two identities (see [`AgentSource::Plugin`]): the address the plugin
+    /// lifecycle owns the process under, and the agent name a Session persists as its `agent_ref`.
+    /// A caller holding the first cannot compare it against the second — they are different
+    /// strings, and comparing them directly matches nothing at all while looking perfectly
+    /// reasonable. The translation lives here, beside the declaration that owns both halves.
+    pub fn agent_for_plugin(&self, plugin_id: &PluginId) -> Option<AgentRef> {
+        self.plugin_host
+            .list(ListInstalledPluginsRequest {})
+            .plugins
+            .into_iter()
+            .find(|plugin| plugin.id == plugin_id.canonical())
+            .and_then(|plugin| AgentRef::parse(plugin.name).ok())
+    }
+
     /// Selects the sole application-scoped connection for one persisted agent identity.
     ///
     /// A miss is a normal runtime state rather than data corruption: a session can outlive the

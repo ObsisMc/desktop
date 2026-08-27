@@ -18,6 +18,8 @@ mod warm_pool;
 
 #[cfg(test)]
 mod history_tests;
+#[cfg(test)]
+mod replaced_sessions_tests;
 
 use crate::app_event::AppEventPublisher;
 use cli_path::resolve_agent_cli_path;
@@ -49,7 +51,7 @@ use ora_contracts::{
 use ora_contracts::{EmptyErrorParams, PublicError};
 use ora_db::{RepositoryPool, SqliteSessionRepository};
 use ora_domain::{
-    AgentRef, AuditFields, HistoryState, Session, SessionId, SessionStatus, SessionTitle,
+    AgentRef, AuditFields, HistoryState, PluginId, Session, SessionId, SessionStatus, SessionTitle,
     WorkspaceId,
 };
 use ora_history::{HistoryIntegrity, binding_needs_handoff, read_session_history};
@@ -83,6 +85,55 @@ pub(crate) enum WarmOwner {
     WorkflowNode { run_id: String, node_id: String },
 }
 
+/// Repairs live sessions after the agent process behind them was replaced.
+///
+/// Effect coordination restarts an Agent plugin's process so it re-reads a materialized surface,
+/// which silently invalidates every provider-side session that process was holding. Implementations
+/// detach those sessions so the next interaction re-establishes them through the ordinary load path
+/// rather than prompting against an id the fresh process cannot resolve.
+///
+/// The Effect worker depends on this capability rather than on the whole agent runtime, so a
+/// reconcile stays exercisable without one.
+pub(crate) trait ReplacedAgentSessions: Send + Sync + 'static {
+    /// Detaches every live session served by the plugin whose agent process was replaced.
+    ///
+    /// Takes the package address deliberately, rather than the `AgentRef` a Session is bound to. A
+    /// plugin carries both identities and Effect only ever holds this one; accepting the other
+    /// would let a caller pass an address where an agent name belongs, which compiles, reads
+    /// correctly, and silently matches no session at all.
+    fn detach_sessions_for_replaced_plugin(&self, plugin_id: &PluginId);
+}
+
+impl ReplacedAgentSessions for AgentRuntimeManager {
+    /// One agent's connection is shared by every Workspace, so replacing that process invalidates
+    /// sessions well beyond the Workspace whose surface was reconciled. The command is broadcast
+    /// and each actor decides whether it is bound to this agent, because the registry is keyed by
+    /// Ora session and carries no agent index. Delivery is best effort: an actor that already
+    /// ended cannot be holding a stale channel either.
+    fn detach_sessions_for_replaced_plugin(&self, plugin_id: &PluginId) {
+        let Some(agent) = self.inner.connections.agent_for_plugin(plugin_id) else {
+            // Only an agent-contributing package can have had sessions to lose, so a package that
+            // resolves to no agent identity is not a failure — but it is worth saying, because the
+            // alternative reading is that the translation itself broke.
+            ora_debug!(
+                plugin_id = %plugin_id,
+                "replaced plugin contributes no agent identity; no session to detach",
+            );
+            return;
+        };
+        let Ok(actors) = self.inner.actors.read() else {
+            // A poisoned registry means an actor panicked; whatever it held is not trustworthy,
+            // and the next interaction rebuilds the session from durable state regardless.
+            return;
+        };
+        for handle in actors.values() {
+            let _ = handle.commands.send(RuntimeCommand::AgentProcessReplaced {
+                agent: agent.clone(),
+            });
+        }
+    }
+}
+
 /// Coordinates one serialized actor per Ora session on its selected supervised CLI connection.
 #[derive(Clone)]
 pub(crate) struct AgentRuntimeManager {
@@ -111,6 +162,14 @@ struct RuntimeActorHandle {
 }
 
 pub(super) enum RuntimeCommand {
+    /// The agent's process was replaced, so every provider-side session it held is gone.
+    ///
+    /// Broadcast rather than addressed, because the actor registry is keyed by Ora session and one
+    /// agent's connection is shared by every Workspace; each actor decides whether it is bound to
+    /// the replaced agent.
+    AgentProcessReplaced {
+        agent: AgentRef,
+    },
     Load {
         operation_id: u64,
         events: mpsc::Sender<Result<LoadSessionEvent, BackendError>>,

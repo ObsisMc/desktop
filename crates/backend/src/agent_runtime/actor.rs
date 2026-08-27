@@ -121,6 +121,9 @@ impl RuntimeActor {
                         self.run_prompt(operation_id, prompt, events).await;
                     }
                 }
+                RuntimeCommand::AgentProcessReplaced { agent } => {
+                    self.detach_replaced_agent(&agent);
+                }
                 RuntimeCommand::RespondToPermission { response, .. } => {
                     let _ = response.send(Err(permission_not_pending()));
                 }
@@ -366,6 +369,12 @@ impl RuntimeActor {
                     return;
                 }
                 ActiveInput::Command(RuntimeCommand::CancelActivePrompt) => {}
+                // The Effect barrier is what makes this unreachable while an operation is in
+                // flight: a consumer is only restarted after its plugin reported every turn
+                // finished. A replacement that still raced in leaves this request unanswered, and
+                // this loop's existing failure handling ends the operation and stops the session —
+                // the same repair the idle path performs, arrived at the slower way.
+                ActiveInput::Command(RuntimeCommand::AgentProcessReplaced { .. }) => {}
                 ActiveInput::Command(
                     RuntimeCommand::Prompt { accepted, .. } | RuntimeCommand::Load { accepted, .. },
                 ) => {
@@ -728,6 +737,12 @@ impl RuntimeActor {
                 }
                 ActiveInput::Command(RuntimeCommand::Cancel { .. }) => {}
                 ActiveInput::Command(RuntimeCommand::CancelActivePrompt) => {}
+                // The Effect barrier is what makes this unreachable while an operation is in
+                // flight: a consumer is only restarted after its plugin reported every turn
+                // finished. A replacement that still raced in leaves this request unanswered, and
+                // this loop's existing failure handling ends the operation and stops the session —
+                // the same repair the idle path performs, arrived at the slower way.
+                ActiveInput::Command(RuntimeCommand::AgentProcessReplaced { .. }) => {}
                 ActiveInput::Command(RuntimeCommand::TitlePoll {
                     attempt: PollAttempt::First,
                 }) => {
@@ -900,6 +915,26 @@ impl RuntimeActor {
         error: BackendError,
     ) {
         let _ = events.try_send(Err(error));
+        self.mark_stopped();
+    }
+
+    /// Drops the live registration when this session's agent process was replaced under it.
+    ///
+    /// The provider session died with the process, so the channel is dropped without `session/close`
+    /// — that call would only ask a fresh agent to close an id it has never heard of. Detaching is
+    /// enough to repair the session rather than end it: a prompt is refused while no channel is
+    /// held, and the load that establishes one calls `session/load`, which is exactly the
+    /// re-establishment the replaced process needs. Without this the actor would keep a channel it
+    /// believes is live and prompt against a session id the new process cannot resolve.
+    fn detach_replaced_agent(&mut self, agent: &ora_domain::AgentRef) {
+        if self.session.agent_ref != *agent || self.channel.is_none() {
+            return;
+        }
+        ora_debug!(
+            session_id = %self.session.id,
+            agent = %agent,
+            "detaching session after its agent process was replaced",
+        );
         self.mark_stopped();
     }
 

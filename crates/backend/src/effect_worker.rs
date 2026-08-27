@@ -5,7 +5,7 @@
 //! request again, and a request that was merged with a later edit is served once at the newer
 //! generation rather than replayed per edit.
 
-use crate::agent_runtime::plugin_agent;
+use crate::agent_runtime::{ReplacedAgentSessions, plugin_agent};
 use crate::clock::SystemClock;
 use crate::effect_surface_registration::converge_workspace_surfaces;
 use crate::plugin::PluginApi;
@@ -21,6 +21,7 @@ use ora_effect::{
     SurfacePath, UuidManagedIdentityGenerator,
 };
 use ora_logging::{ora_info, ora_warn};
+use std::cell::Cell;
 use std::path::Path;
 use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::time::Duration;
@@ -109,10 +110,12 @@ impl EffectWorkerHandle {
 }
 
 /// Reconciles every surface owing work, coordinating live Agent plugins around each mutation.
-pub(crate) struct EffectWorker {
+pub(crate) struct EffectWorker<Sessions> {
     repository: SqliteEffectRepository,
     workspace_repository: SqliteWorkspaceRepository,
     plugin_host: Arc<PluginApi>,
+    /// Repairs the sessions a coordinated restart invalidates.
+    sessions: Arc<Sessions>,
     clock: SystemClock,
     wake: Arc<WakeSignal>,
     /// Identifies this worker's claims; a fresh value per process so a crashed one is never
@@ -122,12 +125,17 @@ pub(crate) struct EffectWorker {
     next_safety_scan: Mutex<i64>,
 }
 
-impl EffectWorker {
-    pub(crate) fn new(pool: RepositoryPool, plugin_host: Arc<PluginApi>) -> Self {
+impl<Sessions: ReplacedAgentSessions> EffectWorker<Sessions> {
+    pub(crate) fn new(
+        pool: RepositoryPool,
+        plugin_host: Arc<PluginApi>,
+        sessions: Arc<Sessions>,
+    ) -> Self {
         Self {
             repository: SqliteEffectRepository::new(pool.clone()),
             workspace_repository: SqliteWorkspaceRepository::new(pool),
             plugin_host,
+            sessions,
             clock: SystemClock,
             wake: Arc::new(WakeSignal::default()),
             worker_id: Uuid::new_v4().to_string(),
@@ -308,9 +316,11 @@ impl EffectWorker {
         let renewal = LeaseRenewal::start(self, &claim);
         let coordinator = PluginSurfaceCoordinator {
             plugin_host: self.plugin_host.as_ref(),
+            sessions: self.sessions.as_ref(),
             runtime,
             workspace_root: &workspace_root,
             relative_path: &relative_path,
+            quiesced: Cell::new(false),
         };
         let outcome = reconcile_one(
             &self.repository,
@@ -384,7 +394,7 @@ struct LeaseRenewal {
 
 impl LeaseRenewal {
     /// Starts renewing until `stop`, leaving the claim untouched if the thread cannot start.
-    fn start(worker: &EffectWorker, claim: &ReconcileClaim) -> Self {
+    fn start<Sessions>(worker: &EffectWorker<Sessions>, claim: &ReconcileClaim) -> Self {
         let stop = Arc::new((Mutex::new(false), Condvar::new()));
         let repository = worker.repository.clone();
         let worker_id = worker.worker_id.clone();
@@ -570,35 +580,39 @@ fn finish_retirement(
 /// The coordination contract is per-surface while the port is per-consumer, so the locator travels
 /// on the struct rather than through the trait: Ora resolves and validates the absolute Workspace
 /// root, and a plugin only ever receives the path it already declared.
-struct PluginSurfaceCoordinator<'a> {
+struct PluginSurfaceCoordinator<'a, Sessions> {
     plugin_host: &'a PluginApi,
+    sessions: &'a Sessions,
     runtime: &'a Handle,
     workspace_root: &'a Path,
     relative_path: &'a SurfacePath,
+    /// Whether this reconcile actually barriered the consumers before mutating the surface.
+    ///
+    /// Only a barriered reconcile is about to change files under a live agent, which is what makes
+    /// the plugin replace its process; resuming a surface that was already current must not cost
+    /// the user their sessions.
+    quiesced: Cell<bool>,
 }
 
-impl PluginSurfaceCoordinator<'_> {
+impl<Sessions> PluginSurfaceCoordinator<'_, Sessions> {
     /// Resolves one consumer onto the running plugin generation that must be coordinated.
     ///
     /// A consumer whose plugin is not currently running needs no coordination at all: it holds no
     /// turn that a mutation could corrupt, and it re-reads the surface when it next starts. Only a
     /// live generation can be asked to quiesce, so absence resolves to `None` rather than an error
     /// that would block materialization whenever the agent happens to be disconnected.
-    fn running_runtime(
-        &self,
-        consumer: &ConsumerId,
-    ) -> Result<Option<ora_plugin_runtime::PluginRuntime>, CoordinationError> {
-        let plugin_id = PluginId::parse(consumer.as_str()).map_err(CoordinationError::new)?;
-        Ok(self
-            .plugin_host
+    fn running_runtime(&self, plugin_id: &PluginId) -> Option<ora_plugin_runtime::PluginRuntime> {
+        self.plugin_host
             .lifecycle
-            .connection(&plugin_id)
+            .connection(plugin_id)
             .ok()
-            .map(|connection| connection.runtime().process().clone()))
+            .map(|connection| connection.runtime().process().clone())
     }
 }
 
-impl ConsumerCoordinator for PluginSurfaceCoordinator<'_> {
+impl<Sessions: ReplacedAgentSessions> ConsumerCoordinator
+    for PluginSurfaceCoordinator<'_, Sessions>
+{
     /// Asks every live consumer to reach an idle boundary, stopping at the first one still busy.
     ///
     /// Reporting `WaitingForIdle` as soon as one consumer is busy is what keeps the barrier
@@ -610,7 +624,8 @@ impl ConsumerCoordinator for PluginSurfaceCoordinator<'_> {
         consumers: &[ConsumerId],
     ) -> Result<CoordinationOutcome, CoordinationError> {
         for consumer in consumers {
-            let Some(runtime) = self.running_runtime(consumer)? else {
+            let plugin_id = PluginId::parse(consumer.as_str()).map_err(CoordinationError::new)?;
+            let Some(runtime) = self.running_runtime(&plugin_id) else {
                 continue;
             };
             let outcome = self
@@ -626,17 +641,26 @@ impl ConsumerCoordinator for PluginSurfaceCoordinator<'_> {
                 return Ok(CoordinationOutcome::WaitingForIdle);
             }
         }
+        self.quiesced.set(true);
         Ok(CoordinationOutcome::Ready)
     }
 
     /// Restarts one consumer so it observes the generation just written, releasing its barrier.
+    ///
+    /// A restart that followed a barrier replaced the agent's process, and every provider-side
+    /// session that process held died with it. Ora still holds those session ids, so the sessions
+    /// are detached here rather than left to fail their next prompt against an agent that has never
+    /// heard of them. Only the barriered case detaches: a surface that was already current resumes
+    /// without the plugin replacing anything, and stopping live sessions for that would cost the
+    /// user a conversation to repair nothing.
     fn resume(
         &self,
         surface_key: &SurfaceKey,
         consumer: &ConsumerId,
         generation: Generation,
     ) -> Result<(), CoordinationError> {
-        let Some(runtime) = self.running_runtime(consumer)? else {
+        let plugin_id = PluginId::parse(consumer.as_str()).map_err(CoordinationError::new)?;
+        let Some(runtime) = self.running_runtime(&plugin_id) else {
             return Ok(());
         };
         self.runtime
@@ -647,17 +671,25 @@ impl ConsumerCoordinator for PluginSurfaceCoordinator<'_> {
                 self.relative_path,
                 generation,
             ))
-            .map_err(CoordinationError::new)
+            .map_err(CoordinationError::new)?;
+        if self.quiesced.get() {
+            self.sessions
+                .detach_sessions_for_replaced_plugin(&plugin_id);
+        }
+        Ok(())
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{EffectWorker, EffectWorkerHandle, SurfaceOutcome, reconcile_one};
+    use super::{
+        EffectWorker, EffectWorkerHandle, ReplacedAgentSessions, SurfaceOutcome, reconcile_one,
+    };
     use crate::app_event::AppEventHub;
     use crate::effect_surface_registration::converge_workspace_surfaces;
     use crate::plugin::PluginApi;
     use crate::project::ProjectApi;
+    use crate::user_config::UserConfigApi;
     use ora_application::Clock;
     use ora_contracts::CreateProjectRequest;
     use ora_db::{
@@ -686,6 +718,21 @@ mod tests {
     const WORKER: &str = "worker-1";
 
     const MANIFEST: &str = "---\nname: grilling\ndescription: Grill a plan relentlessly.\n---\n\nAsk hard questions.\n";
+
+    /// Records which agents were detached after a coordinated restart.
+    #[derive(Debug, Default)]
+    struct RecordingSessions {
+        detached: Mutex<Vec<String>>,
+    }
+
+    impl ReplacedAgentSessions for RecordingSessions {
+        fn detach_sessions_for_replaced_plugin(&self, plugin_id: &PluginId) {
+            self.detached
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .push(plugin_id.canonical());
+        }
+    }
 
     /// Records coordination calls and answers with a scripted quiesce outcome.
     #[derive(Debug, Default)]
@@ -1008,6 +1055,7 @@ mod tests {
                 PathBuf::from("deno"),
                 crate::clock::SystemClock,
                 AppEventHub::new().publisher(),
+                Arc::new(UserConfigApi::new(pool.clone())),
             )
             .unwrap(),
         );
@@ -1044,7 +1092,8 @@ mod tests {
             .enable_all()
             .build()
             .unwrap();
-        EffectWorker::new(pool, plugin_host).run_pass(runtime.handle());
+        EffectWorker::new(pool, plugin_host, Arc::new(RecordingSessions::default()))
+            .run_pass(runtime.handle());
 
         assert_eq!(
             repository.list_workspaces_with_active_surfaces().unwrap(),

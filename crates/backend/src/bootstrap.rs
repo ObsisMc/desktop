@@ -217,7 +217,11 @@ impl Backend {
         // Durable Effect reconciliation: the first pass replays every surface a previous process
         // left short of its Desired generation, including the retirement cleanup an uninstall
         // started but could not finish.
-        let effect_worker = crate::effect_worker::EffectWorker::new(pool.clone(), plugin.clone());
+        let effect_worker = crate::effect_worker::EffectWorker::new(
+            pool.clone(),
+            plugin.clone(),
+            agent_runtime.clone(),
+        );
         effect_worker.recover();
         // Creating a Workspace is not something a consumer declaration can observe, so both create
         // paths wake the worker to converge it promptly instead of at the next scan.
