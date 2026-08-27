@@ -967,7 +967,9 @@ mod tests {
     use ora_db::{
         DatabaseBootstrapper, DatabaseLocation, RepositoryPool, default_migration_catalog,
     };
-    use ora_domain::{AgentCli, AuditFields, SessionId, SessionStatus, SessionTitle, WorkspaceId};
+    use ora_domain::{
+        AgentRef, AuditFields, PluginId, SessionId, SessionStatus, SessionTitle, WorkspaceId,
+    };
     use ora_scheduler::Scheduler;
     use std::path::Path;
     use std::sync::Arc;
@@ -1001,15 +1003,27 @@ mod tests {
         )
     }
 
+    /// Names one installed agent package the supervisor fixtures bind their sessions to.
+    fn test_agent_source() -> (AgentRef, AgentSource) {
+        (
+            AgentRef::parse("ora-space.codex").expect("agent identity"),
+            AgentSource {
+                plugin_id: PluginId::new("official", "ora-space.codex").expect("plugin id"),
+                package_name: "ora-space.codex".to_string(),
+            },
+        )
+    }
+
     /// Verifies dropping the manager's last sender lets the actor task terminate and release its dependencies.
     #[tokio::test]
     async fn actor_exits_after_command_sender_is_dropped() {
         let temporary = TempDir::new().expect("create actor test directory");
         let pool = test_repository_pool(temporary.path());
         let scheduler = Scheduler::new(chrono_tz::UTC);
+        let (agent_ref, agent_source) = test_agent_source();
         let connection = ConnectionSupervisor::start(
-            AgentCli::Codex.agent_ref(),
-            AgentSource::Cli(AgentCli::Codex),
+            agent_ref.clone(),
+            agent_source,
             test_plugin_host(&pool, temporary.path()),
             pool.clone(),
             temporary.path().to_path_buf(),
@@ -1026,7 +1040,7 @@ mod tests {
         let session = ora_domain::Session::new(
             SessionId::new("session-1"),
             WorkspaceId::new("workspace-1"),
-            AgentCli::Codex.agent_ref(),
+            agent_ref,
             "provider-session-1",
             SessionStatus::Stopped,
             AuditFields::new(0, 0, false),
@@ -1068,9 +1082,10 @@ mod tests {
         let temporary = TempDir::new().expect("create actor test directory");
         let pool = test_repository_pool(temporary.path());
         let scheduler = Scheduler::new(chrono_tz::UTC);
+        let (agent_ref, agent_source) = test_agent_source();
         let connection = ConnectionSupervisor::start(
-            AgentCli::Codex.agent_ref(),
-            AgentSource::Cli(AgentCli::Codex),
+            agent_ref.clone(),
+            agent_source,
             test_plugin_host(&pool, temporary.path()),
             pool.clone(),
             temporary.path().to_path_buf(),
@@ -1087,7 +1102,7 @@ mod tests {
         let session = ora_domain::Session::new(
             SessionId::new("session-1"),
             WorkspaceId::new("workspace-1"),
-            AgentCli::Codex.agent_ref(),
+            agent_ref,
             "provider-session-1",
             SessionStatus::Stopped,
             AuditFields::new(0, 0, false),

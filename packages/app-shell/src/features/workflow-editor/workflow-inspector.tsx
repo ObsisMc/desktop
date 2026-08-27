@@ -6,10 +6,10 @@ import {
   IconChevronDown,
   IconLoader2,
   IconPlus,
+  IconRobot,
   IconSettings,
   IconTrash,
 } from "@tabler/icons-react";
-import type { KnownAgentCli } from "../chat/model-catalog";
 import {
   Button,
   Command,
@@ -38,8 +38,8 @@ import {
   normalizeWorkflowAgentConfig,
 } from "@ora/workflow-mock";
 import type { Node } from "@xyflow/react";
-import { AGENT_CLI_LABELS, AGENT_CLI_ORDER } from "../chat/model-catalog";
-import { ProviderLogo } from "../chat/provider-logos";
+import { agentLabel, type AgentEntry } from "../chat/agent-catalog";
+import { PluginLogoMark } from "../settings/plugin-logo";
 import type { WorkflowAgentCliStatus } from "../../state/hooks/use-workflow-agent-models";
 import { getNodeMetadata } from "./workflow-node-metadata";
 import {
@@ -56,8 +56,9 @@ interface WorkflowInspectorProps {
   agentModelsLoading?: boolean;
   agentModelsError?: boolean;
   onRetryAgentModels?: () => void;
-  modelsByCli?: ReadonlyMap<KnownAgentCli, WorkflowAgentModel[]>;
-  cliStatus?: Readonly<Record<KnownAgentCli, WorkflowAgentCliStatus>>;
+  agents?: AgentEntry[];
+  modelsByCli?: ReadonlyMap<string, WorkflowAgentModel[]>;
+  cliStatus?: Readonly<Record<string, WorkflowAgentCliStatus>>;
   agentCatalogsLoading?: boolean;
   agentCatalogsError?: boolean;
   onRetryAgentCatalogs?: () => void;
@@ -78,6 +79,7 @@ export function WorkflowInspector(props: WorkflowInspectorProps) {
       agentModelsLoading={props.agentModelsLoading ?? false}
       agentModelsError={props.agentModelsError ?? false}
       onRetryAgentModels={props.onRetryAgentModels}
+      agents={props.agents}
       modelsByCli={props.modelsByCli}
       cliStatus={props.cliStatus}
       agentCatalogsLoading={props.agentCatalogsLoading ?? false}
@@ -125,6 +127,7 @@ function WorkflowNodeInspector({
   agentModelsLoading,
   agentModelsError,
   onRetryAgentModels,
+  agents,
   modelsByCli,
   cliStatus,
   agentCatalogsLoading,
@@ -139,8 +142,9 @@ function WorkflowNodeInspector({
   agentModelsLoading: boolean;
   agentModelsError: boolean;
   onRetryAgentModels?: () => void;
-  modelsByCli?: ReadonlyMap<KnownAgentCli, WorkflowAgentModel[]>;
-  cliStatus?: Readonly<Record<KnownAgentCli, WorkflowAgentCliStatus>>;
+  agents?: AgentEntry[];
+  modelsByCli?: ReadonlyMap<string, WorkflowAgentModel[]>;
+  cliStatus?: Readonly<Record<string, WorkflowAgentCliStatus>>;
   agentCatalogsLoading: boolean;
   agentCatalogsError: boolean;
   onRetryAgentCatalogs?: () => void;
@@ -252,6 +256,7 @@ function WorkflowNodeInspector({
                   modelsLoading={agentModelsLoading}
                   modelsError={agentModelsError}
                   onRetryModels={onRetryAgentModels}
+                  agents={agents}
                   modelsByCli={modelsByCli}
                   cliStatus={cliStatus}
                   catalogsLoading={agentCatalogsLoading}
@@ -316,6 +321,7 @@ function AgentConfigurationFields({
   modelsLoading,
   modelsError,
   onRetryModels,
+  agents,
   modelsByCli,
   cliStatus,
   catalogsLoading,
@@ -328,8 +334,9 @@ function AgentConfigurationFields({
   modelsLoading: boolean;
   modelsError: boolean;
   onRetryModels?: () => void;
-  modelsByCli?: ReadonlyMap<KnownAgentCli, WorkflowAgentModel[]>;
-  cliStatus?: Readonly<Record<KnownAgentCli, WorkflowAgentCliStatus>>;
+  agents?: AgentEntry[];
+  modelsByCli?: ReadonlyMap<string, WorkflowAgentModel[]>;
+  cliStatus?: Readonly<Record<string, WorkflowAgentCliStatus>>;
   catalogsLoading: boolean;
   catalogsError: boolean;
   onRetryCatalogs?: () => void;
@@ -342,7 +349,8 @@ function AgentConfigurationFields({
   const [mcpPickerOpen, setMcpPickerOpen] = useState(false);
   // Older drafts may omit `mcps`; normalize before any list access.
   const config = normalizeWorkflowAgentConfig(rawConfig);
-  const currentAgentCli = config.executor.agentCli as KnownAgentCli;
+  const offeredAgents = agents ?? [];
+  const currentAgentCli = config.executor.agentCli;
   const configuredModel = capabilities.agentModels.find(
     (model) =>
       model.agentCli === config.executor.agentCli &&
@@ -351,7 +359,7 @@ function AgentConfigurationFields({
   const selectedModel = configuredModel ?? {
     agentCli: config.executor.agentCli,
     modelId: config.executor.modelId,
-    label: `${AGENT_CLI_LABELS[config.executor.agentCli as KnownAgentCli]} · ${config.executor.modelId}`,
+    label: `${agentLabel(offeredAgents, config.executor.agentCli)} · ${config.executor.modelId}`,
   };
   const modelsForSelectedCli =
     modelsByCli?.get(currentAgentCli) ??
@@ -365,11 +373,11 @@ function AgentConfigurationFields({
     modelsLoading || selectedCliStatus?.isLoading === true;
   // A node always shows its model name; when the executor is not backed by a
   // discovered model (e.g. a CLI that failed to report one) the full
-  // `CLI · model` pair is shown instead so the agent pick stays legible.
+  // `agent · model` pair is shown instead so the agent pick stays legible.
   const selectedModelName =
     configuredModel === undefined
       ? selectedModel.label
-      : workflowModelDisplayName(selectedModel);
+      : workflowModelDisplayName(selectedModel, offeredAgents);
   const configuredSkillIds = new Set(
     config.skills.map((skill) => skill.skillId),
   );
@@ -454,13 +462,13 @@ function AgentConfigurationFields({
   }
 
   /**
-   * Switches the node onto another Agent CLI. Keeps the current model id when
-   * that CLI offers it; otherwise falls back to the first discovered model so
-   * the executor pair stays catalog-backed. A CLI with no discovered models
-   * keeps the current id rather than inventing one — the model group then
-   * shows the empty state and the pick stays visible (never reverted).
+   * Switches the node onto another agent. Keeps the current model id when that
+   * agent offers it; otherwise falls back to the first discovered model so the
+   * executor pair stays catalog-backed. An agent with no discovered models keeps
+   * the current id rather than inventing one — the model group then shows the
+   * empty state and the pick stays visible (never reverted).
    */
-  function selectAgentCli(agentCli: KnownAgentCli): void {
+  function selectAgentCli(agentCli: string): void {
     if (agentCli === config.executor.agentCli) {
       return;
     }
@@ -502,9 +510,14 @@ function AgentConfigurationFields({
           >
             <span className="flex w-full min-w-0 items-center justify-between gap-2">
               <span className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden text-left">
-                <ProviderLogo
-                  agentCli={currentAgentCli}
-                  className="size-3.5 shrink-0"
+                <PluginLogoMark
+                  logo={
+                    offeredAgents.find(
+                      (agent) => agent.agentRef === currentAgentCli,
+                    )?.logo
+                  }
+                  fallback={IconRobot}
+                  className="size-3.5 shrink-0 object-contain"
                 />
                 <span className="min-w-0 truncate">{selectedModelName}</span>
               </span>
@@ -553,24 +566,25 @@ function AgentConfigurationFields({
                   heading={t("chat.modelSelector.agent")}
                   className="**:[[cmdk-group-heading]]:font-normal"
                 >
-                  {AGENT_CLI_ORDER.map((agentCli) => {
+                  {offeredAgents.map((agent) => {
                     const cliLoading =
-                      cliStatus?.[agentCli]?.isLoading === true;
+                      cliStatus?.[agent.agentRef]?.isLoading === true;
                     return (
                       <CommandItem
-                        key={agentCli}
-                        value={`${AGENT_CLI_LABELS[agentCli]} agent`}
+                        key={agent.agentRef}
+                        value={`${agent.label} agent`}
                         className="gap-1.5 rounded-sm px-2 py-1.5 text-xs"
-                        onSelect={() => selectAgentCli(agentCli)}
+                        onSelect={() => selectAgentCli(agent.agentRef)}
                       >
-                        <ProviderLogo
-                          agentCli={agentCli}
-                          className="size-3.5"
+                        <PluginLogoMark
+                          logo={agent.logo}
+                          fallback={IconRobot}
+                          className="size-3.5 object-contain"
                         />
-                        {AGENT_CLI_LABELS[agentCli]}
+                        {agent.label}
                         {cliLoading ? (
                           <IconLoader2 className="ml-auto size-3.5 shrink-0 animate-spin opacity-50" />
-                        ) : agentCli === currentAgentCli ? (
+                        ) : agent.agentRef === currentAgentCli ? (
                           <IconCheck className="ml-auto size-4" />
                         ) : null}
                       </CommandItem>
@@ -591,7 +605,10 @@ function AgentConfigurationFields({
                     </p>
                   ) : (
                     modelsForSelectedCli.map((model) => {
-                      const name = workflowModelDisplayName(model);
+                      const name = workflowModelDisplayName(
+                        model,
+                        offeredAgents,
+                      );
                       return (
                         <CommandItem
                           key={`${model.agentCli}:${model.modelId}`}
@@ -986,11 +1003,14 @@ function AgentConfigurationFields({
 }
 
 /**
- * Catalog labels are stored as `CLI · model` for legacy flat pickers; the
+ * Catalog labels are stored as `agent · model` for the flat picker; the
  * two-section menu shows the model name alone, matching chat.
  */
-function workflowModelDisplayName(model: WorkflowAgentModel): string {
-  const prefix = `${AGENT_CLI_LABELS[model.agentCli as KnownAgentCli]} · `;
+function workflowModelDisplayName(
+  model: WorkflowAgentModel,
+  agents: readonly AgentEntry[],
+): string {
+  const prefix = `${agentLabel(agents, model.agentCli)} · `;
   return model.label.startsWith(prefix)
     ? model.label.slice(prefix.length)
     : model.label;

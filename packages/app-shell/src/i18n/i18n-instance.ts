@@ -44,7 +44,7 @@ export const translationResources = {
     "errors.workspace_diff_commit_message_blank": "提交信息不能为空。",
     "errors.workspace_diff_too_large": "变更过大，无法显示完整 Diff。",
     "errors.session_not_found": "未找到该会话。",
-    "errors.agent_cli_not_found": "未找到所选 Agent CLI。",
+    "errors.agent_not_installed": "未安装提供该 Agent 的插件。",
     "errors.agent_runtime_unavailable": "Agent 运行时当前不可用。",
     "errors.session_busy": "会话正在处理其他操作。",
     "errors.session_stopped": "请先加载会话再继续。",
@@ -931,7 +931,6 @@ export const translationResources = {
     "settings.plugins.issues": "问题反馈",
     "settings.plugins.license": "许可协议",
     "settings.plugins.marketplace": "插件市场",
-    "settings.plugins.category.aiAgent": "AI 智能体",
     "settings.plugins.category.coding": "编码",
     "settings.plugins.category.devtools": "开发工具",
     "settings.plugins.category.productivity": "效率",
@@ -942,11 +941,6 @@ export const translationResources = {
     "settings.plugins.capability.read": "读取",
     "settings.plugins.capability.terminal": "终端",
     "settings.plugins.capability.network": "网络",
-    "settings.plugins.catalog.opencode": "开源的终端编码 Agent",
-    "settings.plugins.catalog.nga": "Ora 内置的应用级编码 Agent 运行时",
-    "settings.plugins.catalog.codeagentcli": "Ora 内置的通用编码 Agent 运行时",
-    "settings.plugins.catalog.claude": "Anthropic 的编码 Agent 与技能体系",
-    "settings.plugins.catalog.codex": "OpenAI 的编码 Agent 与代码审查",
     "settings.plugins.catalog.rtk":
       "CLI 代理，将常见开发命令的 LLM Token 消耗降低 60-90%",
     "settings.plugins.catalog.github": "处理 PR、Issue、CI 与发布流程",
@@ -1489,7 +1483,8 @@ export const translationResources = {
     "errors.workspace_diff_too_large":
       "The changes are too large to display as a complete diff.",
     "errors.session_not_found": "The session was not found.",
-    "errors.agent_cli_not_found": "The selected agent CLI was not found.",
+    "errors.agent_not_installed":
+      "The plugin that supplies this agent is not installed.",
     "errors.agent_runtime_unavailable": "The agent runtime is unavailable.",
     "errors.session_busy": "The session is busy with another operation.",
     "errors.session_stopped": "Load the session before continuing.",
@@ -2482,7 +2477,6 @@ export const translationResources = {
     "settings.plugins.issues": "Issues",
     "settings.plugins.license": "License",
     "settings.plugins.marketplace": "Marketplace",
-    "settings.plugins.category.aiAgent": "AI Agent",
     "settings.plugins.category.coding": "Coding",
     "settings.plugins.category.devtools": "Developer tools",
     "settings.plugins.category.productivity": "Productivity",
@@ -2493,14 +2487,6 @@ export const translationResources = {
     "settings.plugins.capability.read": "Read",
     "settings.plugins.capability.terminal": "Terminal",
     "settings.plugins.capability.network": "Network",
-    "settings.plugins.catalog.opencode": "Open-source terminal coding agent",
-    "settings.plugins.catalog.nga":
-      "Ora's built-in application-scoped coding agent runtime",
-    "settings.plugins.catalog.codeagentcli":
-      "Ora's built-in general-purpose coding agent runtime",
-    "settings.plugins.catalog.claude":
-      "Anthropic's coding agent and skill system",
-    "settings.plugins.catalog.codex": "OpenAI's coding agent and code review",
     "settings.plugins.catalog.rtk":
       "CLI proxy that cuts LLM token usage 60-90% on common dev commands",
     "settings.plugins.catalog.github": "Triage PRs, issues, and CI",

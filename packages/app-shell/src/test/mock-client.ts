@@ -107,18 +107,40 @@ export interface MockClientState {
 }
 
 /**
- * Every agent identity the frontend has a picker entry for, all detected by default.
+ * Every agent this mock installation offers, supplied by an installed package and detected.
  *
- * A test that needs one to be missing or unreachable overrides `agentRuntimeStatuses` rather than
- * rebuilding the whole list.
+ * Agents exist only because a package supplies them, so a test needs both halves to see one in a
+ * picker: the installed package that names it, and a runtime status that reaches it. A test that
+ * needs one unreachable overrides `agentRuntimeStatuses`; one that needs it gone entirely
+ * overrides `installedPlugins` as well.
  */
-const AGENT_REFS = [
-  "ora-space.opencode",
-  "ora-space.nga",
-  "ora-space.codeagentcli",
-  "ora-space.claude",
-  "ora-space.codex",
+const AGENT_PACKAGES: { agentRef: string; displayName: string }[] = [
+  { agentRef: "ora-space.opencode", displayName: "OpenCode" },
+  { agentRef: "ora-space.nga", displayName: "NGA" },
+  { agentRef: "ora-space.codeagentcli", displayName: "CodeAgentCLI" },
+  { agentRef: "ora-space.claude", displayName: "Claude Code" },
+  { agentRef: "ora-space.codex", displayName: "Codex" },
 ];
+
+/** Builds the installed-package record one seeded agent is supplied by. */
+function agentPackage(agentRef: string, displayName: string): InstalledPlugin {
+  return {
+    id: `official/${agentRef}`,
+    namespace: "official",
+    name: agentRef,
+    displayName,
+    version: "1.0.0",
+    description: `${displayName} agent`,
+    homepage: null,
+    license: null,
+    kind: "agent",
+    agentDisplayName: displayName,
+    logo: null,
+    installationValidity: { validity: "valid" },
+    configuration: { state: "not_declared" },
+    runtime: "running",
+  };
+}
 
 /** Creates a fresh in-memory mock state with no records. */
 export function createMockClientState(): MockClientState {
@@ -129,10 +151,12 @@ export function createMockClientState(): MockClientState {
     sessions: [],
     agents: [],
     skills: [],
-    installedPlugins: [],
+    installedPlugins: AGENT_PACKAGES.map((agent) =>
+      agentPackage(agent.agentRef, agent.displayName),
+    ),
     pluginConfigurations: new Map(),
-    agentRuntimeStatuses: AGENT_REFS.map((agentRef) => ({
-      agentRef,
+    agentRuntimeStatuses: AGENT_PACKAGES.map((agent) => ({
+      agentRef: agent.agentRef,
       status: "ready",
     })),
     availablePlugins: [],

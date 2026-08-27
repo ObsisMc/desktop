@@ -2926,14 +2926,12 @@ name = "ora-acp"
 version = "0.0.0"
 dependencies = [
  "agent-client-protocol-schema",
- "futures-util",
  "ora-logging",
  "pretty_assertions",
  "serde",
  "serde_json",
  "thiserror 2.0.20",
  "tokio",
- "tokio-util",
  "tracing",
 ]
 
@@ -5532,7 +5530,6 @@ dependencies = [
  "futures-core",
  "futures-sink",
  "futures-util",
- "libc",
  "pin-project-lite",
  "tokio",
 ]

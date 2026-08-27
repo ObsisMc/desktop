@@ -1,4 +1,3 @@
-mod agent_cli;
 mod agent_definition;
 mod agent_ref;
 mod audit_fields;
@@ -20,7 +19,6 @@ mod worktree;
 #[cfg(test)]
 mod tests;
 
-pub use agent_cli::AgentCli;
 pub use agent_definition::AgentDefinition;
 pub use agent_ref::AgentRef;
 pub use audit_fields::AuditFields;

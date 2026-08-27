@@ -1474,6 +1474,7 @@ function WorkflowEditorContent({
                 agentModelsLoading={agentModelsLoading}
                 agentModelsError={agentModelsError}
                 onRetryAgentModels={agentModelsCatalog.refetch}
+                agents={agentModelsCatalog.agents}
                 modelsByCli={agentModelsCatalog.modelsByCli}
                 cliStatus={agentModelsCatalog.cliStatus}
                 agentCatalogsLoading={agentCatalogsLoading}

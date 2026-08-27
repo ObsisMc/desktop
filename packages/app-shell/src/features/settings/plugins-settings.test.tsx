@@ -45,6 +45,9 @@ const WEATHER_LOGO =
 
 function clientWithWeather(logo: string | null = null) {
   const state = createMockClientState();
+  // This file exercises install/import flows in isolation from the seeded agent
+  // packages, so installed-plugin assertions can count exactly the fixture under test.
+  state.installedPlugins = [];
   state.availablePlugins.push({
     id: "official/weather",
     name: "weather",

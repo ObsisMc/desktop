@@ -126,7 +126,7 @@ pub enum PublicError {
     WorkspaceDiffCommitMessageBlank(EmptyErrorParams),
     WorkspaceDiffTooLarge(EmptyErrorParams),
     SessionNotFound(EmptyErrorParams),
-    AgentCliNotFound(EmptyErrorParams),
+    AgentNotInstalled(EmptyErrorParams),
     AgentRuntimeUnavailable(EmptyErrorParams),
     SessionBusy(EmptyErrorParams),
     SessionStopped(EmptyErrorParams),
@@ -239,7 +239,7 @@ impl PublicError {
             Self::WorkspaceDiffCommitMessageBlank(_) => "workspace_diff_commit_message_blank",
             Self::WorkspaceDiffTooLarge(_) => "workspace_diff_too_large",
             Self::SessionNotFound(_) => "session_not_found",
-            Self::AgentCliNotFound(_) => "agent_cli_not_found",
+            Self::AgentNotInstalled(_) => "agent_not_installed",
             Self::AgentRuntimeUnavailable(_) => "agent_runtime_unavailable",
             Self::SessionBusy(_) => "session_busy",
             Self::SessionStopped(_) => "session_stopped",
@@ -409,7 +409,7 @@ mod tests {
             PublicError::WorkspaceDiffCommitMessageBlank(empty),
             PublicError::WorkspaceDiffTooLarge(empty),
             PublicError::SessionNotFound(empty),
-            PublicError::AgentCliNotFound(empty),
+            PublicError::AgentNotInstalled(empty),
             PublicError::AgentRuntimeUnavailable(empty),
             PublicError::SessionBusy(empty),
             PublicError::SessionStopped(empty),
@@ -511,7 +511,7 @@ mod tests {
                 | PublicError::WorkspaceDiffCommitMessageBlank(_)
                 | PublicError::WorkspaceDiffTooLarge(_)
                 | PublicError::SessionNotFound(_)
-                | PublicError::AgentCliNotFound(_)
+                | PublicError::AgentNotInstalled(_)
                 | PublicError::AgentRuntimeUnavailable(_)
                 | PublicError::SessionBusy(_)
                 | PublicError::SessionStopped(_)

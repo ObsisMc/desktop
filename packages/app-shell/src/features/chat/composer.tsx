@@ -62,16 +62,10 @@ import {
   composerSendAdoptedSession,
 } from "../../state/session-drafts";
 import {
-  AI_AGENT_CATEGORY_KEY,
   PLUGIN_CATALOG,
   findPlugin,
   type PluginEntry,
 } from "../settings/plugin-catalog";
-
-/** Candidate plugins for the composer's "+" menu; the AI agent CLIs are chosen elsewhere. */
-const CANDIDATE_PLUGINS = PLUGIN_CATALOG.filter(
-  (plugin) => plugin.categoryKey !== AI_AGENT_CATEGORY_KEY,
-);
 /** Stable empty array so the store selector below doesn't return a fresh reference every render. */
 const EMPTY_PLUGIN_IDS: string[] = [];
 
@@ -194,7 +188,7 @@ export function Composer({
   // show up in "+" — picking one removes it from the menu until it is removed below.
   const composerPlugins = useMemo(
     () =>
-      CANDIDATE_PLUGINS.filter(
+      PLUGIN_CATALOG.filter(
         (plugin) =>
           installedPluginIds.includes(plugin.id) &&
           !selectedPluginIds.includes(plugin.id),
