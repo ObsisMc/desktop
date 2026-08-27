@@ -105,6 +105,13 @@ lease interval rather than the surface. A consumer whose plugin is not currently
 rather than started: it holds no turn a mutation could corrupt, and it reads the surface fresh when
 it next starts.
 
+The worker also owns the other half of that snapshot. A declaration can only reach the Workspaces
+that exist at the moment its plugin starts, so every pass re-derives the surface set and registers
+the current declarations into any local Workspace that owns none. Keeping the surface set a
+convergence result rather than the side effect of one process event is what makes a Workspace
+created while a plugin is already running materialize on its own, instead of waiting for that
+plugin's next start.
+
 ## Sandboxing
 
 Agent plugins currently receive `--allow-run` plus read, env, and network access, because they spawn

@@ -504,6 +504,21 @@ impl PluginApi {
         Ok(())
     }
 
+    /// Returns the merged Effect surface declarations of every currently registered Agent plugin.
+    ///
+    /// This snapshot is the single source convergence reads. It is process-local on purpose: a
+    /// plugin that is not running declares nothing, and a Workspace therefore owes it no surface
+    /// until its next start republishes the declaration.
+    pub(crate) fn agent_effect_surface_declarations(&self) -> Vec<FilesystemSkillSurface> {
+        self.agent_effect_surfaces
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .values()
+            .flatten()
+            .cloned()
+            .collect()
+    }
+
     /// Stops one plugin process while leaving the installed plugin available.
     pub(crate) async fn stop(
         &self,

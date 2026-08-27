@@ -219,10 +219,18 @@ impl Backend {
         // started but could not finish.
         let effect_worker = crate::effect_worker::EffectWorker::new(pool.clone(), plugin.clone());
         effect_worker.recover();
-        plugin.set_effect_reconcile(effect_worker.spawn());
+        // Creating a Workspace is not something a consumer declaration can observe, so both create
+        // paths wake the worker to converge it promptly instead of at the next scan.
+        let effect_reconcile = effect_worker.spawn();
+        plugin.set_effect_reconcile(effect_reconcile.clone());
 
         Ok(Self {
-            project: Arc::new(ProjectApi::new(pool.clone(), sessions_root.clone(), clock)),
+            project: Arc::new(ProjectApi::new(
+                pool.clone(),
+                sessions_root.clone(),
+                clock,
+                effect_reconcile.clone(),
+            )),
             task: Arc::new(TaskApi::new(
                 pool.clone(),
                 worktree_root.clone(),
@@ -230,6 +238,7 @@ impl Backend {
                 sessions_root.clone(),
                 repository_gates,
                 clock,
+                effect_reconcile,
             )),
             workspace_diff: Arc::new(WorkspaceDiffApi::new(
                 pool.clone(),
