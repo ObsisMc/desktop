@@ -12,6 +12,13 @@ export {
 } from "./agent.ts";
 export type { EffectSurfaceDeclaration } from "./plugin.ts";
 export {
+  createHostProcesses,
+  type HostChildProcess,
+  type HostChildProcessExit,
+  type HostChildProcessOptions,
+  type HostProcesses,
+} from "./process.ts";
+export {
   createPlugin,
   DEFAULT_HOST_REQUEST_TIMEOUT_MS,
   HostRequestError,

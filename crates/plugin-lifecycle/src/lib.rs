@@ -1,3 +1,4 @@
+mod childprocess;
 mod connection;
 mod data_dir;
 mod launch;
@@ -11,6 +12,10 @@ mod storage;
 mod surface_closer;
 mod uninstall;
 
+pub use childprocess::{
+    CHILDPROCESS_CLOSE_STDIN_METHOD, CHILDPROCESS_KILL_METHOD, CHILDPROCESS_SPAWN_METHOD,
+    CHILDPROCESS_WRITE_METHOD, PluginProcessHost,
+};
 pub use connection::{ConnectionError, PluginGenerationKey, PluginGenerationLease};
 pub use data_dir::PluginDataDirectories;
 pub use ora_plugin_runtime::{PluginNotification, PluginRegistration};
@@ -496,6 +501,8 @@ fn parse_request_id(plugin_id: &str) -> Result<PluginId, PluginLifecycleError> {
     })
 }
 
+#[cfg(test)]
+mod childprocess_tests;
 #[cfg(test)]
 mod data_plane_tests;
 #[cfg(test)]
