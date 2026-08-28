@@ -30,11 +30,14 @@ Release builds register the Tauri updater and an in-process `ora-scheduler` job.
 an initial delayed check and then checks the static GitHub Release manifest every six hours. The
 manifest is `https://github.com/ora-space/desktop/releases/latest/download/latest.json`; Tauri
 selects the current OS/architecture and verifies its signed updater artifact before the Desktop
-service writes one fixed-name package below `~/.ora/cache/`. Development builds keep the commands
-available for integration tests but do not register network work. The updater status is exposed by
-`get_desktop_update_status` and installation is started by `install_desktop_update`; status changes
-are emitted as `desktop-update-status-changed`. A successful current-version check removes the
-cached package and metadata. The updater public key is configured in
+service writes identity-addressed artifacts below `~/.ora/cache/desktop-updates/v2/`. Development
+builds keep the commands available for integration tests but do not register network work. The
+updater status is exposed by `get_desktop_update_status` and installation is started by
+`install_desktop_update`; status changes are emitted as `desktop-update-status-changed`. A
+successful current-version check removes the
+committed artifact entry. On a later process start, a fresh manifest check can match that identity,
+re-verify the package with the configured updater public key, and reuse it without another
+download. The updater public key is configured in
 `apps/desktop/src-tauri/tauri.conf.json`; release artifacts still require the matching private
 key in the GitHub Actions secret `TAURI_SIGNING_PRIVATE_KEY`.
 

@@ -26,7 +26,9 @@ toml = { workspace = true }
 
 [dependencies]
 chrono-tz = "0.10"
+base64 = { workspace = true }
 iana-time-zone = "0.1"
+minisign-verify = "0.2.5"
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 tauri = { version = "2.11.5", features = [] }
@@ -46,12 +48,11 @@ ora-runtime-settings = { path = "../../../crates/runtime-settings" }
 ora-scheduler = { path = "../../../crates/scheduler" }
 ora-surface = { path = "../../../crates/surface" }
 semver = { workspace = true }
-sha2 = { workspace = true }
 ora-utils = { path = "../../../crates/utils" }
 tempfile = "3"
 thiserror = "2"
 time = { version = "0.3", features = ["formatting"] }
-tokio = { version = "1", features = ["macros", "sync", "net", "time"] }
+tokio = { version = "1", features = ["fs", "io-util", "macros", "sync", "net", "time"] }
 tokio-util = { version = "0.7", features = ["rt"] }
 tracing = "0.1"
 url = "2"

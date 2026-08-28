@@ -1,161 +1,311 @@
-//! Unit tests for the update cache lifecycle, the proxy URL seam, and the webview status contract.
+//! Tests for artifact recovery, runtime state invariants, proxy URLs, and the webview contract.
 
-use crate::update::cache::{UpdateCache, UpdateMetadata, digest, hex_digest};
+use crate::update::artifact_store::{
+    ArtifactDescriptor, ArtifactVerifier, StoredArtifact, UpdateArtifactStore,
+};
 use crate::update::service::proxy_url;
+use crate::update::state::{ReadyUpdate, RuntimeUpdateState};
 use crate::update::{DesktopUpdateStatus, ManualUpdateReason};
 use ora_application::NetworkProxySettings;
+use ora_utils::hash::sha256_reader;
 use pretty_assertions::assert_eq;
 use semver::Version;
 use serde_json::{Value, json};
+use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use tempfile::TempDir;
+use url::Url;
 
-/// Returns the cache directory the service derives from an Ora home directory.
-fn cache_directory(home: &Path) -> PathBuf {
-    home.join(".ora").join("cache")
+struct TestVerifier;
+
+impl ArtifactVerifier for TestVerifier {
+    /// Returns the stable fake trust root shared by every test descriptor.
+    fn trust_root_fingerprint(&self) -> &str {
+        "test-trust-root"
+    }
+
+    /// Accepts the SHA-256 spelling as deterministic local signature evidence.
+    fn verify(&self, bytes: &[u8], encoded_signature: &str) -> bool {
+        digest(bytes) == encoded_signature
+    }
 }
 
-/// Stores a package so the cache holds both the artifact and its identity record.
-async fn store_release(cache: &UpdateCache, release_version: &str, bytes: &[u8]) {
-    let metadata = UpdateMetadata {
-        schema_version: 1,
-        release_version: release_version.to_owned(),
-        sha256: hex_digest(&digest(bytes)),
-        file_name: cache.package_file_name().to_owned(),
-    };
-    cache.store(bytes, &metadata).await.expect("store succeeds");
+/// Computes the deterministic test signature accepted by `TestVerifier`.
+fn digest(bytes: &[u8]) -> String {
+    sha256_reader(Cursor::new(bytes)).expect("in-memory hashing succeeds")
 }
 
+/// Returns the root of the versioned Desktop update store.
+fn store_root(home: &Path) -> PathBuf {
+    home.join(".ora")
+        .join("cache")
+        .join("desktop-updates")
+        .join("v2")
+}
+
+/// Opens a store as a build older than every release used by these tests.
+fn open_store(home: &Path) -> UpdateArtifactStore {
+    UpdateArtifactStore::open(home, &Version::parse("0.1.0").expect("current version"))
+        .expect("store opens")
+}
+
+/// Builds fresh manifest evidence whose signature is bound to `bytes`.
+fn descriptor(version: &str, bytes: &[u8]) -> ArtifactDescriptor {
+    ArtifactDescriptor::new(
+        version.to_owned(),
+        "test-target".to_owned(),
+        Url::parse("https://updates.example/ora.AppImage").expect("source URL"),
+        digest(bytes),
+        &TestVerifier,
+    )
+    .expect("descriptor builds")
+}
+
+/// Returns the sole committed entry path after a test stores one artifact.
+fn only_entry(home: &Path) -> PathBuf {
+    let entries = store_root(home).join("entries");
+    let paths = std::fs::read_dir(entries)
+        .expect("entries are readable")
+        .map(|entry| entry.expect("entry").path())
+        .collect::<Vec<_>>();
+    assert_eq!(paths.len(), 1);
+    paths.into_iter().next().expect("one entry")
+}
+
+/// Commits an artifact into the store and returns its verified reference.
+async fn commit_release(
+    store: &UpdateArtifactStore,
+    version: &str,
+    bytes: &[u8],
+) -> (ArtifactDescriptor, StoredArtifact) {
+    let descriptor = descriptor(version, bytes);
+    let artifact = store
+        .commit(&descriptor, bytes, &TestVerifier)
+        .await
+        .expect("commit succeeds");
+    (descriptor, artifact)
+}
+
+/// Verifies a commit records full identity and leaves no interrupted staging directory.
 #[tokio::test]
-async fn store_writes_the_package_and_a_matching_metadata_record() {
+async fn commit_publishes_an_identity_addressed_entry() {
     let home = TempDir::new().expect("temp home");
-    let cache = UpdateCache::open(home.path()).expect("cache opens");
+    let store = open_store(home.path());
     let bytes = b"signed-package".as_slice();
-
-    store_release(&cache, "0.2.0", bytes).await;
-
-    let metadata_path = cache_directory(home.path()).join("ora-update.json");
-    let stored: UpdateMetadata =
-        serde_json::from_slice(&std::fs::read(&metadata_path).expect("metadata is readable"))
-            .expect("metadata parses");
+    let (descriptor, _) = commit_release(&store, "0.3.0", bytes).await;
+    let entry = only_entry(home.path());
+    let record: Value = serde_json::from_slice(
+        &std::fs::read(entry.join("record.json")).expect("record is readable"),
+    )
+    .expect("record parses");
+    let payload_file_name = record["payload"]["fileName"]
+        .as_str()
+        .expect("payload file name")
+        .to_owned();
     assert_eq!(
         (
-            std::fs::read(cache.package_path()).expect("package readable"),
-            stored
+            record,
+            std::fs::read(entry.join(&payload_file_name)).expect("payload is readable"),
+            std::fs::read_dir(store_root(home.path()).join("staging"))
+                .expect("staging is readable")
+                .count(),
         ),
         (
+            json!({
+                "schemaVersion": 2,
+                "identity": serde_json::to_value(&descriptor.identity).expect("identity serializes"),
+                "sourceUrl": "https://updates.example/ora.AppImage",
+                "originalFileName": "ora.AppImage",
+                "payload": {
+                    "fileName": payload_file_name,
+                    "byteLength": bytes.len(),
+                    "sha256": digest(bytes),
+                }
+            }),
             bytes.to_vec(),
-            UpdateMetadata {
-                schema_version: 1,
-                release_version: "0.2.0".to_owned(),
-                sha256: hex_digest(&digest(bytes)),
-                file_name: cache.package_file_name().to_owned(),
-            }
+            0,
         )
     );
 }
 
+/// Simulates a second process and confirms it can recover bytes without committing again.
 #[tokio::test]
-async fn store_leaves_no_temporary_files_behind() {
+async fn matching_artifact_is_recovered_after_reopening_the_store() {
     let home = TempDir::new().expect("temp home");
-    let cache = UpdateCache::open(home.path()).expect("cache opens");
+    let bytes = b"signed-package".as_slice();
+    let store = open_store(home.path());
+    let (descriptor, committed) = commit_release(&store, "0.3.0", bytes).await;
+    drop(store);
 
-    store_release(&cache, "0.2.0", b"signed-package").await;
+    let reopened = open_store(home.path());
+    let recovered = reopened
+        .find_verified(&descriptor, &TestVerifier)
+        .await
+        .expect("recovery succeeds")
+        .expect("artifact is recovered");
 
-    let mut names = std::fs::read_dir(cache_directory(home.path()))
-        .expect("cache directory is readable")
-        .map(|entry| {
-            entry
-                .expect("entry")
-                .file_name()
-                .to_string_lossy()
-                .into_owned()
-        })
-        .collect::<Vec<_>>();
-    names.sort();
     assert_eq!(
-        names,
-        vec![
-            cache.package_file_name().to_owned(),
-            "ora-update.json".to_owned()
-        ]
+        (
+            recovered.clone(),
+            reopened
+                .read_verified(&recovered, &descriptor, &TestVerifier)
+                .await
+                .expect("artifact remains verified"),
+        ),
+        (committed, bytes.to_vec())
     );
 }
 
+/// Ensures local package tampering removes the entry instead of advertising it as ready.
 #[tokio::test]
-async fn discard_superseded_removes_a_release_the_running_build_already_includes() {
+async fn changed_package_is_rejected_and_removed() {
     let home = TempDir::new().expect("temp home");
-    let cache = UpdateCache::open(home.path()).expect("cache opens");
-    store_release(&cache, "0.2.0", b"signed-package").await;
-
-    cache
-        .discard_superseded(&Version::parse("0.2.0").expect("version"))
-        .expect("discard succeeds");
+    let store = open_store(home.path());
+    let bytes = b"signed-package".as_slice();
+    let (descriptor, artifact) = commit_release(&store, "0.3.0", bytes).await;
+    std::fs::write(&artifact.payload_path, b"changed-package").expect("payload is writable");
 
     assert_eq!(
-        std::fs::read_dir(cache_directory(home.path()))
-            .expect("cache directory is readable")
-            .count(),
-        0
+        store
+            .find_verified(&descriptor, &TestVerifier)
+            .await
+            .expect("invalid cache is recoverable"),
+        None
+    );
+    assert!(!artifact.entry_path.exists());
+}
+
+/// Ensures a failed replacement commit leaves the previously verified artifact untouched.
+#[tokio::test]
+async fn failed_replacement_preserves_the_existing_entry() {
+    let home = TempDir::new().expect("temp home");
+    let store = open_store(home.path());
+    let old_bytes = b"old-signed-package".as_slice();
+    let (old_descriptor, old_artifact) = commit_release(&store, "0.3.0", old_bytes).await;
+    let mut invalid_descriptor = descriptor("0.4.0", b"different-package");
+    invalid_descriptor.encoded_signature = "not-a-valid-signature".to_owned();
+
+    assert!(
+        store
+            .commit(&invalid_descriptor, b"new-package", &TestVerifier)
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        (
+            only_entry(home.path()),
+            store
+                .find_verified(&old_descriptor, &TestVerifier)
+                .await
+                .expect("old lookup succeeds"),
+        ),
+        (old_artifact.entry_path.clone(), Some(old_artifact))
     );
 }
 
+/// Confirms a replacement removes the old entry only after the new artifact is committed.
 #[tokio::test]
-async fn discard_superseded_keeps_a_release_newer_than_the_running_build() {
+async fn successful_replacement_prunes_the_previous_entry() {
     let home = TempDir::new().expect("temp home");
-    let cache = UpdateCache::open(home.path()).expect("cache opens");
-    store_release(&cache, "0.3.0", b"signed-package").await;
+    let store = open_store(home.path());
+    let (_, old_artifact) = commit_release(&store, "0.3.0", b"old-signed-package").await;
 
-    cache
-        .discard_superseded(&Version::parse("0.2.0").expect("version"))
-        .expect("discard succeeds");
+    let (new_descriptor, new_artifact) =
+        commit_release(&store, "0.4.0", b"new-signed-package").await;
 
     assert_eq!(
-        std::fs::read(cache.package_path()).expect("package survives"),
-        b"signed-package".to_vec()
+        (
+            old_artifact.entry_path.exists(),
+            only_entry(home.path()),
+            store
+                .find_verified(&new_descriptor, &TestVerifier)
+                .await
+                .expect("new lookup succeeds"),
+        ),
+        (false, new_artifact.entry_path.clone(), Some(new_artifact),)
     );
 }
 
-#[tokio::test]
-async fn discard_superseded_drops_a_package_whose_identity_record_is_unreadable() {
-    let home = TempDir::new().expect("temp home");
-    let cache = UpdateCache::open(home.path()).expect("cache opens");
-    store_release(&cache, "0.3.0", b"signed-package").await;
-    std::fs::write(
-        cache_directory(home.path()).join("ora-update.json"),
-        b"{ truncated",
-    )
-    .expect("metadata is writable");
-
-    cache
-        .discard_superseded(&Version::parse("0.2.0").expect("version"))
-        .expect("discard succeeds");
-
-    assert_eq!(
-        std::fs::read_dir(cache_directory(home.path()))
-            .expect("cache directory is readable")
-            .count(),
-        0
-    );
-}
-
+/// Confirms startup clears interrupted staging directories and the abandoned fixed-slot schema.
 #[test]
-fn discard_superseded_is_a_no_op_on_an_empty_cache() {
+fn open_cleans_interrupted_and_legacy_files() {
     let home = TempDir::new().expect("temp home");
-    let cache = UpdateCache::open(home.path()).expect("cache opens");
+    let cache = home.path().join(".ora").join("cache");
+    let interrupted = store_root(home.path()).join("staging").join("download-old");
+    std::fs::create_dir_all(&interrupted).expect("staging fixture");
+    std::fs::write(interrupted.join("payload.AppImage"), b"partial").expect("partial payload");
+    std::fs::create_dir_all(&cache).expect("cache fixture");
+    std::fs::write(cache.join("ora-update.json"), b"{}").expect("legacy metadata");
+    std::fs::write(cache.join("ora-update.AppImage"), b"legacy").expect("legacy payload");
 
-    cache
-        .discard_superseded(&Version::parse("0.2.0").expect("version"))
-        .expect("a missing identity record is not an error");
+    let _store = open_store(home.path());
 
     assert_eq!(
-        std::fs::read_dir(cache_directory(home.path()))
-            .expect("cache directory is readable")
+        (
+            std::fs::read_dir(store_root(home.path()).join("staging"))
+                .expect("staging is readable")
+                .count(),
+            cache.join("ora-update.json").exists(),
+            cache.join("ora-update.AppImage").exists(),
+        ),
+        (0, false, false)
+    );
+}
+
+/// Verifies a running build discards a committed release it already includes.
+#[tokio::test]
+async fn open_discards_a_superseded_release() {
+    let home = TempDir::new().expect("temp home");
+    let store = open_store(home.path());
+    commit_release(&store, "0.3.0", b"signed-package").await;
+    drop(store);
+
+    let _reopened = UpdateArtifactStore::open(
+        home.path(),
+        &Version::parse("0.3.0").expect("current version"),
+    )
+    .expect("store reopens");
+
+    assert_eq!(
+        std::fs::read_dir(store_root(home.path()).join("entries"))
+            .expect("entries are readable")
             .count(),
         0
     );
 }
 
+/// Verifies runtime `Ready` owns all data needed to enter and recover from installation.
+#[tokio::test]
+async fn runtime_state_keeps_status_and_installable_data_together() {
+    let home = TempDir::new().expect("temp home");
+    let store = open_store(home.path());
+    let (descriptor, artifact) = commit_release(&store, "0.3.0", b"signed-package").await;
+    let ready = ReadyUpdate {
+        installer: "test-installer".to_owned(),
+        descriptor,
+        artifact,
+    };
+    let mut state = RuntimeUpdateState::Ready(ready);
+
+    assert_eq!(
+        state.status(),
+        DesktopUpdateStatus::Ready {
+            version: "0.3.0".to_owned()
+        }
+    );
+    let installing = state.begin_install().expect("ready state installs");
+    assert_eq!(
+        (state.status(), installing.installer),
+        (
+            DesktopUpdateStatus::Installing {
+                version: "0.3.0".to_owned()
+            },
+            "test-installer".to_owned(),
+        )
+    );
+}
+
+/// Verifies proxy credentials are encoded into the updater URL.
 #[test]
 fn proxy_url_carries_the_host_port_and_credentials() {
     let url = proxy_url(&NetworkProxySettings {
@@ -169,6 +319,7 @@ fn proxy_url_carries_the_host_port_and_credentials() {
     assert_eq!(url.as_str(), "http://agent:s3cr3t@proxy.internal:8080/");
 }
 
+/// Verifies absent proxy credentials remain absent instead of becoming empty URL fields.
 #[test]
 fn proxy_url_omits_credentials_that_are_not_configured() {
     let url = proxy_url(&NetworkProxySettings {
@@ -182,8 +333,8 @@ fn proxy_url_omits_credentials_that_are_not_configured() {
     assert_eq!(url.as_str(), "http://proxy.internal:3128/");
 }
 
-/// The webview switches on `kind` and reads the payload fields directly, so the serialized shape
-/// is part of the platform contract in `packages/app-shell/src/platform/types.ts`.
+/// The webview switches on `kind` and reads payload fields directly, making this serialized shape
+/// part of the platform contract in `packages/app-shell/src/platform/types.ts`.
 #[test]
 fn status_serializes_to_the_shape_the_webview_consumes() {
     let statuses = vec![
@@ -223,6 +374,7 @@ fn status_serializes_to_the_shape_the_webview_consumes() {
     );
 }
 
+/// Verifies Rust manual-update reasons keep the discriminants consumed by TypeScript.
 #[test]
 fn manual_update_reasons_serialize_as_the_webview_discriminants() {
     assert_eq!(

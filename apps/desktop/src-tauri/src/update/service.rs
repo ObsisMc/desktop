@@ -1,8 +1,10 @@
 //! Owns the Desktop updater state machine and the scheduler registrations that drive it.
 
-use super::cache::{UpdateCache, UpdateMetadata, digest, hex_digest};
+use super::artifact_store::{ArtifactDescriptor, UpdateArtifactStore};
 use super::job::UpdateJob;
 use super::platform::{InstallSupport, install_support};
+use super::state::{ReadyUpdate, RuntimeUpdateState};
+use super::verifier::UpdateVerifier;
 use super::{DesktopUpdateStatus, UpdateError};
 use ora_backend::Backend;
 use ora_logging::{ora_error, ora_info, ora_warn};
@@ -31,15 +33,7 @@ pub enum DesktopUpdateMode {
     Disabled,
 }
 
-/// Holds the updater object whose package bytes were verified by `Update::download`.
-#[derive(Clone)]
-struct PendingUpdate {
-    update: Update,
-    version: String,
-    digest: [u8; 32],
-}
-
-/// Drives update checks, downloads, and installation for the Desktop application.
+/// Drives update checks, downloads, recovery, and installation for the Desktop application.
 #[derive(Clone)]
 pub struct UpdateService {
     inner: Arc<UpdateServiceInner>,
@@ -48,9 +42,9 @@ pub struct UpdateService {
 struct UpdateServiceInner {
     app: AppHandle,
     backend: Backend,
-    cache: UpdateCache,
-    status: Mutex<DesktopUpdateStatus>,
-    pending: Mutex<Option<PendingUpdate>>,
+    artifacts: UpdateArtifactStore,
+    verifier: UpdateVerifier,
+    state: Mutex<RuntimeUpdateState<Update>>,
     operation: AsyncMutex<()>,
     _scheduler: Scheduler,
     _initial_check: Mutex<Option<DelayHandle>>,
@@ -58,8 +52,7 @@ struct UpdateServiceInner {
 }
 
 impl UpdateService {
-    /// Creates the service, removes cache entries already superseded by this build, and schedules
-    /// the first delayed check plus the recurring six-hour check.
+    /// Creates the service, opens the recoverable artifact store, and registers update checks.
     pub fn start(
         app: AppHandle,
         backend: Backend,
@@ -67,19 +60,18 @@ impl UpdateService {
         timezone: chrono_tz::Tz,
         mode: DesktopUpdateMode,
     ) -> Result<Self, UpdateError> {
-        let cache = UpdateCache::open(home_directory)?;
-        cache.discard_superseded(
-            &Version::parse(env!("CARGO_PKG_VERSION")).unwrap_or_else(|_| Version::new(0, 0, 0)),
-        )?;
-
+        let current =
+            Version::parse(env!("CARGO_PKG_VERSION")).unwrap_or_else(|_| Version::new(0, 0, 0));
+        let artifacts = UpdateArtifactStore::open(home_directory, &current)?;
+        let verifier = UpdateVerifier::from_app(&app)?;
         let scheduler = Scheduler::new(timezone);
         let service = Self {
             inner: Arc::new(UpdateServiceInner {
                 app,
                 backend,
-                cache,
-                status: Mutex::new(DesktopUpdateStatus::Current),
-                pending: Mutex::new(None),
+                artifacts,
+                verifier,
+                state: Mutex::new(RuntimeUpdateState::Current),
                 operation: AsyncMutex::new(()),
                 _scheduler: scheduler.clone(),
                 _initial_check: Mutex::new(None),
@@ -114,70 +106,86 @@ impl UpdateService {
     /// Returns the latest status snapshot for a command or a freshly mounted frontend.
     pub fn status(&self) -> DesktopUpdateStatus {
         self.inner
-            .status
+            .state
             .lock()
-            .expect("update status mutex is not poisoned")
-            .clone()
+            .expect("update state mutex is not poisoned")
+            .status()
     }
 
-    /// Runs one check and downloads a verified package when a newer release exists.
+    /// Checks for a release and recovers matching verified bytes before spending another download.
     ///
-    /// A package that is already installable stays advertised across a failed check: retracting
-    /// the notification would strand the user without an install entry point until the next cron
-    /// tick, even though the verified bytes are still in memory and on disk.
+    /// A package already installable in this process survives a failed replacement check. A package
+    /// from an earlier process is advertised only after a fresh manifest supplies its installer
+    /// handle and signature again.
     pub async fn check_and_download(&self) {
         let _operation = self.inner.operation.lock().await;
-        let previous = self.status();
-        if !matches!(previous, DesktopUpdateStatus::Ready { .. }) {
-            self.set_status(DesktopUpdateStatus::Checking);
+        let retained = self
+            .inner
+            .state
+            .lock()
+            .expect("update state mutex is not poisoned")
+            .ready();
+        if retained.is_none() {
+            self.set_state(RuntimeUpdateState::Checking);
         }
         if let Err(error) = self.check_and_download_inner().await {
             ora_warn!(message = "Desktop update check failed", error = %error);
-            match previous {
-                DesktopUpdateStatus::Ready { .. } => self.set_status(previous),
-                _ => self.set_status(DesktopUpdateStatus::Failed {
+            let retained_is_valid = match retained.as_ref() {
+                Some(ready) => self
+                    .inner
+                    .artifacts
+                    .read_verified(&ready.artifact, &ready.descriptor, &self.inner.verifier)
+                    .await
+                    .is_ok(),
+                None => false,
+            };
+            match retained {
+                Some(ready) if retained_is_valid => {
+                    self.set_state(RuntimeUpdateState::Ready(ready));
+                }
+                Some(_) | None => self.set_state(RuntimeUpdateState::Failed {
                     message: error.to_string(),
                 }),
             }
         }
     }
 
-    /// Installs the package downloaded by the most recent successful check and restarts the app
-    /// on platforms where the updater does not terminate the current process itself.
+    /// Installs the ready artifact after re-reading its record and signature from disk.
     pub async fn install(&self) -> Result<(), UpdateError> {
         let _operation = self.inner.operation.lock().await;
-        let pending = self
-            .inner
-            .pending
-            .lock()
-            .expect("pending update mutex is not poisoned")
-            .clone()
-            .ok_or(UpdateError::NoPendingUpdate)?;
-        self.set_status(DesktopUpdateStatus::Installing {
-            version: pending.version.clone(),
-        });
-
-        // A failed installation keeps the verified package advertised so the user can retry.
-        let restore = DesktopUpdateStatus::Ready {
-            version: pending.version.clone(),
+        let ready = {
+            let mut state = self
+                .inner
+                .state
+                .lock()
+                .expect("update state mutex is not poisoned");
+            let ready = state.begin_install()?;
+            let status = state.status();
+            drop(state);
+            self.emit_status(status);
+            ready
         };
-        let bytes = match tokio::fs::read(self.inner.cache.package_path()).await {
+
+        let bytes = match self
+            .inner
+            .artifacts
+            .read_verified(&ready.artifact, &ready.descriptor, &self.inner.verifier)
+            .await
+        {
             Ok(bytes) => bytes,
             Err(error) => {
-                self.set_status(restore);
-                return Err(UpdateError::CacheRead(error));
+                self.set_state(RuntimeUpdateState::Failed {
+                    message: error.to_string(),
+                });
+                return Err(error);
             }
         };
-        if digest(&bytes) != pending.digest {
-            self.set_status(restore);
-            return Err(UpdateError::CachedArtifactChanged);
-        }
-        if let Err(error) = pending.update.install(bytes) {
-            self.set_status(restore);
+        if let Err(error) = ready.installer.install(bytes) {
+            self.set_state(RuntimeUpdateState::Ready(ready));
             return Err(UpdateError::Updater(error));
         }
-        self.clear_pending();
-        self.inner.cache.clear();
+        self.set_state(RuntimeUpdateState::Current);
+        self.inner.artifacts.clear();
         // Windows hands control to the NSIS updater, which terminates this process itself; the
         // other platforms replace the bundle in place and have to be restarted here.
         #[cfg(target_os = "windows")]
@@ -190,7 +198,7 @@ impl UpdateService {
         }
     }
 
-    /// Performs one update request through the configured Tauri updater endpoint.
+    /// Reconciles the current manifest with an existing artifact or a newly verified download.
     async fn check_and_download_inner(&self) -> Result<(), UpdateError> {
         let mut updater_builder = self.inner.app.updater_builder();
         if let Some(settings) = self
@@ -203,67 +211,65 @@ impl UpdateService {
         }
         let updater = updater_builder.build().map_err(UpdateError::Updater)?;
         let Some(update) = updater.check().await.map_err(UpdateError::Updater)? else {
-            self.clear_pending();
-            self.inner.cache.clear();
-            self.set_status(DesktopUpdateStatus::Current);
+            self.inner.artifacts.clear();
+            self.set_state(RuntimeUpdateState::Current);
             return Ok(());
         };
 
-        // The bytes verified earlier in this process are still installable, so a repeat check for
-        // the same release must not spend the download again.
-        if self.pending_version().as_deref() == Some(update.version.as_str()) {
-            self.set_status(DesktopUpdateStatus::Ready {
-                version: update.version,
-            });
-            return Ok(());
-        }
-
         if let InstallSupport::Manual(reason) = install_support() {
-            self.clear_pending();
-            self.inner.cache.clear();
+            self.inner.artifacts.clear();
             ora_info!(
                 message = "Desktop update requires a manual installation",
                 version = %update.version,
             );
-            self.set_status(DesktopUpdateStatus::ManualUpdate {
+            self.set_state(RuntimeUpdateState::ManualUpdate {
                 version: update.version,
                 reason,
             });
             return Ok(());
         }
 
-        self.set_status(DesktopUpdateStatus::Downloading {
+        let descriptor = ArtifactDescriptor::new(
+            update.version.clone(),
+            update.target.clone(),
+            update.download_url.clone(),
+            update.signature.clone(),
+            &self.inner.verifier,
+        )?;
+        if let Some(artifact) = self
+            .inner
+            .artifacts
+            .find_verified(&descriptor, &self.inner.verifier)
+            .await?
+        {
+            let version = descriptor.identity.release_version.clone();
+            self.set_state(RuntimeUpdateState::Ready(ReadyUpdate {
+                installer: update,
+                descriptor,
+                artifact,
+            }));
+            ora_info!(message = "Desktop update recovered from cache", version = %version);
+            return Ok(());
+        }
+
+        self.set_state(RuntimeUpdateState::Downloading {
             version: update.version.clone(),
             downloaded: 0,
             total: None,
         });
         let bytes = self.download(&update).await?;
-        let digest = digest(&bytes);
-        self.inner
-            .cache
-            .store(
-                &bytes,
-                &UpdateMetadata {
-                    schema_version: 1,
-                    release_version: update.version.clone(),
-                    sha256: hex_digest(&digest),
-                    file_name: self.inner.cache.package_file_name().to_owned(),
-                },
-            )
-            .await?;
-
-        let version = update.version.clone();
-        *self
+        let artifact = self
             .inner
-            .pending
-            .lock()
-            .expect("pending update mutex is not poisoned") = Some(PendingUpdate {
-            version: version.clone(),
-            update,
-            digest,
-        });
+            .artifacts
+            .commit(&descriptor, &bytes, &self.inner.verifier)
+            .await?;
+        let version = descriptor.identity.release_version.clone();
+        self.set_state(RuntimeUpdateState::Ready(ReadyUpdate {
+            installer: update,
+            descriptor,
+            artifact,
+        }));
         ora_info!(message = "Desktop update downloaded", version = %version);
-        self.set_status(DesktopUpdateStatus::Ready { version });
         Ok(())
     }
 
@@ -282,7 +288,7 @@ impl UpdateService {
                         return;
                     }
                     published = downloaded;
-                    service.set_status(DesktopUpdateStatus::Downloading {
+                    service.set_state(RuntimeUpdateState::Downloading {
                         version: version.clone(),
                         downloaded,
                         total: content_length,
@@ -294,35 +300,22 @@ impl UpdateService {
             .map_err(UpdateError::Updater)
     }
 
-    /// Publishes a status snapshot to the main webview without making event delivery mandatory.
-    fn set_status(&self, status: DesktopUpdateStatus) {
+    /// Replaces the complete runtime state and publishes its derived webview status.
+    fn set_state(&self, state: RuntimeUpdateState<Update>) {
+        let status = state.status();
         *self
             .inner
-            .status
+            .state
             .lock()
-            .expect("update status mutex is not poisoned") = status.clone();
+            .expect("update state mutex is not poisoned") = state;
+        self.emit_status(status);
+    }
+
+    /// Publishes a status snapshot without making event delivery mandatory for state progress.
+    fn emit_status(&self, status: DesktopUpdateStatus) {
         if let Err(error) = self.inner.app.emit(UPDATE_EVENT, status) {
             ora_error!(message = "failed to publish Desktop update status", error = %error);
         }
-    }
-
-    /// Returns the release currently held as an installable package, if any.
-    fn pending_version(&self) -> Option<String> {
-        self.inner
-            .pending
-            .lock()
-            .expect("pending update mutex is not poisoned")
-            .as_ref()
-            .map(|pending| pending.version.clone())
-    }
-
-    /// Drops the in-memory installable package.
-    fn clear_pending(&self) {
-        self.inner
-            .pending
-            .lock()
-            .expect("pending update mutex is not poisoned")
-            .take();
     }
 }
 

@@ -3105,8 +3105,10 @@ dependencies = [
 name = "ora-desktop"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "chrono-tz",
  "iana-time-zone",
+ "minisign-verify",
  "ora-application",
  "ora-backend",
  "ora-contracts",
@@ -3126,7 +3128,6 @@ dependencies = [
  "semver",
  "serde",
  "serde_json",
- "sha2",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",

@@ -8,15 +8,16 @@ Desktop application self-update orchestration around Tauri's signed updater plug
   user may install, and what the main webview is told about it.
 - Hold a Desktop-scoped `ora_scheduler::Scheduler` that runs one delayed check after start and a
   recurring check afterwards.
-- Persist exactly one downloaded package under `~/.ora/cache/` together with an identity record,
-  and drop that package once the running build supersedes it.
+- Persist a downloaded package in the identity-addressed `~/.ora/cache/desktop-updates/v2/`
+  store, recover it after a process restart, and drop it once the running build supersedes it.
 - Decide whether the running installation is one the updater is allowed to replace in place.
 
 ## Non-responsibilities
 
-- Update transport, manifest parsing, version comparison, artifact selection, and signature
-  verification belong to `tauri_plugin_updater`. This module never re-implements them and never
-  treats its own SHA-256 record as a substitute for the plugin's signature check.
+- Update transport, manifest parsing, version comparison, and artifact selection belong to
+  `tauri_plugin_updater`. The plugin verifies fresh downloads; recovery verifies persisted bytes
+  again with `minisign-verify` and the same public key from Tauri configuration. The local SHA-256
+  record detects corruption but is never treated as a signature or trust source.
 - Release artifact production and `latest.json` generation belong to the build workflow.
 - Proxy configuration is owned by the backend user configuration; this module only reads it.
 
@@ -31,30 +32,40 @@ Desktop application self-update orchestration around Tauri's signed updater plug
 
 ## Lifecycle
 
-1. `UpdateService::start` opens the cache, discards a package the running build already includes,
-   and — in `Enabled` mode — registers the delayed check and the cron job.
+1. `UpdateService::start` opens the versioned artifact store, removes interrupted staging entries
+   and the abandoned fixed-slot schema, discards releases the running build already includes, and
+   — in `Enabled` mode — registers the delayed check and the cron job.
 2. Each check rebuilds the updater so a proxy the user changed since the last check is picked up,
    then asks the plugin for an update.
-3. A newer release is downloaded, verified by the plugin, hashed, and written to the fixed cache
-   path; the status becomes `Ready` and the webview shows the install affordance.
-4. `install` re-reads the cached bytes, compares the digest recorded at download time, and hands
-   the bytes to the plugin. Non-Windows platforms restart; Windows is terminated by the installer.
+3. A fresh manifest identity is matched against committed artifacts. Matching bytes are checked
+   against their record and the fresh signature and reused; otherwise the plugin downloads and
+   verifies a package.
+4. A new package and record are prepared below `staging/` and the whole directory is renamed into
+   `entries/<artifact-id>/`. Only after that commit does it replace an older ready artifact.
+5. `install` re-reads and re-verifies the committed artifact immediately before handing the bytes
+   to the plugin. Non-Windows platforms restart; Windows is terminated by the installer.
 
 ## Invariants
 
 - Only one update operation runs at a time. The delayed first check and the cron schedule can
   overlap in principle, so both go through the same asynchronous operation lock.
-- A package that has already been downloaded stays advertised. Neither a later check nor a failed
-  check retracts a `Ready` status, because the verified bytes remain installable.
-- The cache never holds two releases. Writes go through sibling temporary files and a rename, so a
-  reader never sees a partial package or a record naming a file that is not there.
-- Signature verification only happens inside `Update::download`. A package left on disk by a
-  previous process is therefore never installed directly; the next check downloads it again.
+- Runtime status and installable data occupy one `RuntimeUpdateState`; `Ready` cannot exist without
+  the matching installer handle, fresh manifest descriptor, and verified artifact reference.
+- A package already ready in this process stays advertised across a failed replacement check.
+  The old entry remains untouched until a replacement directory is completely committed.
+- A package left by an earlier process is not trusted from its record alone. A fresh manifest must
+  match its release, target, bundle kind, signature fingerprint, and trust-root fingerprint, after
+  which the bytes are re-verified and reused without another download.
+- Raw manifest values never form cache paths. Entry names are SHA-256 content addresses, payload
+  names come from the trusted bundle enum, and incomplete work remains isolated under `staging/`.
 
 ## Failure semantics
 
-- A failed check is logged and surfaced as `Failed` only when nothing was installable before it.
-- A failed installation restores `Ready` and keeps the cache, so the user can retry.
+- A failed check is logged and surfaced as `Failed` only when nothing was installable in the
+  current process before it. A persisted candidate is retained for a later reconciliation retry.
+- A plugin installation failure restores `Ready` and keeps the verified artifact so the user can
+  retry. A package that fails the pre-install record, digest, or signature checks is removed and
+  transitions to `Failed` instead of advertising a broken retry.
 - An installation that the updater cannot perform — a `deb` or `rpm` package, or a bare executable
   on Linux — is reported as `ManualUpdate` before any download is spent, because the static
   manifest only advertises an AppImage for Linux.

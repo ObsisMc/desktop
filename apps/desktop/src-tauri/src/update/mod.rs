@@ -1,16 +1,18 @@
 //! Desktop application update orchestration.
 //!
 //! The updater endpoint is owned by Tauri's signed updater plugin. This module only owns the
-//! Desktop lifecycle around it: scheduling checks, persisting one fixed-name cache file, and
+//! Desktop lifecycle around it: scheduling checks, persisting verified release artifacts, and
 //! exposing a small status surface to the main webview.
 
-mod cache;
+mod artifact_store;
 pub mod commands;
 mod job;
 mod platform;
 mod service;
+mod state;
 #[cfg(test)]
 mod tests;
+mod verifier;
 
 pub use service::{DesktopUpdateMode, UpdateService};
 
@@ -63,16 +65,24 @@ pub enum DesktopUpdateStatus {
 pub enum UpdateError {
     #[error("failed to create update cache directory")]
     CacheDirectory(#[source] std::io::Error),
+    #[error("failed to inspect update cache")]
+    CacheInspect(#[source] std::io::Error),
     #[error("failed to read update cache metadata")]
     ReadMetadata(#[source] std::io::Error),
     #[error("failed to encode update cache metadata")]
     EncodeMetadata(#[source] serde_json::Error),
     #[error("failed to write update cache")]
     CacheWrite(#[source] std::io::Error),
+    #[error("failed to commit update cache")]
+    CacheCommit(#[source] std::io::Error),
     #[error("failed to read cached update")]
     CacheRead(#[source] std::io::Error),
     #[error("cached update digest changed")]
     CachedArtifactChanged,
+    #[error("cached update signature is invalid")]
+    CachedArtifactUntrusted,
+    #[error("the updater trust configuration is invalid: {0}")]
+    TrustConfiguration(String),
     #[error("update operation failed")]
     Updater(#[source] tauri_plugin_updater::Error),
     #[error("failed to construct configured proxy URL")]
