@@ -13,7 +13,7 @@ use crate::registration::validate_registration;
 use crate::state::ManagedPluginState;
 use crate::{PluginLifecycleInner, PluginNotificationSink};
 use ora_domain::PluginId;
-use ora_plugin_manager::InstalledPlugin as DiscoveredPlugin;
+use ora_plugin_manager::{InstalledPlugin as DiscoveredPlugin, PluginContribution};
 use ora_plugin_runtime::PluginNotification;
 use std::sync::{Arc, PoisonError};
 use std::time::Duration;
@@ -74,6 +74,7 @@ pub(crate) async fn complete_launch<RuntimeLauncher, StatusPublisher, Notificati
             entrypoint: plugin.package_root.join(entrypoint.to_path_buf()),
             package_root: plugin.package_root.clone(),
             permissions: permissions_for(&plugin.contributes),
+            allow_childprocess: matches!(plugin.contributes, PluginContribution::Agent(_)),
             data_dir,
         })
         .await;

@@ -16,15 +16,22 @@ use std::time::Duration;
 /// Dispatches one plugin process's host requests to whichever handler owns the method's
 /// namespace. `ora-plugin-runtime` launches with exactly one [`HostRequestHandler`] per process,
 /// so this is the single place `ora/storage/*` and `ora/childprocess/*` combine.
+///
+/// `processes` is `None` for every non-agent plugin: those launch with zero Deno permissions
+/// specifically so they cannot start a process (see [`PluginLaunchRequest::allow_childprocess`]),
+/// and mounting the handler unconditionally would let a host request reopen that door.
 struct PluginHostRequests {
     storage: PluginStorage,
-    processes: PluginProcessHost<TokioProcessSpawner>,
+    processes: Option<PluginProcessHost<TokioProcessSpawner>>,
 }
 
 impl HostRequestHandler for PluginHostRequests {
     async fn handle(&self, method: &str, params: Value) -> Result<Value, HostRequestError> {
         if method.starts_with("ora/childprocess/") {
-            self.processes.handle(method, params).await
+            match &self.processes {
+                Some(processes) => processes.handle(method, params).await,
+                None => Err(HostRequestError::method_not_found(method)),
+            }
         } else {
             self.storage.handle(method, params).await
         }
@@ -103,8 +110,9 @@ impl PluginRuntimeLauncher for DenoPluginRuntimeLauncher {
                         .map_err(|error| PluginRuntimeFailure::new(error.to_string()))
                 })
                 .collect::<Result<Vec<_>, _>>()?;
-            let processes =
-                PluginProcessHost::new(request.plugin_id.to_string(), TokioProcessSpawner::new());
+            let processes = request.allow_childprocess.then(|| {
+                PluginProcessHost::new(request.plugin_id.to_string(), TokioProcessSpawner::new())
+            });
             let host_requests = PluginHostRequests {
                 storage: PluginStorage::new(request.data_dir),
                 processes: processes.clone(),
@@ -127,7 +135,9 @@ impl PluginRuntimeLauncher for DenoPluginRuntimeLauncher {
             .map_err(|error| PluginRuntimeFailure::new(error.to_string()))?;
             // The handler must exist before `launch` is called, so it can only learn how to push
             // notifications back to the plugin once `launch` has returned this handle.
-            processes.attach_runtime(runtime.clone());
+            if let Some(processes) = &processes {
+                processes.attach_runtime(runtime.clone());
+            }
             // Whatever ends this plugin generation — an intentional stop, uninstall, restart, or
             // failure — must also end every process it asked the host to spawn on its behalf; see
             // `PluginProcessHost::kill_all`.
@@ -136,7 +146,9 @@ impl PluginRuntimeLauncher for DenoPluginRuntimeLauncher {
                 let runtime = runtime.clone();
                 async move {
                     runtime.wait_for_exit().await;
-                    processes.kill_all().await;
+                    if let Some(processes) = processes {
+                        processes.kill_all().await;
+                    }
                 }
             });
             let registration = runtime.registration().await;
@@ -208,5 +220,36 @@ impl PluginRuntime for DenoPluginRuntime {
                 .await
                 .map_err(map_call_error)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::PluginHostRequests;
+    use crate::childprocess::CHILDPROCESS_SPAWN_METHOD;
+    use crate::storage::PluginStorage;
+    use ora_plugin_runtime::{HostRequestError, HostRequestHandler};
+    use pretty_assertions::assert_eq;
+    use serde_json::json;
+    use std::path::PathBuf;
+
+    /// A non-agent plugin's dispatcher has no `processes` handler mounted, so a spawn request
+    /// must fail the same way an entirely unknown method would rather than reach a spawner.
+    #[tokio::test]
+    async fn childprocess_methods_are_unknown_without_the_processes_handler() {
+        let host_requests = PluginHostRequests {
+            storage: PluginStorage::new(PathBuf::from(".")),
+            processes: None,
+        };
+
+        let error = host_requests
+            .handle(CHILDPROCESS_SPAWN_METHOD, json!({ "command": "opencode" }))
+            .await
+            .expect_err("spawn is refused without a processes handler");
+
+        assert_eq!(
+            error,
+            HostRequestError::method_not_found(CHILDPROCESS_SPAWN_METHOD)
+        );
     }
 }

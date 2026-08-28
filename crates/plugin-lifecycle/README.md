@@ -105,7 +105,12 @@ unknown `ora/storage/*` methods get `-32601`. Filesystem work runs on the blocki
 `PluginProcessHost` lets a plugin ask the host to own a subprocess on its behalf instead of
 spawning one itself inside its own sandboxed runtime — the process is created and torn down
 through `ora-process`'s tree-wide termination (a Windows Job Object or a Unix process group), the
-same guarantee every other Ora-managed child process already gets.
+same guarantee every other Ora-managed child process already gets. Only agent plugins can reach
+it: `DenoPluginRuntimeLauncher` mounts `PluginProcessHost` per launch based on
+`PluginLaunchRequest::allow_childprocess`, which is set only for the agent contribution kind. A
+workbench, webview, skill, or MCP plugin runs with zero Deno permissions specifically so it cannot
+start a process (see `permissions::permissions_for`); every `ora/childprocess/*` call from one of
+those kinds gets the same `-32601` a genuinely unknown method would.
 
 | Method                        | Params                           | Result                                   |
 | ----------------------------- | -------------------------------- | ---------------------------------------- |
@@ -121,7 +126,14 @@ The host pushes back three notifications the plugin never declares receiving (mi
 `processId` is scoped to one plugin generation, not globally unique. Failures carry `data.kind`
 `invalid_params` / `invalid_command` (`-32602`), `not_found` (`-32004`), `program_not_found` or
 `io` (`-32000`) — `program_not_found` means the OS could not resolve the executable, distinct from
-any other spawn or I/O failure.
+any other spawn or I/O failure. `write` rejects a `bytesBase64` payload that would decode to more
+than `MAX_WRITE_BYTES` (8 MiB, mirroring `MAX_STORAGE_FILE_BYTES`) as `invalid_params` before
+decoding it, so a plugin cannot force unbounded host memory growth through one oversized write.
+
+The exit notification for one process is never sent ahead of its last `stdout`/`stderr` chunk: the
+exit watcher joins that process's output-pumping tasks before pushing `ora/childprocess/exit`,
+even though the process's `wait()` and its pipes are read by independent tasks that would otherwise
+race.
 
 Every process a plugin generation spawned this way is killed, best effort, the moment that
 generation's `PluginRuntime` reports exit for any reason — intentional stop, uninstall, restart,

@@ -26,6 +26,7 @@ use ora_process::{ManagedProcess, ProcessSpawner, ProcessSpec, ProcessStdio};
 use serde_json::{Value, json};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::{mpsc, watch};
+use tokio::task::JoinHandle;
 
 /// Spawns one child process; returns `{ processId, pid }`.
 pub const CHILDPROCESS_SPAWN_METHOD: &str = "ora/childprocess/spawn";
@@ -49,6 +50,15 @@ const IO_CODE: i64 = -32000;
 
 /// Chunk size used when pumping a spawned process's stdout or stderr into notifications.
 const READ_CHUNK_BYTES: usize = 32 * 1024;
+
+/// Upper bound on one `write` request's decoded payload, mirroring
+/// [`crate::storage::MAX_STORAGE_FILE_BYTES`] so a plugin cannot force unbounded host memory
+/// growth by streaming an oversized chunk to a spawned process's stdin.
+pub(crate) const MAX_WRITE_BYTES: usize = 8 * 1024 * 1024;
+
+/// Longest base64 string that can decode to `MAX_WRITE_BYTES`, checked before `BASE64.decode`
+/// allocates so an oversized payload is rejected without ever being decoded.
+const MAX_WRITE_BASE64_LEN: usize = MAX_WRITE_BYTES.div_ceil(3) * 4;
 
 /// Stable classification of a child-process failure, serialized as `data.kind`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -127,6 +137,11 @@ enum StdinCommand {
 struct Tracked<P> {
     process: Arc<P>,
     stdin_tx: mpsc::Sender<StdinCommand>,
+    /// Joined by `watch_exit` before it pushes the exit notification: `wait()` and these pump
+    /// tasks race independently against the same pipes, so without joining them first the exit
+    /// notification could reach the plugin before the last stdout/stderr chunk does.
+    stdout_done: JoinHandle<()>,
+    stderr_done: JoinHandle<()>,
 }
 
 struct Inner<S: ProcessSpawner> {
@@ -263,6 +278,18 @@ where
         tokio::spawn(run_stdin_writer(stdin, stdin_rx));
 
         let process = Arc::new(process);
+        let stdout_done = tokio::spawn(pump_output(
+            self.clone(),
+            process_id.clone(),
+            stdout,
+            CHILDPROCESS_STDOUT_METHOD,
+        ));
+        let stderr_done = tokio::spawn(pump_output(
+            self.clone(),
+            process_id.clone(),
+            stderr,
+            CHILDPROCESS_STDERR_METHOD,
+        ));
         self.0
             .tracked
             .lock()
@@ -272,21 +299,11 @@ where
                 Tracked {
                     process: Arc::clone(&process),
                     stdin_tx,
+                    stdout_done,
+                    stderr_done,
                 },
             );
 
-        tokio::spawn(pump_output(
-            self.clone(),
-            process_id.clone(),
-            stdout,
-            CHILDPROCESS_STDOUT_METHOD,
-        ));
-        tokio::spawn(pump_output(
-            self.clone(),
-            process_id.clone(),
-            stderr,
-            CHILDPROCESS_STDERR_METHOD,
-        ));
         tokio::spawn(watch_exit(self.clone(), process_id.clone(), process));
 
         Ok(json!({ "processId": process_id, "pid": pid }))
@@ -303,6 +320,13 @@ where
                     "missing string bytesBase64",
                 )
             })?;
+        if bytes_base64.len() > MAX_WRITE_BASE64_LEN {
+            return Err(ChildProcessError::new(
+                ChildProcessErrorKind::InvalidParams,
+                format!("bytesBase64 decodes to more than {MAX_WRITE_BYTES} bytes"),
+            )
+            .into());
+        }
         let bytes = BASE64.decode(bytes_base64).map_err(|error| {
             ChildProcessError::new(
                 ChildProcessErrorKind::InvalidParams,
@@ -432,11 +456,17 @@ where
     S::Process: Send + Sync + 'static,
 {
     let status = process.wait().await;
-    host.0
+    let tracked = host
+        .0
         .tracked
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
         .remove(&process_id);
+    // Drain whatever stdout/stderr the pumps already read before announcing exit, so the plugin
+    // never sees the exit notification arrive ahead of the process's last output.
+    if let Some(tracked) = tracked {
+        let _ = tokio::join!(tracked.stdout_done, tracked.stderr_done);
+    }
     if let Err(error) = &status {
         ora_warn!(
             plugin_id = %host.0.plugin_id,

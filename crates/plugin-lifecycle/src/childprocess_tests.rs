@@ -25,7 +25,7 @@ use tokio::time::timeout;
 
 use crate::childprocess::{
     CHILDPROCESS_CLOSE_STDIN_METHOD, CHILDPROCESS_KILL_METHOD, CHILDPROCESS_SPAWN_METHOD,
-    CHILDPROCESS_WRITE_METHOD, PluginProcessHost,
+    CHILDPROCESS_WRITE_METHOD, MAX_WRITE_BYTES, PluginProcessHost,
 };
 
 /// The `data.kind` classification of one failed call, as a plugin would branch on it.
@@ -41,7 +41,6 @@ fn kind_of(error: &HostRequestError) -> String {
 struct FakeChildTestHandle {
     stdin_peer: DuplexStream,
     stdout_peer: DuplexStream,
-    #[allow(dead_code)]
     stderr_peer: DuplexStream,
     exit_tx: watch::Sender<Option<ExitStatus>>,
     killed: Arc<AtomicBool>,
@@ -328,6 +327,24 @@ async fn write_forwards_bytes_and_close_stdin_signals_eof() {
 }
 
 #[tokio::test]
+async fn write_rejects_a_payload_over_the_size_limit_before_decoding_it() {
+    let host = PluginProcessHost::new("plugin-a", FakeChildSpawner::new());
+    // Longer than any base64 string that could decode to `MAX_WRITE_BYTES`; the content does not
+    // need to be valid base64 because the size check runs before `BASE64.decode`.
+    let oversized = "A".repeat(MAX_WRITE_BYTES.div_ceil(3) * 4 + 4);
+
+    let error = host
+        .handle(
+            CHILDPROCESS_WRITE_METHOD,
+            json!({ "processId": "missing", "bytesBase64": oversized }),
+        )
+        .await
+        .expect_err("oversized payload is rejected");
+
+    assert_eq!(kind_of(&error), "invalid_params");
+}
+
+#[tokio::test]
 async fn operations_on_an_unknown_process_id_are_not_found() {
     let host = PluginProcessHost::new("plugin-a", FakeChildSpawner::new());
 
@@ -512,7 +529,7 @@ impl ProcessSpawner for SinglePluginProcessSpawner {
 }
 
 #[tokio::test]
-async fn pushes_stdout_and_exit_once_a_runtime_is_attached() {
+async fn pushes_stdout_before_exit_even_when_the_process_exits_immediately_after_writing() {
     let entrypoint = tempfile::NamedTempFile::new().expect("create fake entrypoint file");
 
     let (host_stdin, mut plugin_reads_from_host) = tokio::io::duplex(8192);
@@ -576,6 +593,22 @@ async fn pushes_stdout_and_exit_once_a_runtime_is_attached() {
         .await
         .expect("write fake stdout chunk");
 
+    // Fire the exit signal immediately after the write, without waiting for the stdout
+    // notification to be observed first: this is the interleaving that let `watch_exit`
+    // race ahead of `pump_output` and reorder the notifications before the join fix. A real OS
+    // process closes its stdout/stderr pipes as part of exiting, which is what lets
+    // `pump_output` observe EOF and finish; drop the fake's write ends the same way, or the exit
+    // notification would wait on `watch_exit`'s join forever.
+    let FakeChildTestHandle {
+        stdout_peer,
+        stderr_peer,
+        exit_tx,
+        ..
+    } = child_test_handle;
+    drop(stdout_peer);
+    drop(stderr_peer);
+    exit_tx.send_replace(Some(exit_status(0)));
+
     let stdout_notification = timeout(Duration::from_secs(2), frames_rx.recv())
         .await
         .expect("stdout notification arrives before timeout")
@@ -588,8 +621,6 @@ async fn pushes_stdout_and_exit_once_a_runtime_is_attached() {
             "params": { "processId": process_id, "bytesBase64": BASE64.encode(b"chunk-one") },
         })
     );
-
-    child_test_handle.exit_tx.send_replace(Some(exit_status(0)));
 
     let exit_notification = timeout(Duration::from_secs(2), frames_rx.recv())
         .await

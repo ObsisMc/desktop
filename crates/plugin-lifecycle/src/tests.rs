@@ -446,6 +446,7 @@ async fn activation_launches_the_plugin_and_publishes_each_transition() {
                 DenoPermission::AllowEnv,
                 DenoPermission::AllowNet,
             ],
+            allow_childprocess: true,
             data_dir: temp_dir
                 .path()
                 .join("plugins")
