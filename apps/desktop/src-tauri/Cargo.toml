@@ -31,6 +31,7 @@ serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 tauri = { version = "2.11.5", features = [] }
 tauri-plugin-dialog = "2"
+tauri-plugin-updater = "2.10.1"
 ora-application = { path = "../../../crates/application" }
 ora-backend = { path = "../../../crates/backend" }
 ora-contracts = { path = "../../../crates/contracts" }
@@ -42,8 +43,10 @@ ora-plugin-manager = { path = "../../../crates/plugin-manager" }
 ora-plugin-manifest = { path = "../../../crates/plugin-manifest" }
 ora-process = { path = "../../../crates/process" }
 ora-runtime-settings = { path = "../../../crates/runtime-settings" }
+ora-scheduler = { path = "../../../crates/scheduler" }
 ora-surface = { path = "../../../crates/surface" }
 semver = { workspace = true }
+sha2 = { workspace = true }
 ora-utils = { path = "../../../crates/utils" }
 tempfile = "3"
 thiserror = "2"

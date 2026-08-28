@@ -129,6 +129,7 @@ fn platform_binary_name(name: &str) -> String {
 #[derive(Clone)]
 pub struct DesktopState {
     pub backend: Backend,
+    pub update: crate::update::UpdateService,
     pub runtime_log_level: DesktopRuntimeLogLevelManager,
     pub workspace_files: Arc<WorkspaceFileApi>,
     pub binary_paths: BundledBinaryPaths,

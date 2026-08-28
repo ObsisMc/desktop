@@ -1459,6 +1459,22 @@ export const translationResources = {
     "chat.suggestion.testing": "整理会话连接测试计划",
     "error.workspaceRequest": "工作区请求失败。",
     "error.workspaceLoad": "无法加载工作区数据。",
+    "update.currentVersion": "Ora {{version}}",
+    "update.checkNow": "检查更新",
+    "update.checking": "正在检查更新…",
+    "update.downloading": "正在下载 Ora {{version}}（{{progress}}）",
+    "update.downloadingUnknownSize": "正在下载 Ora {{version}}",
+    "update.ready": "发现新版本 {{version}}，点击安装并重启",
+    "update.installing": "正在安装 Ora {{version}}…",
+    "update.failed": "检查更新失败：{{message}}",
+    "update.manual.system_package":
+      "发现新版本 {{version}}。当前通过系统软件包安装，请用软件包管理器更新。",
+    "update.manual.unpackaged_binary":
+      "发现新版本 {{version}}。当前未以 AppImage 方式运行，无法自动更新。",
+    "update.confirmTitle": "安装 Ora {{version}}",
+    "update.confirmDescription":
+      "当前版本 {{currentVersion}}，将更新到 {{version}}。安装完成后 Ora 会自动重启。",
+    "update.confirmAction": "立即更新",
   },
   "en-US": {
     "errors.internal_error":
@@ -3086,6 +3102,22 @@ export const translationResources = {
     "chat.suggestion.testing": "Outline a test plan for session attach",
     "error.workspaceRequest": "The workspace request failed.",
     "error.workspaceLoad": "Unable to load workspace data.",
+    "update.currentVersion": "Ora {{version}}",
+    "update.checkNow": "Check for updates",
+    "update.checking": "Checking for updates…",
+    "update.downloading": "Downloading Ora {{version}} ({{progress}})",
+    "update.downloadingUnknownSize": "Downloading Ora {{version}}",
+    "update.ready": "Ora {{version}} is available. Install it and restart.",
+    "update.installing": "Installing Ora {{version}}…",
+    "update.failed": "Could not check for updates: {{message}}",
+    "update.manual.system_package":
+      "Ora {{version}} is available. This installation came from a system package, so update it with your package manager.",
+    "update.manual.unpackaged_binary":
+      "Ora {{version}} is available. This build is not running as an AppImage, so it cannot update itself.",
+    "update.confirmTitle": "Install Ora {{version}}",
+    "update.confirmDescription":
+      "You are on {{currentVersion}} and will move to {{version}}. Ora restarts once the update is installed.",
+    "update.confirmAction": "Update now",
   },
 } as const;
 

@@ -128,4 +128,7 @@ commands.allow = [
     "plugin_webview_invoke",
     "surface_resolve_download",
     "surface_discard_download",
+    "get_desktop_update_status",
+    "install_desktop_update",
+    "check_desktop_update",
 ]

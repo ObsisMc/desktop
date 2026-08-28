@@ -125,4 +125,7 @@ desktop_command_registry! {
     surface::workbench_bridge::plugin_webview_invoke,
     surface::commands::surface_resolve_download,
     surface::commands::surface_discard_download,
+    update::commands::get_desktop_update_status,
+    update::commands::install_desktop_update,
+    update::commands::check_desktop_update,
 }

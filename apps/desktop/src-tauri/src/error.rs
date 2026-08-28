@@ -26,6 +26,8 @@ pub enum DesktopBootstrapError {
     Backend(#[from] BackendBootstrapError),
     #[error("failed to load the persisted Desktop runtime preference")]
     RuntimePreference(#[source] BackendError),
+    #[error("failed to initialize Desktop update service")]
+    Update(#[source] crate::update::UpdateError),
 }
 
 /// Serializes the transport-neutral contract directly across the Tauri command seam.

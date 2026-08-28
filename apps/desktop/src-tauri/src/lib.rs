@@ -8,10 +8,12 @@ mod spec_commands;
 mod state;
 mod stream_forwarding;
 mod surface;
+mod update;
 mod workspace_files;
 
 use crate::error::DesktopBootstrapError;
 use crate::state::{BundledBinaryPaths, DesktopRuntimeGuard, DesktopState};
+use crate::update::DesktopUpdateMode;
 use ora_backend::{Backend, BackendError, BackendPaths};
 use ora_logging::{
     FileLoggingConfig, LogLevel, LogOutput, LoggingConfig, RotationPolicy, init_logging, ora_error,
@@ -45,6 +47,7 @@ pub fn run() {
     let builder = surface::register_workbench_protocol(tauri::Builder::default());
     let run_result = builder
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let (state, guard) = bootstrap_desktop(app)?;
             surface::install(app.handle(), &state.surfaces, &state.backend);
@@ -151,6 +154,18 @@ fn bootstrap_desktop(
     );
     let workspace_files = Arc::new(workspace_files::WorkspaceFileApi::new(ripgrep_path));
     let surfaces = surface::SurfaceService::new(app.handle().clone(), backend.plugin_gateway());
+    let update = update::UpdateService::start(
+        app.handle().clone(),
+        backend.clone(),
+        &home_directory,
+        resolved_timezone.timezone,
+        if cfg!(debug_assertions) {
+            DesktopUpdateMode::Disabled
+        } else {
+            DesktopUpdateMode::Enabled
+        },
+    )
+    .map_err(DesktopBootstrapError::Update)?;
     let runtime_log_level = RuntimeLogLevelManager::new(
         level_control,
         backend.preferred_log_level_store(),
@@ -160,6 +175,7 @@ fn bootstrap_desktop(
     Ok((
         DesktopState {
             backend,
+            update,
             runtime_log_level,
             workspace_files,
             binary_paths,

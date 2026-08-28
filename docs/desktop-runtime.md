@@ -24,6 +24,30 @@ The Desktop App Shell waits for the `Ready` frame before mounting normal queries
 
 Beyond the shared contract surface, Desktop registers four platform-only commands: `get_worktree_root`, `set_worktree_root`, `resolve_task_cwd`, and `open_location`. `open_location` with target `explorer` reveals a file in the system file manager (`explorer.exe /select,` on Windows, `open -R` on macOS) so the default file association — often Cursor — is not launched. Existing directories still open as folder windows.
 
+## Desktop updates
+
+Release builds register the Tauri updater and an in-process `ora-scheduler` job. The job performs
+an initial delayed check and then checks the static GitHub Release manifest every six hours. The
+manifest is `https://github.com/ora-space/desktop/releases/latest/download/latest.json`; Tauri
+selects the current OS/architecture and verifies its signed updater artifact before the Desktop
+service writes one fixed-name package below `~/.ora/cache/`. Development builds keep the commands
+available for integration tests but do not register network work. The updater status is exposed by
+`get_desktop_update_status` and installation is started by `install_desktop_update`; status changes
+are emitted as `desktop-update-status-changed`. A successful current-version check removes the
+cached package and metadata. The updater public key is configured in
+`apps/desktop/src-tauri/tauri.conf.json`; release artifacts still require the matching private
+key in the GitHub Actions secret `TAURI_SIGNING_PRIVATE_KEY`.
+
+A package that has already been downloaded stays installable: a later check that fails is logged
+and leaves the `Ready` status in place, because the verified bytes are still on disk. `Failed` is
+therefore only reported when nothing was installable to begin with, and a failed installation
+restores `Ready` so the user can retry.
+
+The static manifest advertises an AppImage for Linux, which the updater can only install into an
+AppImage installation. A `deb` or `rpm` installation, or a build running as a bare executable, is
+reported as `ManualUpdate` with the reason instead, before any download is spent; the shell then
+names the release and the channel to update through rather than offering an install action.
+
 ## Skill imports
 
 Desktop exposes the shared import session lifecycle through four unary Tauri commands:

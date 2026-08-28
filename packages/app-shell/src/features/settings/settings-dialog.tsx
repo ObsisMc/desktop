@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { localizeContractError } from "../../i18n/contract-error";
-import { appVersion } from "../../lib/app-version";
 import { usePlatform } from "../../platform";
 import {
   AlertDialog,
@@ -61,6 +60,7 @@ import {
 } from "../../state/stores/settings-store";
 import { useChatStore } from "../../chat-store-context";
 import { useStore } from "zustand";
+import { DesktopUpdateControl } from "../workspace/desktop-update-control";
 import type {
   ApprovalPolicy,
   InterfaceDensity,
@@ -166,7 +166,7 @@ export function SettingsDialog() {
             <DialogDescription>{t("settings.description")}</DialogDescription>
           </DialogHeader>
           <div className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] sm:grid-rows-1 sm:grid-cols-[210px_minmax(0,1fr)]">
-            <aside className="border-b border-border bg-muted/35 p-3 sm:border-b-0 sm:border-r">
+            <aside className="flex flex-col border-b border-border bg-muted/35 p-3 sm:border-b-0 sm:border-r">
               <div className="hidden h-11 items-center gap-2 px-2 sm:flex">
                 <div className="flex size-7 items-center justify-center rounded-md bg-foreground text-background">
                   <IconAdjustments className="size-4" />
@@ -205,9 +205,9 @@ export function SettingsDialog() {
                   );
                 })}
               </nav>
-              <p className="mt-auto hidden px-2 pb-1 pt-6 text-xs leading-5 text-muted-foreground sm:block">
-                v{appVersion}
-              </p>
+              <div className="mt-auto hidden pt-6 sm:block">
+                <DesktopUpdateControl />
+              </div>
             </aside>
 
             <ScrollArea className="min-h-0">

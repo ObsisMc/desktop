@@ -1,5 +1,11 @@
 import { createRef } from "react";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Editor } from "@tiptap/core";
 import { describe, expect, it, vi } from "vitest";
@@ -166,7 +172,6 @@ describe("ComposerEditor", () => {
   });
 
   it("pins a skill mention on plain click instead of giving no feedback", async () => {
-    const user = userEvent.setup();
     const editorRef = createRef<ComposerEditorHandle>();
     render(
       <ComposerEditor ref={editorRef} ariaLabel="Message" onSubmit={vi.fn()} />,
@@ -195,7 +200,21 @@ describe("ComposerEditor", () => {
       return el!;
     });
 
-    await user.click(mention);
+    // jsdom never lays out the page, so ProseMirror's coordinate-based
+    // posAtCoords (elementFromPoint / getClientRects) cannot resolve a click
+    // onto this node the way a real browser would; without it, handleClickOn
+    // never sees the mention (inside stays -1) and never runs at all. Stand
+    // in for the browser's hit-test for the duration of this click so the
+    // production handleClickOn path actually runs, the same way a real click
+    // on this exact span would resolve.
+    const originalElementFromPoint = document.elementFromPoint;
+    document.elementFromPoint = () => mention;
+    try {
+      fireEvent.mouseDown(mention, { button: 0, detail: 1 });
+      fireEvent.mouseUp(mention, { button: 0, detail: 1 });
+    } finally {
+      document.elementFromPoint = originalElementFromPoint;
+    }
 
     // The painted wash is the selection feedback for a mention; the
     // TextSelection-not-NodeSelection property is covered by the editor
