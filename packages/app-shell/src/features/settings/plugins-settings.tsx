@@ -465,7 +465,10 @@ function AvailablePluginCard({
             className="shrink-0"
             aria-label={t("settings.plugins.installed")}
           >
-            <CompletedInstallIcon animate={install.isSuccess} />
+            <CompletedInstallIcon
+              animate={install.completionId !== null}
+              onAnimationComplete={install.consumeCompletion}
+            />
           </Button>
         )}
       </span>
@@ -474,7 +477,13 @@ function AvailablePluginCard({
 }
 
 /** Matches the download ring's footprint and lets a newly installed check spring into place. */
-function CompletedInstallIcon({ animate }: { animate: boolean }) {
+function CompletedInstallIcon({
+  animate,
+  onAnimationComplete,
+}: {
+  animate: boolean;
+  onAnimationComplete: () => void;
+}) {
   return (
     <span
       data-slot="plugin-install-complete"
@@ -489,6 +498,7 @@ function CompletedInstallIcon({ animate }: { animate: boolean }) {
         }
       />
       <IconCheck
+        onAnimationEnd={animate ? onAnimationComplete : undefined}
         className={
           animate
             ? "size-3.5 stroke-[2.5] animate-in fade-in-0 zoom-in-0 delay-100 duration-300 fill-mode-both ease-[cubic-bezier(0.34,1.56,0.64,1)] motion-reduce:animate-none"

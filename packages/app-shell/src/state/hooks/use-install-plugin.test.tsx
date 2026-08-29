@@ -12,7 +12,7 @@ import { usePluginOperationStore } from "../stores/plugin-operation-store";
 import { useInstallPlugin } from "./use-install-plugin";
 
 afterEach(() => {
-  usePluginOperationStore.setState({ activities: {} });
+  act(() => usePluginOperationStore.setState({ activities: {} }));
 });
 
 describe("useInstallPlugin", () => {

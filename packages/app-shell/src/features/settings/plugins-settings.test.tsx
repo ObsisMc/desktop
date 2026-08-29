@@ -21,7 +21,7 @@ import { PluginsSettings } from "./plugins-settings";
 void appI18n;
 
 afterEach(() => {
-  usePluginOperationStore.setState({ activities: {} });
+  act(() => usePluginOperationStore.setState({ activities: {} }));
 });
 
 /** Renders plugin settings with isolated query, contracts-client, and platform state. */

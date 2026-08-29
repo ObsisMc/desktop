@@ -50,6 +50,15 @@ export function useInstallPlugin(pluginId: string) {
   const installing =
     activity?.state === "pending" && activity.kind === "install";
   const progress = installing ? activity.progress : null;
+  const completionId =
+    activity?.state === "install_completed" ? activity.completionId : null;
+  const consumeCompletion = () => {
+    if (completionId !== null) {
+      usePluginOperationStore
+        .getState()
+        .consumeInstallCompletion(pluginId, completionId);
+    }
+  };
   return {
     ...mutation,
     isPending: installing,
@@ -57,5 +66,7 @@ export function useInstallPlugin(pluginId: string) {
     mutate,
     mutateAsync,
     progress,
+    completionId,
+    consumeCompletion,
   };
 }

@@ -20,11 +20,12 @@ interface PluginOperationState {
   reportInstallProgress: (progress: PluginInstallProgress) => void;
   /** Briefly records install success so the completion glyph can animate after query refresh. */
   completeInstall: (pluginId: string) => void;
+  /** Clears the exact completion after its glyph animation ends. */
+  consumeInstallCompletion: (pluginId: string, completionId: number) => void;
   /** Clears a settled operation so another lifecycle action can begin. */
   clear: (pluginId: string) => void;
 }
 
-const COMPLETION_ANIMATION_MS = 700;
 let nextCompletionId = 1;
 
 /** Owns plugin lifecycle activity independently of any settings row or card lifecycle. */
@@ -64,16 +65,15 @@ export const usePluginOperationStore = create<PluginOperationState>(
           [pluginId]: { state: "install_completed", completionId },
         },
       }));
-      // Completion is transitional UI state, not durable installation truth; queries own that.
-      setTimeout(() => {
-        const activity = get().activities[pluginId];
-        if (
-          activity?.state === "install_completed" &&
-          activity.completionId === completionId
-        ) {
-          get().clear(pluginId);
-        }
-      }, COMPLETION_ANIMATION_MS);
+    },
+    consumeInstallCompletion: (pluginId, completionId) => {
+      const activity = get().activities[pluginId];
+      if (
+        activity?.state === "install_completed" &&
+        activity.completionId === completionId
+      ) {
+        get().clear(pluginId);
+      }
     },
     clear: (pluginId) => {
       set((state) => {

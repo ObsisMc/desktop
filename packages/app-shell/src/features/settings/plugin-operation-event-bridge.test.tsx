@@ -6,7 +6,7 @@ import { usePluginOperationStore } from "../../state/stores/plugin-operation-sto
 import { PluginOperationEventBridge } from "./plugin-operation-event-bridge";
 
 afterEach(() => {
-  usePluginOperationStore.setState({ activities: {} });
+  act(() => usePluginOperationStore.setState({ activities: {} }));
 });
 
 it("records install progress independently of the marketplace page lifecycle", async () => {

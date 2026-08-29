@@ -23,7 +23,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  usePluginOperationStore.setState({ activities: {} });
+  act(() => usePluginOperationStore.setState({ activities: {} }));
 });
 
 describe("usePluginMutations", () => {
