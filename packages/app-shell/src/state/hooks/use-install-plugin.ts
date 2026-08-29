@@ -1,10 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
 import { useContractsClient } from "../../contracts-client-context";
-import {
-  useOptionalPlatform,
-  type PluginInstallProgress,
-} from "../../platform";
+import { usePluginOperationStore } from "../stores/plugin-operation-store";
 import { queryKeys } from "./query-keys";
 
 /**
@@ -14,9 +10,10 @@ import { queryKeys } from "./query-keys";
  */
 export function useInstallPlugin(pluginId: string) {
   const client = useContractsClient();
-  const platform = useOptionalPlatform();
   const queryClient = useQueryClient();
-  const [progress, setProgress] = useState<PluginInstallProgress | null>(null);
+  const activity = usePluginOperationStore(
+    (state) => state.activities[pluginId],
+  );
   const invalidate = () =>
     Promise.all([
       queryClient.invalidateQueries({ queryKey: queryKeys.installedPlugins }),
@@ -26,34 +23,39 @@ export function useInstallPlugin(pluginId: string) {
   const mutation = useMutation({
     mutationFn: ({ signal }: { signal?: AbortSignal } = {}) =>
       client.plugin.install({ pluginId }, { signal }),
-    onSettled: invalidate,
+    onSettled: async (_response, error) => {
+      try {
+        await invalidate();
+      } finally {
+        const operations = usePluginOperationStore.getState();
+        if (error === null) operations.completeInstall(pluginId);
+        else operations.clear(pluginId);
+      }
+    },
   });
 
-  useEffect(() => {
-    let active = true;
-    let unsubscribe: (() => void) | undefined;
-    void platform?.pluginMarketplace
-      ?.onInstallProgress((next) => {
-        if (active && next.pluginId === pluginId) setProgress(next);
-      })
-      .then((stop) => {
-        if (active) unsubscribe = stop;
-        else stop();
-      });
-    return () => {
-      active = false;
-      unsubscribe?.();
-    };
-  }, [platform?.pluginMarketplace, pluginId]);
-
   const mutate = (...args: Parameters<typeof mutation.mutate>) => {
-    setProgress(null);
+    if (!usePluginOperationStore.getState().begin(pluginId, "install")) return;
     mutation.mutate(...args);
   };
   const mutateAsync = (...args: Parameters<typeof mutation.mutateAsync>) => {
-    setProgress(null);
+    if (!usePluginOperationStore.getState().begin(pluginId, "install")) {
+      return Promise.reject(
+        new Error(`plugin operation already pending: ${pluginId}`),
+      );
+    }
     return mutation.mutateAsync(...args);
   };
 
-  return { ...mutation, mutate, mutateAsync, progress };
+  const installing =
+    activity?.state === "pending" && activity.kind === "install";
+  const progress = installing ? activity.progress : null;
+  return {
+    ...mutation,
+    isPending: installing,
+    isSuccess: mutation.isSuccess || activity?.state === "install_completed",
+    mutate,
+    mutateAsync,
+    progress,
+  };
 }

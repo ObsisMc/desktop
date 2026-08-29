@@ -1,7 +1,7 @@
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { expect, it, vi } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import type { ContractsClient, InstalledPlugin } from "@ora/contracts";
 import { toast } from "@ora/ui";
 import { AppI18nProvider } from "../../i18n/i18n";
@@ -9,14 +9,20 @@ import { appI18n } from "../../i18n/i18n-instance";
 import { ContractsClientContext } from "../../contracts-client-context";
 import { PlatformProvider, type PlatformAdapter } from "../../platform";
 import { createStubPlatform } from "../../test/stub-platform";
+import { usePluginOperationStore } from "../../state/stores/plugin-operation-store";
 import {
   createMockClient,
   createMockClientState,
 } from "../../test/mock-client";
+import { PluginOperationEventBridge } from "./plugin-operation-event-bridge";
 import { PluginsSettings } from "./plugins-settings";
 
 // Keep this test worker responsible for initializing the instance used by useTranslation.
 void appI18n;
+
+afterEach(() => {
+  usePluginOperationStore.setState({ activities: {} });
+});
 
 /** Renders plugin settings with isolated query, contracts-client, and platform state. */
 function renderSettings(
@@ -31,6 +37,7 @@ function renderSettings(
       <ContractsClientContext.Provider value={client}>
         <PlatformProvider adapter={platform}>
           <AppI18nProvider>
+            <PluginOperationEventBridge />
             <PluginsSettings />
           </AppI18nProvider>
         </PlatformProvider>
