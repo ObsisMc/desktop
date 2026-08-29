@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { expect, it, vi } from "vitest";
@@ -139,6 +139,16 @@ it("renders marketplace plugins from the registry index", async () => {
 
   expect(await screen.findByText("Weather")).toBeInTheDocument();
   expect(screen.getByText("Weather plugin")).toBeInTheDocument();
+  const installButton = screen.getByRole("button", { name: /安装|Install/ });
+  expect(
+    installButton.querySelector(".tabler-icon-download"),
+  ).toBeInTheDocument();
+  expect(installButton).toHaveClass("border-border");
+  expect(
+    screen.getByRole("button", {
+      name: /查看 Weather 的 README|View Weather README/,
+    }),
+  ).toHaveClass("items-center");
 });
 
 /** Installing goes through the backend and refreshes the installed surface. */
@@ -157,9 +167,61 @@ it("installs a marketplace plugin through the backend", async () => {
     displayName: "weather",
     version: "1.2.0",
   });
+  const installedButton = await screen.findByRole("button", {
+    name: /已安装|Installed/,
+  });
+  expect(installedButton).not.toHaveClass("border-border");
+  const completed = installedButton.querySelector(
+    '[data-slot="plugin-install-complete"]',
+  );
+  expect(completed).toHaveClass("size-6");
+  expect(completed).toHaveAttribute("data-animated", "true");
+  expect(completed?.querySelector(".tabler-icon-check")).toHaveClass(
+    "zoom-in-0",
+  );
+});
+
+/** Marketplace cards expose native byte progress while a package download is pending. */
+it("shows marketplace plugin download progress", async () => {
+  const user = userEvent.setup();
+  const { client } = clientWithWeather();
+  vi.spyOn(client.plugin, "install").mockImplementation(
+    () => new Promise<never>(() => undefined),
+  );
+  let reportProgress:
+    | ((progress: {
+        pluginId: string;
+        downloaded: number;
+        total: number | null;
+      }) => void)
+    | undefined;
+  const platform: PlatformAdapter = {
+    ...createStubPlatform(),
+    pluginMarketplace: {
+      onInstallProgress: async (listener) => {
+        reportProgress = listener;
+        return () => undefined;
+      },
+    },
+  };
+  renderSettings(client, platform);
+
+  await user.click(await screen.findByRole("button", { name: /安装|Install/ }));
+  act(() => {
+    reportProgress?.({
+      pluginId: "official/weather",
+      downloaded: 4,
+      total: 10,
+    });
+  });
+
   expect(
-    await screen.findByRole("button", { name: /已安装|Installed/ }),
-  ).toBeInTheDocument();
+    await screen.findByRole("progressbar", {
+      name: /插件下载进度|Plugin download progress/,
+    }),
+  ).toHaveAttribute("aria-valuenow", "40");
+  expect(screen.queryByText("40%")).not.toBeInTheDocument();
+  expect(document.querySelector('[data-slot="progress"]')).toBeNull();
 });
 
 /** A sync control pulls the marketplace source through the backend. */
