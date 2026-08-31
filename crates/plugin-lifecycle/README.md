@@ -131,20 +131,29 @@ no host path and needs none, and `cwd` stays free to be the workspace the child 
 doubling as the directory its program is resolved against (which a relative program does
 differently per platform).
 
+One plugin source is published either as a package that bundles its CLI or as one that expects the
+user's own install to be found on PATH, and it cannot know at build time which package it ended up
+in. The host answers that at spawn time: a `packageCommand` the package does not carry at all is
+reported as `package_command_missing`, apart from every other resolution failure, so the plugin can
+fall back to `command` on exactly that condition and treat the rest as the package fault it is. The
+SDK's `spawnAgentProcess` is that ladder.
+
 The host pushes back three notifications the plugin never declares receiving (mirroring how
 `agent/acp` already flows host→plugin): `ora/childprocess/stdout` and `ora/childprocess/stderr`
 (`{ processId, bytesBase64 }`, raw chunks — the plugin owns any line framing) and
 `ora/childprocess/exit` (`{ processId, code, signal }`, `signal` only ever set on Unix).
 `processId` is scoped to one plugin generation, not globally unique. Failures carry `data.kind`
-`invalid_params` / `invalid_command` / `invalid_package_command` (`-32602`), `not_found`
-(`-32004`), `program_not_found` or `io` (`-32000`) — `program_not_found` means the OS could not
-resolve the executable, distinct from any other spawn or I/O failure.
-`invalid_package_command` is the separate answer for a `packageCommand` that is not a portable
-relative path, does not exist, escapes the package, or is not a regular file: a broken package
-fails identically on every retry, so it must not be mistaken for a machine that is merely missing
-a CLI. `write` rejects a `bytesBase64` payload that would decode to more
-than `MAX_WRITE_BYTES` (8 MiB, mirroring `MAX_STORAGE_FILE_BYTES`) as `invalid_params` before
-decoding it, so a plugin cannot force unbounded host memory growth through one oversized write.
+`invalid_params` / `invalid_command` / `package_command_missing` / `invalid_package_command`
+(`-32602`), `not_found` (`-32004`), `program_not_found` or `io` (`-32000`) — `program_not_found`
+means the OS could not resolve the executable, distinct from any other spawn or I/O failure.
+`package_command_missing` means the package carries nothing at that path, which is how a package
+built without a bundled CLI answers, and is the one failure a plugin should fall back to a PATH
+lookup on. `invalid_package_command` is the answer for a `packageCommand` that is not a portable
+relative path, escapes the package, or is not a regular file: such a package fails identically on
+every retry, so it must not be mistaken for a machine that is merely missing a CLI. `write` rejects
+a `bytesBase64` payload that would decode to more than `MAX_WRITE_BYTES` (8 MiB, mirroring
+`MAX_STORAGE_FILE_BYTES`) as `invalid_params` before decoding it, so a plugin cannot force
+unbounded host memory growth through one oversized write.
 
 The exit notification for one process is never sent ahead of its last `stdout`/`stderr` chunk: the
 exit watcher joins that process's output-pumping tasks before pushing `ora/childprocess/exit`,

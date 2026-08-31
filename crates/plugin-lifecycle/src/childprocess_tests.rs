@@ -352,8 +352,12 @@ async fn spawn_rejects_a_package_command_that_escapes_the_package() {
     assert_eq!(kind_of(&error), "invalid_package_command");
 }
 
+/// A package that does not carry the executable is reported apart from a package that carries a
+/// broken one, because a plugin reacts to the two in opposite ways: the first is how a package
+/// built without a bundled CLI announces itself, and the plugin answers it by falling back to a
+/// PATH lookup, while the second is a deterministic package fault it must not retry.
 #[tokio::test]
-async fn spawn_rejects_a_package_command_that_does_not_exist() {
+async fn spawn_reports_a_package_command_the_package_does_not_carry_as_missing() {
     let (_package, host) = package_with_executable(FakeChildSpawner::new(), "assets/bin/opencode");
 
     let error = host
@@ -363,6 +367,23 @@ async fn spawn_rejects_a_package_command_that_does_not_exist() {
         )
         .await
         .expect_err("an absent package path is rejected");
+
+    assert_eq!(kind_of(&error), "package_command_missing");
+}
+
+#[tokio::test]
+async fn spawn_rejects_a_package_command_that_is_not_a_regular_file() {
+    let (package, host) = package_with_executable(FakeChildSpawner::new(), "assets/bin/opencode");
+    std::fs::create_dir_all(package.path().join("assets/bin/tools"))
+        .expect("create a directory where an executable is expected");
+
+    let error = host
+        .handle(
+            CHILDPROCESS_SPAWN_METHOD,
+            json!({ "packageCommand": "assets/bin/tools" }),
+        )
+        .await
+        .expect_err("a package path that is not a regular file is rejected");
 
     assert_eq!(kind_of(&error), "invalid_package_command");
 }

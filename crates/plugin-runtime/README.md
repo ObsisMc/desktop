@@ -36,7 +36,7 @@ A plugin declares both traffic directions once, in its `ora/register` notificati
     "effectResources": [
       {
         "workspaceRelativePath": ".agents/skills",
-        "materializationFormat": "skill_directory.v1",
+        "materializationFormat": "ora/skill-directory.v1",
         "coordination": "quiesce_before_mutation",
       },
     ],

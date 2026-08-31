@@ -28,9 +28,19 @@ export interface HostRequestOptions {
 }
 
 /** One Workspace-relative Effect Resource included in the immutable plugin registration. */
+/**
+ * The one materialization format Ora's agent Consumer adapter accepts.
+ *
+ * Exported as a value because the host compares it exactly and abandons the agent for the rest of
+ * the process when it does not match — a typo here is not a degraded mode, it is a plugin that
+ * never starts, reported once as an invalid Effect declaration.
+ */
+export const SKILL_DIRECTORY_V1 = "ora/skill-directory.v1";
+
 export interface EffectResourceDeclaration {
   workspaceRelativePath: string;
-  materializationFormat: string;
+  /** Narrowed to the literal the host accepts, so a wrong spelling fails at compile time. */
+  materializationFormat: typeof SKILL_DIRECTORY_V1;
   coordination: "uninterrupted" | "quiesce_before_mutation";
 }
 

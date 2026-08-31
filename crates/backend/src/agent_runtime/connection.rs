@@ -862,13 +862,19 @@ fn plugin_attach_error(error: ConnectionError) -> StartFailure {
 ///
 /// A plugin whose own agent process is not installed on this machine is an expected local
 /// configuration, so it is reported exactly like an uninstalled plugin and retried without
-/// logging.
+/// logging: the user can install the CLI while Ora keeps running, and the next attempt picks it
+/// up. A plugin that reports its own bundled agent as unusable is the opposite case — the same
+/// package produces the same failure on every attempt — so it is abandoned like an unservable
+/// contract rather than retried behind a quiet `agent_not_installed`.
 fn plugin_start_error(error: PluginAgentError) -> StartFailure {
     match error {
         PluginAgentError::AgentNotInstalled => StartFailure::Retryable(runtime_internal(
             "agent_not_installed",
             "the agent behind this plugin is not installed",
         )),
+        PluginAgentError::AgentUnusable(detail) => {
+            StartFailure::Terminal(runtime_internal("agent_start_failed", detail))
+        }
         PluginAgentError::ContractIncomplete(detail) => {
             StartFailure::Terminal(runtime_internal("agent_start_failed", detail))
         }
@@ -1036,6 +1042,23 @@ mod tests {
             error.public_error(),
             PublicError::AgentNotInstalled(_)
         ));
+    }
+
+    /// Verifies a plugin whose bundled agent cannot run is abandoned rather than retried quietly,
+    /// carrying the plugin's own detail: giving up means this is the only report it ever produces.
+    #[test]
+    fn gives_up_on_a_plugin_whose_bundled_agent_is_unusable() {
+        let failure = plugin_start_error(PluginAgentError::AgentUnusable(
+            "the bundled agent `bin/opencode` cannot run".to_string(),
+        ));
+
+        let StartFailure::Terminal(error) = failure else {
+            panic!("an unusable bundled agent must not be retried");
+        };
+        assert_eq!(
+            error.to_string(),
+            "the bundled agent `bin/opencode` cannot run"
+        );
     }
 
     /// Verifies a plugin that cannot serve the contract is abandoned instead of retried forever.

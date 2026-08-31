@@ -95,10 +95,19 @@ await acp.kill(); // best-effort tree-wide termination
 const { code, signal } = await acp.exited;
 ```
 
+A plugin can also run an executable its own package ships, by naming a
+package-relative `packageCommand` instead of a `command`; Ora joins it onto that
+plugin's install root, so the plugin never learns a host path and `cwd` stays
+free to be the workspace the child runs in. The two fields are mutually
+exclusive.
+
 `spawn` failures carry `kind` `invalid_command` (empty command),
 `program_not_found` (the OS could not resolve the executable — distinct from any
-other spawn failure, which is `io`), or `invalid_params`; `write`, `closeStdin`,
-and `kill` against an already-exited process's id fail with `not_found`.
+other spawn failure, which is `io`), `package_command_missing` (this package
+carries nothing at that path), `invalid_package_command` (it carries something
+there that cannot be run, or the path is not a portable package-relative one),
+or `invalid_params`; `write`, `closeStdin`, and `kill` against an already-exited
+process's id fail with `not_found`.
 
 ## UI plugins
 
@@ -144,6 +153,7 @@ import {
   AGENT_NOT_INSTALLED,
   defineAgent,
   PluginMethodError,
+  SKILL_DIRECTORY_V1,
 } from "@ora-space/plugin-sdk";
 
 let send;
@@ -157,7 +167,7 @@ const plugin = defineAgent({
   effects: {
     resources: [{
       workspaceRelativePath: ".agents/skills",
-      materializationFormat: "skill_directory.v1",
+      materializationFormat: SKILL_DIRECTORY_V1,
       coordination: "quiesce_before_mutation",
     }],
     coordinate: async ({ targetId, resourceIds }) => {
@@ -186,7 +196,9 @@ The plugin spawns and owns its agent process. Ora never touches that process's
 stdio; it only sees `agent/acp` frames, whose payloads it passes through without
 parsing. Throw `new PluginMethodError(AGENT_NOT_INSTALLED, ...)` from `start`
 when the CLI is absent — Ora treats that as expected local configuration and
-retries quietly instead of reporting a fault.
+retries quietly instead of reporting a fault. Throw `AGENT_UNUSABLE` instead
+when the CLI this package ships cannot run at all: that failure repeats on every
+attempt, so Ora reports it once and stops retrying that agent.
 
 Effect locators are always Workspace-relative; Ora supplies and validates the
 absolute Workspace root when it coordinates a mutation. The canonical Plugin ID
@@ -194,3 +206,54 @@ becomes the persisted consumer identity, so plugin code cannot claim another
 consumer's state. Both coordination callbacks must be idempotent because Ora may
 retry after either side has completed but before the corresponding durable
 status update is visible.
+
+### Bundled CLI or the user's own
+
+An agent package is published one of two ways: with the CLI bundled (a
+`[[targets]]` release, one package per target triple) or without it, resolving
+whatever the user installed from PATH (a universal `url`/`sha256` release). The
+same plugin source serves both — it cannot know at build time which package it
+ended up in — so name both programs and let `spawnAgentProcess` resolve them:
+
+```ts
+import { spawnAgentProcess } from "@ora-space/plugin-sdk";
+
+const acp = await spawnAgentProcess(processes, {
+  packageCommand: Deno.build.os === "windows"
+    ? "bin/opencode.exe"
+    : "bin/opencode",
+  command: "opencode",
+}, { args: ["acp", "--cwd", cwd], cwd });
+```
+
+The bundled path is tried first. It falls through to the PATH lookup on exactly
+one condition — Ora answering that this package carries no such file — and
+raises `AGENT_UNUSABLE` for any other failure of a bundled executable, so a
+broken package is never masked by a PATH lookup that happens to succeed. A PATH
+lookup that finds nothing raises `AGENT_NOT_INSTALLED`.
+
+`command` also takes several spellings, tried in order, for a CLI whose
+installers disagree about what lands on PATH — a native `tool.exe` against the
+`tool.cmd` shim npm and bun write, which Ora's PATH lookup will not find from
+the bare name:
+
+```ts
+command: ["codeagent.exe", "codeagent.cmd", "codeagent"];
+```
+
+Only "not on PATH" moves to the next spelling; a candidate that started and then
+failed is raised as-is, so a real fault is never buried under the next attempt.
+
+A plugin whose CLI is only ever distributed on its own has no bundled form to
+discover, and says so by leaving `packageCommand` out entirely:
+
+```ts
+const acp = await spawnAgentProcess(processes, {
+  command: ["codeagent.exe", "codeagent.cmd", "codeagent"],
+}, { args: ["acp"], cwd });
+```
+
+That starts at the PATH lookup and asks the host nothing about the package.
+Naming a path the package is known not to carry would reach the same CLI, but it
+claims a bundled executable may exist there — and one that turns out to exist
+and not run fails the agent outright rather than falling back.

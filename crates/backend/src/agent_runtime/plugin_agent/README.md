@@ -53,11 +53,16 @@ the supervisor publishes `Failing` and abandons the agent for the rest of the pr
 retrying, because the same plugin will fail identically every time and retrying only produces a
 warning per backoff interval.
 
-`agent/start` failures split in two. `-32001` means the agent CLI the plugin wraps is absent from
-this machine; that is an expected local configuration, so it is reported as `agent_not_installed`
-and is retried without logging or contributing to the crash counter. Every other code is a
-genuine startup failure. More than three genuine failures in one minute opens the connection
-supervisor's restart circuit, publishes `Failing` to the UI, and stops automatic retries.
+`agent/start` failures split in three, along the one line that matters here: whether another
+attempt could ever produce a different answer. `-32001` means the agent CLI the plugin wraps is
+absent from this machine; the user can install it while Ora runs, so that is an expected local
+configuration, reported as `agent_not_installed` and retried without logging or contributing to
+the crash counter. `-32002` means the CLI the plugin's own package ships cannot run here at all —
+a wrong-target, broken, or unrunnable bundled executable — which fails identically on every
+attempt; it is terminal, like an unservable contract, so the package fault surfaces once instead
+of disappearing behind a quiet missing-CLI report. Every other code is a genuine startup failure.
+More than three genuine failures in one minute opens the connection supervisor's restart circuit,
+publishes `Failing` to the UI, and stops automatic retries.
 
 A plugin the lifecycle refuses to start — because the user disabled it or uninstalled it — is
 reported exactly like a missing CLI, so the supervisor keeps retrying it silently until the user

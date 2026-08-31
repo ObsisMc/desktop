@@ -26,7 +26,8 @@ forms accept an optional human-readable `title` that falls back to the identifie
   local import apply the same host-compatibility check; the target is never part of plugin
   identity. That section is mandatory only for `hook` — an `agent` that resolves its CLI from PATH
   is a legitimate universal package with no target to declare. Universal and targeted forms may
-  not coexist.
+  not coexist. Which form an agent's package was built from is not a build-time fact for the plugin
+  code inside it; it learns that at spawn time from `ora-plugin-lifecycle` instead.
 - Report structural failures with the TOML path of the offending value and semantic failures with
   a typed `ManifestField`, including the index of a webview origin or download rule.
 - Preserve deterministic validation order so callers receive a stable first error.

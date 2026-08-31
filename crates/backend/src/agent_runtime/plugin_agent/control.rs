@@ -31,6 +31,17 @@ const AGENT_STOP_TIMEOUT: Duration = Duration::from_secs(2);
 /// silently; every other code is a genuine startup failure worth logging.
 const AGENT_NOT_INSTALLED_CODE: i64 = -32001;
 
+/// The error code a plugin returns when the agent it ships cannot run on this machine at all.
+///
+/// It exists so a plugin can separate "the user has not installed the CLI yet", which the user can
+/// fix while Ora keeps running and which is therefore retried forever, from "the executable this
+/// package carries is unusable", which fails identically on every attempt. Only the second gives
+/// up, so a broken package surfaces once instead of being retried behind a quiet
+/// [`PluginAgentError::AgentNotInstalled`]. The plugin's own message is kept rather than replaced
+/// by a fixed one: giving up means this is the only report the failure ever produces, and only the
+/// plugin knows which of its programs failed and how.
+const AGENT_UNUSABLE_CODE: i64 = -32002;
+
 /// Reports why one agent plugin could not be brought up or queried.
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub(crate) enum PluginAgentError {
@@ -38,6 +49,8 @@ pub(crate) enum PluginAgentError {
     ContractIncomplete(String),
     #[error("the plugin's agent is not installed")]
     AgentNotInstalled,
+    #[error("the agent this plugin ships cannot run on this machine: {0}")]
+    AgentUnusable(String),
     #[error("agent plugin failed: {0}")]
     Failed(String),
 }
@@ -49,6 +62,10 @@ impl From<PluginRuntimeError> for PluginAgentError {
                 code: AGENT_NOT_INSTALLED_CODE,
                 ..
             } => Self::AgentNotInstalled,
+            PluginRuntimeError::Remote {
+                code: AGENT_UNUSABLE_CODE,
+                message,
+            } => Self::AgentUnusable(message),
             other => Self::Failed(other.to_string()),
         }
     }

@@ -17,6 +17,13 @@
 //! and only sets the package root as the working directory), and it cannot reliably compute one —
 //! a relative program combined with a `cwd` resolves against different directories per platform,
 //! and the child's `cwd` must be the workspace rather than the package anyway.
+//!
+//! A `packageCommand` the package does not carry is reported as its own `package_command_missing`
+//! kind, distinct from the `invalid_package_command` a present-but-unrunnable one gets. One plugin
+//! source is built into both a package that bundles its CLI and one that leaves the user's own
+//! install to be found on PATH, and it cannot know at build time which package it ended up in;
+//! that distinction is the answer, and it lets a plugin fall back to `command` for the first case
+//! while treating the second as the deterministic package fault it is.
 
 use std::collections::HashMap;
 use std::io;
@@ -32,7 +39,7 @@ use ora_plugin_runtime::{
     HostRequestError, HostRequestHandler, PluginRuntime as ProcessPluginRuntime,
 };
 use ora_process::{ManagedProcess, ProcessSpawner, ProcessSpec, ProcessStdio};
-use ora_utils::path::{CanonicalPathRoot, PortableRelativePath};
+use ora_utils::path::{CanonicalPathRoot, PathContainmentError, PortableRelativePath};
 use serde_json::{Value, json};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::{mpsc, watch};
@@ -77,7 +84,9 @@ enum ChildProcessErrorKind {
     InvalidParams,
     /// `command` parsed but was empty.
     InvalidCommand,
-    /// `packageCommand` does not name a usable executable inside the plugin's own package.
+    /// `packageCommand` names a path this plugin's package does not carry at all.
+    PackageCommandMissing,
+    /// `packageCommand` names something the package carries but cannot run as an executable.
     InvalidPackageCommand,
     /// `processId` does not name a process this handler is tracking.
     NotFound,
@@ -92,6 +101,7 @@ impl ChildProcessErrorKind {
         match self {
             Self::InvalidParams => "invalid_params",
             Self::InvalidCommand => "invalid_command",
+            Self::PackageCommandMissing => "package_command_missing",
             Self::InvalidPackageCommand => "invalid_package_command",
             Self::NotFound => "not_found",
             Self::ProgramNotFound => "program_not_found",
@@ -101,9 +111,10 @@ impl ChildProcessErrorKind {
 
     fn code(self) -> i64 {
         match self {
-            Self::InvalidParams | Self::InvalidCommand | Self::InvalidPackageCommand => {
-                INVALID_PARAMS_CODE
-            }
+            Self::InvalidParams
+            | Self::InvalidCommand
+            | Self::PackageCommandMissing
+            | Self::InvalidPackageCommand => INVALID_PARAMS_CODE,
             Self::NotFound => NOT_FOUND_CODE,
             Self::ProgramNotFound | Self::Io => IO_CODE,
         }
@@ -264,9 +275,10 @@ where
     /// Resolves one spawn request's program into the exact path handed to the operating system.
     ///
     /// A `packageCommand` is joined onto this plugin's install root and canonicalized, which
-    /// rejects a target that does not exist or that escapes the package through a symlink. The
-    /// resulting absolute path frees the request's `cwd` to be the workspace the child should run
-    /// in, instead of doubling as the directory the program is resolved against.
+    /// rejects a target that escapes the package through a symlink and answers one the package
+    /// does not carry with its own classification. The resulting absolute path frees the request's
+    /// `cwd` to be the workspace the child should run in, instead of doubling as the directory the
+    /// program is resolved against.
     fn resolve_program(&self, program: SpawnProgram) -> Result<PathBuf, ChildProcessError> {
         let relative = match program {
             SpawnProgram::Host(command) => return Ok(PathBuf::from(command)),
@@ -278,15 +290,30 @@ where
                 format!("the plugin package root is unavailable: {error}"),
             )
         })?;
-        let resolved = root.resolve_existing(&relative).map_err(|error| {
-            ChildProcessError::new(
-                ChildProcessErrorKind::InvalidPackageCommand,
-                format!(
-                    "packageCommand `{}` must exist inside the plugin package: {error}",
-                    relative.as_str()
+        // "The package does not carry this file" is kept apart from every other resolution
+        // failure because they call for opposite reactions. One plugin source is built into both a
+        // package that bundles its CLI and one that does not, and only the host can tell the
+        // plugin which it is running from; a missing file is that answer, and the plugin falls
+        // back to a PATH lookup on it. Anything else means the package does carry something at
+        // that path but it cannot be run, which fails identically on every retry.
+        let resolved = root
+            .resolve_existing(&relative)
+            .map_err(|error| match error {
+                PathContainmentError::PathNotFound { .. } => ChildProcessError::new(
+                    ChildProcessErrorKind::PackageCommandMissing,
+                    format!(
+                        "packageCommand `{}` is not part of this plugin package",
+                        relative.as_str()
+                    ),
                 ),
-            )
-        })?;
+                other => ChildProcessError::new(
+                    ChildProcessErrorKind::InvalidPackageCommand,
+                    format!(
+                        "packageCommand `{}` must resolve inside the plugin package: {other}",
+                        relative.as_str()
+                    ),
+                ),
+            })?;
         // Path-based like the containment check above: it cannot prevent a replacement between
         // this check and the spawn, only a package that is already shaped wrong.
         if !resolved.is_file() {

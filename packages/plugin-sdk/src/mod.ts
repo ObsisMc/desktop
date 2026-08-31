@@ -1,6 +1,7 @@
 export {
   type AcpSender,
   AGENT_NOT_INSTALLED,
+  AGENT_UNUSABLE,
   type AgentDefinition,
   type AgentEffectCoordinationContext,
   type AgentEffectDefinition,
@@ -9,6 +10,11 @@ export {
   type AgentStartContext,
   defineAgent,
 } from "./agent.ts";
+export {
+  type AgentInvocation,
+  type AgentProgram,
+  spawnAgentProcess,
+} from "./agent_process.ts";
 export type { EffectResourceDeclaration } from "./plugin.ts";
 export {
   createHostProcesses,
@@ -26,6 +32,7 @@ export {
   type NotificationHandler,
   Plugin,
   PluginMethodError,
+  SKILL_DIRECTORY_V1,
 } from "./plugin.ts";
 export type { JsonValue } from "./protocol.ts";
 export {

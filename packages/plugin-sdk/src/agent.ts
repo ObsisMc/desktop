@@ -22,6 +22,16 @@ const EFFECT_VERIFY_READY = "effect/verifyReady";
  */
 export const AGENT_NOT_INSTALLED = -32001;
 
+/**
+ * The error code that tells Ora the agent this package ships cannot run on this machine.
+ *
+ * Unlike {@link AGENT_NOT_INSTALLED}, this is not something the user can fix while Ora runs: the
+ * same package fails the same way on every attempt, so Ora reports it once and stops retrying that
+ * agent. Use it when the executable this package carries is broken, missing its dependencies, or
+ * built for another target — never when a CLI is merely absent from PATH.
+ */
+export const AGENT_UNUSABLE = -32002;
+
 /** Describes one model the agent offers before any session exists. */
 export interface AgentModel {
   id: string;
@@ -73,7 +83,9 @@ export interface AgentDefinition {
   /**
    * Brings the agent up so it can receive ACP frames.
    *
-   * Throw `new PluginMethodError(AGENT_NOT_INSTALLED, ...)` when the underlying CLI is missing.
+   * Throw `new PluginMethodError(AGENT_NOT_INSTALLED, ...)` when the underlying CLI is missing,
+   * and `AGENT_UNUSABLE` when the one this package ships cannot run at all; `spawnAgentProcess`
+   * raises both for a plugin that resolves its CLI through the host.
    */
   start(context: AgentStartContext, send: AcpSender): void | Promise<void>;
   /** Terminates the agent while leaving this plugin process alive. */
