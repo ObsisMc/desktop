@@ -82,6 +82,15 @@ const FILE_TREE_WIDTH = 240;
 /** Narrowest tree width a user resize settles on; below it the tree collapses. */
 const FILE_TREE_MIN_WIDTH = 180;
 const FILE_TREE_COLLAPSE_THRESHOLD = FILE_TREE_MIN_WIDTH / 2;
+/**
+ * Changed lines above this mount the file's diff in two steps: the first
+ * commit renders a placeholder, then a post-paint timer brings the rows in.
+ * Session switches remount this panel inside the switch's own render, so a
+ * multi-thousand-line rewrite would otherwise be created there and block the
+ * new page from painting. Mount-only: a refetch of the same patch never
+ * re-defers.
+ */
+const DEFER_MOUNT_CHANGES = 600;
 
 interface TaskDiffViewProps {
   workspaceId: string;
@@ -814,6 +823,23 @@ function TaskDiffFile({
   const [expandedBlocks, setExpandedBlocks] = useState<Set<string>>(
     () => new Set(),
   );
+  // Huge diffs mount in two steps: the first commit renders a placeholder so
+  // the session switch that remounted this panel paints immediately, then a
+  // post-paint timer (a macrotask, so the browser has painted) brings the rows
+  // in. Keyed on mount only — a refetch of the same patch must not re-defer.
+  const changeCount = useMemo(
+    () => file.hunks.reduce((total, hunk) => total + hunk.changes.length, 0),
+    [file.hunks],
+  );
+  const [deferred, setDeferred] = useState(
+    () => changeCount > DEFER_MOUNT_CHANGES,
+  );
+
+  useEffect(() => {
+    if (!deferred) return;
+    const timer = setTimeout(() => setDeferred(false), 0);
+    return () => clearTimeout(timer);
+  }, [deferred]);
   const { renderGutter, quoteRootRef } = useTaskDiffQuoteGutter(file, viewType);
   const fileStats = useMemo(() => countChanges([file]), [file]);
   const jumpTargets = useMemo(
@@ -871,7 +897,9 @@ function TaskDiffFile({
     // Scroll only vertically (block: center) while persisting scrollLeft, so a
     // jump to a long line never yanks the whole diff sideways.
     region.scrollTo({ top, left: region.scrollLeft });
-  }, [jumpScrollKey, renderSegments]);
+    // `deferred` re-runs this after the placeholder flips to the real rows, so
+    // a chat jump into a still-deferred file scrolls once the line exists.
+  }, [deferred, jumpScrollKey, renderSegments]);
 
   return (
     <article ref={fileRootRef} className="bg-background">
@@ -910,6 +938,15 @@ function TaskDiffFile({
         (file.hunks.length === 0 ? (
           <div className="px-4 py-8 text-center text-xs text-muted-foreground">
             {file.isBinary ? t("diff.binary") : t("diff.metadataOnly")}
+          </div>
+        ) : deferred ? (
+          <div
+            data-diff-deferred-loading
+            role="status"
+            className="flex items-center justify-center text-xs text-muted-foreground"
+            style={{ minHeight: diffFileEstimatedHeight(file) }}
+          >
+            {t("diff.loading")}
           </div>
         ) : (
           <div
@@ -996,6 +1033,15 @@ interface TaskDiffFileViewportProps extends TaskDiffFileProps {
   forceRender: boolean;
 }
 
+/** Placeholder height for a not-yet-rendered diff, close enough to avoid scroll jumps. */
+function diffFileEstimatedHeight(file: FileData): number {
+  return Math.max(
+    72,
+    48 +
+      file.hunks.reduce((total, hunk) => total + hunk.changes.length, 0) * 24,
+  );
+}
+
 /** Mounts nearby diff files on demand so large patches do not create one large DOM tree at once. */
 function TaskDiffFileViewport({
   rootRef,
@@ -1010,16 +1056,7 @@ function TaskDiffFileViewport({
     () => forceRender || !supportsIntersectionObserver,
   );
   const shouldRender = forceRender || isNearViewport;
-  const estimatedHeight = useMemo(
-    () =>
-      Math.max(
-        72,
-        48 +
-          file.hunks.reduce((total, hunk) => total + hunk.changes.length, 0) *
-            24,
-      ),
-    [file.hunks],
-  );
+  const estimatedHeight = useMemo(() => diffFileEstimatedHeight(file), [file]);
 
   useEffect(() => {
     if (shouldRender) return;

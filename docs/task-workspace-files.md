@@ -79,6 +79,16 @@ validated as relative paths, canonicalized before containment checks, and
 bounded before reads or searches. The filesystem service is read-only and
 watcher changes are cache-invalidating batches rather than an event log.
 
+The viewer keeps mounting every row for files up to 400 lines. Larger files
+render only the window around the viewport (plus overscan) so a multi-megabyte
+preview costs a bounded DOM instead of blocking the session switches that
+remount the panel; files above ~512 KiB of characters additionally defer their
+content passes until after the first paint and show a loading overlay, so the
+session switch itself never waits on the preview; the scrollable width comes
+from a monospace column estimate of the widest line, pinned ranges re-apply
+declaratively as rows mount, and syntax highlighting stays capped at 512 KiB
+as before.
+
 The Files panel opens Explorer by default for both task and project review
 contexts. Search and file
 reads are cancellable through the injected contracts client. A mounted
