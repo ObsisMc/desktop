@@ -2023,8 +2023,9 @@ mod tests {
     /// the release archive.
     #[test]
     fn tavily_mcp_marketplace_manifest_resolves_from_staged_registry() {
-        use ora_domain::PluginId;
-        use ora_plugin_registry::RegistryIndex;
+        use gitlancer::BranchName;
+        use ora_domain::{PluginId, PluginNamespace};
+        use ora_plugin_registry::{RegistryIndex, RegistrySource};
         use pretty_assertions::assert_eq;
         use std::fs;
         use std::path::PathBuf;
@@ -2050,9 +2051,14 @@ mod tests {
         )
         .expect("stage marketplace registry");
 
-        let registry_dir = marketplace_checkout.join("registry");
+        let source = RegistrySource::new(
+            "https://github.com/ora-space/marketplace",
+            PluginNamespace::official(),
+            BranchName::new("main"),
+            &marketplace_checkout,
+        );
         let plugin_id = PluginId::parse("official/ora-space.tavily-search").expect("plugin id");
-        let manifest = RegistryIndex::resolve_manifest_all(&[registry_dir.as_path()], &plugin_id)
+        let manifest = RegistryIndex::resolve_manifest_all(&[&source], &plugin_id)
             .expect("resolve marketplace manifest")
             .expect("Tavily listing is present in staged registry");
         assert_eq!(

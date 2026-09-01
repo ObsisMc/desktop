@@ -14,7 +14,10 @@ mod tests {
     use std::path::Path;
     use std::time::{Duration, Instant};
 
-    const AGENT_REF: &str = "ora-space.opencode";
+    const AGENT_NAMESPACE: &str = "official";
+    const AGENT_NAME: &str = "ora-space.opencode";
+    // Keep this below the worker's 30-second periodic scan so success still proves that the
+    // durable change woke reconciliation, while leaving enough headroom for contended CI hosts.
     const EFFECT_TIMEOUT: Duration = Duration::from_secs(5);
     const POLL_INTERVAL: Duration = Duration::from_millis(10);
 
@@ -28,12 +31,13 @@ mod tests {
         let mut backend_paths = setup.backend_paths().clone();
         backend_paths.deno_path = env!("CARGO_BIN_EXE_fake-agent").into();
         let backend = Backend::open(backend_paths)?;
+        let agent_ref = format!("{AGENT_NAMESPACE}/{AGENT_NAME}");
         wait_until("fake OpenCode agent did not become ready", || {
             backend
                 .get_agent_runtime_status(GetAgentRuntimeStatusRequest {})
                 .is_ok_and(|response| {
                     response.statuses.iter().any(|runtime| {
-                        runtime.agent_ref == AGENT_REF && runtime.status == AgentStatus::Ready
+                        runtime.agent_ref == agent_ref && runtime.status == AgentStatus::Ready
                     })
                 })
         })?;
@@ -92,14 +96,16 @@ mod tests {
         let package_root = home_directory
             .join("plugins")
             .join("installed")
-            .join("official")
-            .join(AGENT_REF)
+            .join(AGENT_NAMESPACE)
+            .join(AGENT_NAME)
             .join("1.0.0");
         fs::create_dir_all(&package_root)?;
         fs::write(package_root.join("main.js"), "export {};\n")?;
         fs::write(
             package_root.join("orax.toml"),
-            "resolver = 1\nidentifier = \"ora-space.opencode\"\nnamespace = \"official\"\nkind = \"agent\"\nversion = \"1.0.0\"\ndescription = \"OpenCode E2E agent\"\n",
+            format!(
+                "resolver = 1\nidentifier = \"{AGENT_NAME}\"\nkind = \"agent\"\nversion = \"1.0.0\"\ndescription = \"OpenCode E2E agent\"\n"
+            ),
         )
     }
 

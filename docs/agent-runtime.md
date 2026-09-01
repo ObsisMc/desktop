@@ -4,8 +4,8 @@
 
 ## Process and Session Lifecycle
 
-- Session contracts select an `agent_ref`: the agent provider's dotted package name (the `name` segment of an installed plugin's `<namespace>/<name>` id), carried as an open string. Which agents exist depends entirely on installed plugins and is not knowable when Ora is built, so an identity the runtime does not recognize means "that provider is not installed right now" — an ordinary runtime state reported as `agent_runtime_unavailable`, not corrupt data. Nothing is bundled: Ora ships with zero agents until the user installs plugin packages that supply them, one agent per package (see [plugin_agent](../crates/backend/src/agent_runtime/plugin_agent/README.md)).
-- Supervisors are keyed by that identity. A plugin package declaring an identity another installed package already supervises is ignored rather than allowed to replace it. Only `agent`-kind packages supply an agent; `ui` packages contribute surfaces and are never supervised. The installed set comes from the plugin lifecycle, which is also the sole owner of plugin processes: a supervisor attaches to a running plugin (`PluginApi::attach_agent`, which starts an installed plugin on demand) instead of launching one, reads that generation's `agent/acp` notifications through a lossless tap, and asks the lifecycle to stop the plugin when a generation ends.
+- Session contracts select an `agent_ref`: the canonical `<namespace>/<name>` id of the installed plugin that supplies the agent, carried as an open string. The namespace is part of the identity, not decoration — a marketplace source's namespace decides it, and two sources may publish packages under the same `identifier`. Dropping it would collapse those two packages onto one agent, so whichever was walked first would serve both packages' sessions. Which agents exist depends entirely on installed plugins and is not knowable when Ora is built, so an identity the runtime does not recognize means "that provider is not installed right now" — an ordinary runtime state reported as `agent_runtime_unavailable`, not corrupt data. Nothing is bundled: Ora ships with zero agents until the user installs plugin packages that supply them, one agent per package (see [plugin_agent](../crates/backend/src/agent_runtime/plugin_agent/README.md)).
+- Supervisors are keyed by that identity, and because it is the whole plugin id, no two installed packages can claim one: there is no arbitration, and the supervised set is exactly the installed agent set. Only `agent`-kind packages supply an agent; `ui` packages contribute surfaces and are never supervised. The installed set comes from the plugin lifecycle, which is also the sole owner of plugin processes: a supervisor attaches to a running plugin (`PluginApi::attach_agent`, which starts an installed plugin on demand) instead of launching one, reads that generation's `agent/acp` notifications through a lossless tap, and asks the lifecycle to stop the plugin when a generation ends.
 - The supervised set is reconciled whenever installed packages change. Installing a plugin makes its agent reachable in the running process, uninstalling it removes the supervisor, and every installed agent plugin can always start.
 - The plugin owns the agent process end to end: it decides which CLI to run and relays ACP frames to the host over its `agent/acp` notification channel. The host never chooses a CLI or interprets what it says. It does own the OS process, and it resolves the executable path for a plugin that ships its own binary: `ora/childprocess/spawn` accepts either a `command` the operating system resolves or a `packageCommand` the host joins onto that plugin's install root, because a plugin is told no host path and cannot reliably compute one.
 - Both ways of reaching a CLI stay open, and the plugin picks per spawn. An agent package is published either with a bundled CLI (a `[[targets]]` release, one package per target triple, whose in-package `orax.toml` declares `[artifact]`) or without one (a universal `url`/`sha256` release that resolves the user's own install from PATH). The same plugin source serves both, because it cannot know at build time which package it ended up in: it asks for its bundled path first, and the host's `package_command_missing` answer — distinct from every other package-resolution failure — is what tells it to fall back to a PATH lookup.
@@ -134,17 +134,16 @@ Dropping the last Backend owner asks every supervisor to stop accepting work, ca
 ## Caveats After Opening the Agent Identity
 
 Agent identity is an open string: agents arrive with installed plugins, and which ones exist is not
-knowable when Ora is built. Persistence never had to move — the `agent_cli` column already stored
-`ora-space.claude`-style namespaced values — but one store held an _older_, pre-namespaced spelling
-and is worth knowing about:
+knowable when Ora is built. It is now the package's full canonical plugin id — `official/ora-space.claude`,
+not `ora-space.claude` — because the namespace is what keeps two sources' same-named packages apart.
+Anything that stored a shorter spelling names no supervised agent:
 
-- **Workflow graphs may still name an agent by an old short id.** A saved graph persists
-  `executor.agentCli` inside its snapshot JSON, and a snapshot saved before identities were
-  namespaced can hold `open_code` rather than `ora-space.opencode`. That value is carried through
-  to the runtime as written, so it matches no supervised agent and the node fails as an unavailable
-  provider until the model is picked again. Nothing rewrites it: translating old spellings would be
-  a compatibility layer, and rewriting snapshot JSON is a database migration that should be decided
-  on deliberately rather than smuggled in. Re-picking the model on an affected node fixes it
+- **Sessions and workflow graphs may still name an agent by an older spelling.** `sessions.agent_cli`
+  and a saved graph's `executor.agentCli` are carried to the runtime exactly as written, so a value
+  stored before agent identity carried its namespace matches no supervised agent and reports an
+  unavailable provider until the agent is picked again. Nothing rewrites either: translating old
+  spellings would be a compatibility layer, and rewriting snapshot JSON is a database migration that
+  should be decided on deliberately rather than smuggled in. Re-picking the agent fixes it
   permanently.
 
 The frontend agent catalog is entirely runtime-derived — the chat and workflow pickers list
