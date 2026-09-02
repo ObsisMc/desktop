@@ -10,7 +10,6 @@ mod tests {
         SkillImportSessionStatus, SkillImportSource,
     };
     use pretty_assertions::assert_eq;
-    use rusqlite::Connection;
     use std::fs;
     use std::io;
     use std::path::Path;
@@ -98,40 +97,9 @@ mod tests {
         assert_eq!(skills.len(), 1);
 
         let materialized_skill = workspace.join(".opencode").join("skills").join("review");
-        let materialized = wait_until("imported Skill was not promptly materialized", || {
+        wait_until("imported Skill was not promptly materialized", || {
             materialized_skill.join("SKILL.md").is_file()
-        });
-        if materialized.is_err() {
-            let connection =
-                Connection::open(setup.backend_paths().app_data_directory.join("ora.sqlite3"))?;
-            // Capture only the durable state machine phases needed to classify this CI failure.
-            let requests = connection
-                .prepare("SELECT state, retry_count, not_before FROM effect_reconcile_requests")?
-                .query_map([], |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, i64>(1)?,
-                        row.get::<_, Option<i64>>(2)?,
-                    ))
-                })?
-                .collect::<Result<Vec<_>, _>>()?;
-            let operations = connection
-                .prepare("SELECT phase FROM effect_operations")?
-                .query_map([], |row| row.get::<_, String>(0))?
-                .collect::<Result<Vec<_>, _>>()?;
-            let attempts = connection
-                .prepare("SELECT phase FROM effect_reconcile_attempts")?
-                .query_map([], |row| row.get::<_, String>(0))?
-                .collect::<Result<Vec<_>, _>>()?;
-            let targets = connection
-                .prepare("SELECT phase FROM effect_target_status")?
-                .query_map([], |row| row.get::<_, String>(0))?
-                .collect::<Result<Vec<_>, _>>()?;
-            eprintln!(
-                "[DEBUG-effect-ci] requests={requests:?} operations={operations:?} attempts={attempts:?} targets={targets:?}",
-            );
-        }
-        materialized?;
+        })?;
         backend.delete_skill(DeleteSkillRequest {
             skill_id: skills[0].id.clone(),
         })?;

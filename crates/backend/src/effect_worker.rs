@@ -273,10 +273,6 @@ impl<Sessions: ReplacedAgentSessions> EffectWorker<Sessions> {
                 "Effect Target Resources were verified and finalized",
             ),
             Err(error) => {
-                eprintln!(
-                    "[DEBUG-effect-ci] target={} reconcile_error={error:?}",
-                    target.as_str(),
-                );
                 ora_warn!(
                     operation = "effect_reconcile",
                     target = target.as_str(),
