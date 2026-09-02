@@ -15,7 +15,9 @@ mod tests {
     use std::time::{Duration, Instant};
 
     const AGENT_REF: &str = "ora-space.opencode";
-    const EFFECT_TIMEOUT: Duration = Duration::from_secs(5);
+    // Keep this below the worker's 30-second periodic scan so success still proves that the
+    // durable change woke reconciliation, while leaving enough headroom for contended CI hosts.
+    const EFFECT_TIMEOUT: Duration = Duration::from_secs(20);
     const POLL_INTERVAL: Duration = Duration::from_millis(10);
 
     /// Verifies imported Skills promptly converge into an OpenCode Workspace and disappear after
