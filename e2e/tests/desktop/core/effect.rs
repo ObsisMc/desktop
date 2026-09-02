@@ -6,7 +6,8 @@ mod tests {
     use ora_contracts::{
         AgentStatus, CommitSkillImportRequest, CreateProjectRequest, DeleteSkillRequest,
         GetAgentRuntimeStatusRequest, GetSkillImportSessionRequest, ListSkillsRequest,
-        PrepareSkillImportRequest, SkillImportSessionStatus, SkillImportSource,
+        PrepareSkillImportRequest, SkillImportProgress, SkillImportResult, SkillImportResultStatus,
+        SkillImportSessionStatus, SkillImportSource,
     };
     use pretty_assertions::assert_eq;
     use std::fs;
@@ -60,6 +61,8 @@ mod tests {
                 path: import_source.to_string_lossy().into_owned(),
             },
         })?;
+        assert_eq!(prepared.session.candidates.len(), 1);
+        let candidate_id = prepared.session.candidates[0].candidate_id.clone();
         let session_id = prepared.session.session_id;
         backend.commit_skill_import(CommitSkillImportRequest {
             session_id: session_id.clone(),
@@ -74,13 +77,29 @@ mod tests {
                     response.session.status == SkillImportSessionStatus::Completed
                 })
         })?;
+        let completed = backend
+            .get_skill_import(GetSkillImportSessionRequest { session_id })?
+            .session;
+        assert_eq!(
+            completed.progress,
+            SkillImportProgress {
+                total: 1,
+                processed: 1,
+                results: vec![SkillImportResult {
+                    candidate_id,
+                    name: "review".to_string(),
+                    status: SkillImportResultStatus::Imported,
+                    error_code: None,
+                }],
+            }
+        );
+        let skills = backend.list_skills(ListSkillsRequest {})?.skills;
+        assert_eq!(skills.len(), 1);
 
         let materialized_skill = workspace.join(".opencode").join("skills").join("review");
         wait_until("imported Skill was not promptly materialized", || {
             materialized_skill.join("SKILL.md").is_file()
         })?;
-        let skills = backend.list_skills(ListSkillsRequest {})?.skills;
-        assert_eq!(skills.len(), 1);
         backend.delete_skill(DeleteSkillRequest {
             skill_id: skills[0].id.clone(),
         })?;
