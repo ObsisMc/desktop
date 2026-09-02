@@ -23,6 +23,7 @@ ora-backend = { workspace = true }
 ora-contracts = { workspace = true }
 ora-db = { workspace = true }
 pretty_assertions = { workspace = true }
+rusqlite = { workspace = true }
 tempfile = { workspace = true }
 
 [dependencies]
