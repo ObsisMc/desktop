@@ -1,3 +1,9 @@
+# specs Repository
+
+`specs/` is an independent Git repository. Use `git -C specs` to inspect its status and history when
+changing its contents. It primarily contains ADRs, core test cases, and domain documentation; see
+`specs/AGENTS.md` for its detailed conventions.
+
 # Rust/crates
 
 1. **Code Documentation**: Unless it is a standard, self-explanatory method (e.g., `new()`), every function must include a comment above the signature describing its purpose. Provide inline comments for any complex logic, non-trivial algorithms, or specialized branching within function bodies. Write comments in English.

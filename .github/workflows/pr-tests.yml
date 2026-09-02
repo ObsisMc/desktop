@@ -68,9 +68,11 @@ jobs:
               - 'crates/**'
             tauri:
               - *shared
+              - 'crates/**'
               - 'apps/desktop/src-tauri/**'
             e2e:
               - *shared
+              - 'crates/**'
               - 'e2e/**'
 
   frontend:

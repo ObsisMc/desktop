@@ -14,7 +14,8 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::time::{Duration, Instant};
 
-    const AGENT_REF: &str = "ora-space.opencode";
+    const AGENT_NAMESPACE: &str = "official";
+    const AGENT_NAME: &str = "ora-space.opencode";
     const READY_TIMEOUT: Duration = Duration::from_secs(5);
     const POLL_INTERVAL: Duration = Duration::from_millis(10);
     /// Journal the fake agent appends one line to per `agent/list_models` call.
@@ -57,7 +58,7 @@ mod tests {
 
         let runtime = current_thread_runtime()?;
         let models = runtime.block_on(backend.list_agent_models(ListAgentModelsRequest {
-            agent_ref: AGENT_REF.to_string(),
+            agent_ref: agent_ref(),
             workspace_id,
         }))?;
 
@@ -97,7 +98,7 @@ mod tests {
         let runtime = current_thread_runtime()?;
         let chosen = runtime
             .block_on(backend.list_agent_models(ListAgentModelsRequest {
-                agent_ref: AGENT_REF.to_string(),
+                agent_ref: agent_ref(),
                 workspace_id: workspace_id.clone(),
             }))?
             .models
@@ -108,7 +109,7 @@ mod tests {
 
         let started = runtime.block_on(backend.start_session(StartSessionRequest {
             workspace_id: workspace_id.clone(),
-            agent_ref: AGENT_REF.to_string(),
+            agent_ref: agent_ref(),
             model: Some(chosen.clone()),
         }))?;
 
@@ -129,6 +130,13 @@ mod tests {
             "exactly one session exists, and it is the one just started",
         );
         Ok(())
+    }
+
+    /// Names the agent the way the runtime reports it: an agent is its whole canonical plugin id,
+    /// so the namespace the package is installed under is part of the identity, not a prefix the
+    /// caller may drop.
+    fn agent_ref() -> String {
+        format!("{AGENT_NAMESPACE}/{AGENT_NAME}")
     }
 
     /// Reads the value the agent reports as current on its model selector.
@@ -163,12 +171,13 @@ mod tests {
         let mut backend_paths = setup.backend_paths().clone();
         backend_paths.deno_path = env!("CARGO_BIN_EXE_fake-agent").into();
         let backend = Backend::open(backend_paths)?;
+        let expected = agent_ref();
         wait_until("fake OpenCode agent did not become ready", || {
             backend
                 .get_agent_runtime_status(GetAgentRuntimeStatusRequest {})
                 .is_ok_and(|response| {
                     response.statuses.iter().any(|runtime| {
-                        runtime.agent_ref == AGENT_REF && runtime.status == AgentStatus::Ready
+                        runtime.agent_ref == expected && runtime.status == AgentStatus::Ready
                     })
                 })
         })?;
@@ -187,14 +196,18 @@ mod tests {
         let package_root = home_directory
             .join("plugins")
             .join("installed")
-            .join("official")
-            .join(AGENT_REF)
+            .join(AGENT_NAMESPACE)
+            .join(AGENT_NAME)
             .join("1.0.0");
         fs::create_dir_all(&package_root)?;
         fs::write(package_root.join("main.js"), "export {};\n")?;
+        // The installed tree is the authority for a package's namespace, so the manifest only
+        // spells the identifier half; the directory it is written under supplies the rest.
         fs::write(
             package_root.join("orax.toml"),
-            "resolver = 1\nidentifier = \"ora-space.opencode\"\nnamespace = \"official\"\nkind = \"agent\"\nversion = \"1.0.0\"\ndescription = \"OpenCode E2E agent\"\n",
+            format!(
+                "resolver = 1\nidentifier = \"{AGENT_NAME}\"\nkind = \"agent\"\nversion = \"1.0.0\"\ndescription = \"OpenCode E2E agent\"\n"
+            ),
         )?;
         Ok(package_root)
     }

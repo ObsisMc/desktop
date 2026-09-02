@@ -31,7 +31,10 @@ const PLUGIN_ADDRESS: &str = "official/ora-space.opencode";
 const AGENT_NAME: &str = "opencode";
 /// The namespace half of `PLUGIN_ADDRESS`, which the installed layout is keyed by.
 const PACKAGE_NAMESPACE: &str = "official";
-/// The identity a package installed at `PLUGIN_ADDRESS` resolves to.
+/// The identifier half of `PLUGIN_ADDRESS`, which the installed layout is keyed by.
+///
+/// An agent is identified by its whole canonical plugin id, namespace included, so resolving a
+/// package installed here does not stop at this segment — it produces `PLUGIN_ADDRESS` itself.
 const INSTALLED_AGENT: &str = "ora-space.opencode";
 
 fn test_pool(root: &Path) -> RepositoryPool {
@@ -248,9 +251,10 @@ async fn a_replacement_invalidates_the_agent_model_catalog() {
             .expect("stream is open")
             .expect("invalidation"),
         ora_contracts::AppEvent::AgentModelsInvalidated {
-            // The agent identity a client keys its discovery query by, not the package address
-            // Effect named — publishing the latter would invalidate nothing the client holds.
-            agent_ref: INSTALLED_AGENT.to_string(),
+            // An agent is identified by its whole canonical plugin id, so the notice carries the
+            // same string Effect named the consumer by; the package's identifier segment alone is
+            // not what a client keys its discovery query by.
+            agent_ref: PLUGIN_ADDRESS.to_string(),
         },
     );
     scheduler.shutdown().await;
