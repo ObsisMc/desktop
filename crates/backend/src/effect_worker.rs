@@ -274,7 +274,7 @@ impl<Sessions: ReplacedAgentSessions> EffectWorker<Sessions> {
             ),
             Err(error) => {
                 eprintln!(
-                    "[DEBUG-effect-ci] target={} reconcile_error={error}",
+                    "[DEBUG-effect-ci] target={} reconcile_error={error:?}",
                     target.as_str(),
                 );
                 ora_warn!(
