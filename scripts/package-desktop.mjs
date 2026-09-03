@@ -3,8 +3,8 @@
 // The CI workflow edits apps/desktop/src-tauri/tauri.conf.json in place on a
 // disposable runner and never restores it. A developer's checkout is not
 // disposable, so this script snapshots every file it touches and restores it
-// once `task build:desktop` finishes (success or failure) unless --keep-config
-// is passed.
+// once `task build:desktop` finishes (success, failure, or interruption) unless
+// --keep-config is passed.
 //
 // Usage:
 //   node scripts/package-desktop.mjs [--tag v0.1.0] [--signing-key <path-or-key>]
@@ -39,6 +39,7 @@ const desktopPackagePath = path.join(
   "desktop",
   "package.json",
 );
+const cargoLockPath = path.join(repositoryRoot, "Cargo.lock");
 
 const args = process.argv.slice(2);
 const keepConfig = args.includes("--keep-config");
@@ -72,8 +73,8 @@ if (args.includes("--help") || args.includes("-h")) {
       "                                 Same as TAURI_SIGNING_PRIVATE_KEY_PASSWORD;\n" +
       "                                 the flag wins if both are set.\n" +
       "  --keep-config                  Leave the working-copy edits (tauri.conf.json,\n" +
-      "                                 Cargo.toml, package.json) in place afterward\n" +
-      "                                 instead of restoring them.\n" +
+      "                                 Cargo.toml, package.json, Cargo.lock) in place\n" +
+      "                                 afterward instead of restoring them.\n" +
       "  --help, -h                     Show this message.",
   );
   process.exit(0);
@@ -93,6 +94,9 @@ if (signingKey) process.env.TAURI_SIGNING_PRIVATE_KEY = signingKey;
 if (signingKeyPassword)
   process.env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD = signingKeyPassword;
 
+let activeChild;
+let interruptedSignal;
+
 /** Runs one build step with its output attached to this process. */
 function run(command, commandArgs, env) {
   return new Promise((resolve, reject) => {
@@ -101,8 +105,13 @@ function run(command, commandArgs, env) {
       stdio: "inherit",
       env: { ...process.env, ...env },
     });
-    child.once("error", reject);
+    activeChild = child;
+    child.once("error", (error) => {
+      activeChild = undefined;
+      reject(error);
+    });
     child.once("exit", (code, signal) => {
+      activeChild = undefined;
       if (code === 0) {
         resolve();
       } else {
@@ -114,6 +123,32 @@ function run(command, commandArgs, env) {
       }
     });
   });
+}
+
+/** Stops the active build so the outer cleanup can restore its snapshots. */
+function handleTerminationSignal(signal) {
+  if (interruptedSignal) return;
+
+  interruptedSignal = signal;
+  console.error(`\nReceived ${signal}; stopping the build before cleanup.`);
+  activeChild?.kill(signal);
+}
+
+const terminationHandlers = new Map(
+  ["SIGINT", "SIGTERM"].map((signal) => [
+    signal,
+    () => handleTerminationSignal(signal),
+  ]),
+);
+for (const [signal, handler] of terminationHandlers) {
+  process.on(signal, handler);
+}
+
+/** Prevents an interrupted setup phase from starting the expensive build. */
+function throwIfInterrupted() {
+  if (interruptedSignal) {
+    throw new Error(`Packaging interrupted by ${interruptedSignal}`);
+  }
 }
 
 const originalFiles = new Map();
@@ -132,7 +167,9 @@ async function restoreSnapshots() {
   for (const [filePath, contents] of originalFiles) {
     await writeFile(filePath, contents);
   }
-  console.log("Restored tauri.conf.json, Cargo.toml, and package.json.");
+  console.log(
+    "Restored tauri.conf.json, Cargo.toml, package.json, and Cargo.lock.",
+  );
 }
 
 // Sets the desktop app version across tauri.conf.json, Cargo.toml, and
@@ -191,17 +228,38 @@ async function configureBundle() {
   await writeFile(tauriConfigPath, `${JSON.stringify(config, null, 2)}\n`);
 }
 
+let buildError;
 try {
   await snapshot(tauriConfigPath);
   await snapshot(desktopCargoPath);
   await snapshot(desktopPackagePath);
+  // Changing a workspace package version makes Cargo update this generated
+  // entry during the build, so it belongs to the same temporary transaction.
+  await snapshot(cargoLockPath);
 
+  throwIfInterrupted();
   if (tag) await applyVersionTag(tag);
   await configureBundle();
 
+  throwIfInterrupted();
   await run("task", ["build:desktop"]);
 
   console.log("\nBundle(s) written to target/release/bundle/");
+} catch (error) {
+  buildError = error;
 } finally {
-  await restoreSnapshots();
+  try {
+    await restoreSnapshots();
+  } finally {
+    for (const [signal, handler] of terminationHandlers) {
+      process.off(signal, handler);
+    }
+  }
+}
+
+if (interruptedSignal) {
+  process.kill(process.pid, interruptedSignal);
+}
+if (buildError) {
+  throw buildError;
 }

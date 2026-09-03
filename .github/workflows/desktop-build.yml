@@ -94,9 +94,9 @@ jobs:
       # from PATH) into a packaged build: it enables the downloaded sidecars,
       # turns on updater artifacts when a signing key is present, and applies
       # VERSION_TAG when this run is building a release. It also restores
-      # tauri.conf.json/Cargo.toml/package.json afterward, which is a no-op
-      # for this disposable runner but keeps the same script safe to run on a
-      # developer's checkout (see `task package:desktop`).
+      # tauri.conf.json/Cargo.toml/package.json/Cargo.lock afterward, which is
+      # a no-op for this disposable runner but keeps the same script safe to
+      # run on a developer's checkout (see `task package:desktop`).
       - name: Build desktop bundle(s)
         shell: bash
         env:
