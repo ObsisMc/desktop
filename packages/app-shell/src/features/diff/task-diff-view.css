@@ -77,6 +77,22 @@
   border-collapse: collapse;
 }
 
+/* Row-windowed diff body (focus mode): the file is split into fixed-size
+   native `react-diff-view` hunks, each still a real `<table>`/`<Hunk>` so all
+   gutter/tint/collapse styling is native. The virtualizer only mounts the
+   visible chunk window; these rules give the chunk list a stable vertical
+   track and let each native table fill the width. */
+.ora-diff-window {
+  position: relative;
+}
+
+.ora-diff-window .ora-diff-window-chunk {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+}
+
 .ora-task-diff--unified .diff-unified {
   width: max-content;
   min-width: 100%;

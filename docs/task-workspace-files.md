@@ -95,6 +95,28 @@ reads are cancellable through the injected contracts client. A mounted
 watcher is stopped when the panel is unmounted or its Files scope (task vs
 project) changes.
 
+The task Changes (diff) panel applies the same "render the session, then load
+the content" discipline. It splits the backend's unified patch back into
+per-file slices and caches the parsed `FileData` per slice, so a live-sync
+invalidation that rewrites only a few files keeps every unchanged file's
+`memo` comparison intact. Patches above 512 KiB of characters defer parsing
+past the first paint (a loading state shows instead of a "no changes" message
+until the slice parse lands). Diffs that are large either by file count, by
+total changed lines, or by a single file big enough to row-window switch to a
+single-file focus body — the right-hand file tree drives the selection instead
+of scroll-spy — so a large change-set never pays for mounting every file in one
+scroll. Each file still renders with the native `react-diff-view` styling
+(unified and split) so the gutter, tint, and collapse stay identical to the
+plain path. A file above 400 changed lines in the focus body is additionally
+chunk-windowed: it is split into fixed-size native `react-diff-view` hunks and
+only the visible chunk window is mounted (via `@tanstack/react-virtual`), so a
+multi-thousand-line file scrolls with bounded DOM while every mounted row is a
+real `Diff`/`Hunk`. Windowing lives inside the file component itself, so all
+interaction behavior — chat citation jump-to-line, line quoting, collapse and
+expand — keeps working: a jump scrolls the virtualizer to the cited chunk, then
+to the highlighted row. A toolbar toggle swaps between the continuous scroll
+body and the focus body, and sticks for the session.
+
 Rust contracts live in `crates/contracts/src/file_system.rs` and export to
 `packages/contracts/src/file-system.ts`. The endpoint catalog in
 `xtask/src/frontend/namespaces/file_system.rs` marks the watcher as a stream
