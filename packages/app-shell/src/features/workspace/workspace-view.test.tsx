@@ -33,6 +33,7 @@ import {
 } from "../../state/stores/settings-store";
 import { WorkspaceView } from "./workspace-view";
 import { directChatTitle } from "./workspace-view-utils";
+import { AGENT_REF } from "../../test/agent-identity";
 
 function composerText(element: HTMLElement): string {
   return element.dataset.composerText ?? "";
@@ -58,7 +59,7 @@ beforeEach(() => {
   // the next one a surface already pointing somewhere it never chose.
   usePendingAgentStore.setState({ selections: {}, switches: {} });
   useSettingsStore.setState({
-    settings: { ...DEFAULT_SETTINGS, agentCli: "ora-space.opencode" },
+    settings: { ...DEFAULT_SETTINGS, agentCli: AGENT_REF.opencode },
   });
 });
 
@@ -78,7 +79,7 @@ describe("WorkspaceView", () => {
       {
         id: "s1",
         workspaceId: "workspace-t1",
-        agentRef: "ora-space.opencode",
+        agentRef: AGENT_REF.opencode,
         status: "running",
         title: null,
         historyState: { type: "writable" },
@@ -202,7 +203,7 @@ describe("WorkspaceView", () => {
       {
         id: "s1",
         workspaceId: "workspace-t1",
-        agentRef: "ora-space.opencode",
+        agentRef: AGENT_REF.opencode,
         status: "running",
         title: null,
         historyState: { type: "writable" },
@@ -259,7 +260,7 @@ describe("WorkspaceView", () => {
       {
         id: "s1",
         workspaceId: "workspace-p1",
-        agentRef: "ora-space.opencode",
+        agentRef: AGENT_REF.opencode,
         status: "running",
         title: null,
         historyState: { type: "writable" },
@@ -360,7 +361,7 @@ describe("WorkspaceView", () => {
 
     await waitFor(() => expect(textbox).toBeEnabled());
     expect(useSettingsStore.getState().settings.agentCli).toBe(
-      "ora-space.opencode",
+      AGENT_REF.opencode,
     );
   });
 
@@ -369,7 +370,7 @@ describe("WorkspaceView", () => {
     const state = createMockClientState();
     state.projects = [{ id: "p1", name: "Ora" }];
     const entry = state.agentRuntimeStatuses.find(
-      (candidate) => candidate.agentRef === "ora-space.opencode",
+      (candidate) => candidate.agentRef === AGENT_REF.opencode,
     );
     entry!.status = "unavailable";
     const client = createMockClient(state);
@@ -571,7 +572,7 @@ describe("WorkspaceView", () => {
         {
           id: "s1",
           workspaceId: "workspace-p1",
-          agentRef: "ora-space.opencode",
+          agentRef: AGENT_REF.opencode,
           status: "running",
           title: null,
           historyState: { type: "writable" },
@@ -840,7 +841,7 @@ describe("WorkspaceView", () => {
       {
         id: "s-other",
         workspaceId: "workspace-t1",
-        agentRef: "ora-space.opencode",
+        agentRef: AGENT_REF.opencode,
         status: "running",
         title: "Other",
         historyState: { type: "writable" },
@@ -1016,7 +1017,7 @@ describe("WorkspaceView", () => {
       {
         id: "s1",
         workspaceId: "workspace-t1",
-        agentRef: "ora-space.opencode",
+        agentRef: AGENT_REF.opencode,
         status: "running",
         title: null,
         historyState: { type: "writable" },
@@ -1261,7 +1262,7 @@ describe("WorkspaceView", () => {
       expect(started).toEqual([
         {
           workspaceId: "workspace-p1",
-          agentRef: "ora-space.opencode",
+          agentRef: AGENT_REF.opencode,
           model: "opencode/small-pickle",
         },
       ]),
@@ -1285,7 +1286,7 @@ describe("WorkspaceView", () => {
       {
         id: "s1",
         workspaceId: "workspace-t1",
-        agentRef: "ora-space.opencode",
+        agentRef: AGENT_REF.opencode,
         status: "running",
         title: null,
         historyState: { type: "writable" },
@@ -1416,7 +1417,7 @@ describe("WorkspaceView", () => {
             request,
             options,
           );
-          if (request.agentRef !== "ora-space.claude") return response;
+          if (request.agentRef !== AGENT_REF.claude) return response;
           return {
             ...response,
             models: [
@@ -1447,7 +1448,7 @@ describe("WorkspaceView", () => {
       {
         id: "s1",
         workspaceId: "workspace-t1",
-        agentRef: "ora-space.opencode",
+        agentRef: AGENT_REF.opencode,
         status: "running",
         title: null,
         historyState: { type: "writable" },
@@ -1499,7 +1500,7 @@ describe("WorkspaceView", () => {
     // Rebinding here would tear down an agent that may be mid-reply, so nothing
     // is asked of the backend until the next message carries the move.
     expect(switched).toEqual([]);
-    expect(state.sessions[0]?.agentRef).toBe("ora-space.opencode");
+    expect(state.sessions[0]?.agentRef).toBe(AGENT_REF.opencode);
   });
 
   it("commits a recorded agent move with the next message", async () => {
@@ -1537,10 +1538,10 @@ describe("WorkspaceView", () => {
     await user.keyboard("{Enter}");
 
     await waitFor(() =>
-      expect(state.sessions[0]?.agentRef).toBe("ora-space.claude"),
+      expect(state.sessions[0]?.agentRef).toBe(AGENT_REF.claude),
     );
     expect(switched).toEqual([
-      { sessionId: "s1", agentRef: "ora-space.claude", model: null },
+      { sessionId: "s1", agentRef: AGENT_REF.claude, model: null },
     ]);
   });
 
@@ -1585,7 +1586,7 @@ describe("WorkspaceView", () => {
     // Asking the backend to move a session onto its own agent is refused with
     // `session_agent_unchanged`, which would have failed the message with it.
     expect(switched).toEqual([]);
-    expect(state.sessions[0]?.agentRef).toBe("ora-space.opencode");
+    expect(state.sessions[0]?.agentRef).toBe(AGENT_REF.opencode);
   });
 
   it("resumes a session whose history stopped recording", async () => {
@@ -1604,7 +1605,7 @@ describe("WorkspaceView", () => {
       {
         id: "s1",
         workspaceId: "workspace-t1",
-        agentRef: "ora-space.opencode",
+        agentRef: AGENT_REF.opencode,
         status: "running",
         title: null,
         historyState: { type: "degraded", reason: "no space left on device" },

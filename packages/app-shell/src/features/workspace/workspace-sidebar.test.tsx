@@ -42,6 +42,7 @@ import { useUnreadSessionsStore } from "../../state/stores/unread-sessions-store
 import { dismissSessionDraft } from "../../state/session-drafts";
 import { WorkspaceSidebar } from "./workspace-sidebar";
 import { useWorkflowEditorStore } from "../workflow-editor/workflow-editor-store";
+import { AGENT_REF } from "../../test/agent-identity";
 
 const USER = { name: "Eric", email: "eric@example.com" };
 // Deliberately not "Ora": the sidebar header renders that as the product mark,
@@ -56,7 +57,7 @@ const TASK: Task = {
 const SESSION: Session = {
   id: "s1",
   workspaceId: "workspace-t1",
-  agentRef: "ora-space.opencode",
+  agentRef: AGENT_REF.opencode,
   status: "running",
   title: null,
   historyState: { type: "writable" },
@@ -64,7 +65,7 @@ const SESSION: Session = {
 const DIRECT_SESSION: Session = {
   id: "s-direct",
   workspaceId: "workspace-p1",
-  agentRef: "ora-space.opencode",
+  agentRef: AGENT_REF.opencode,
   status: "running",
   title: null,
   historyState: { type: "writable" },
@@ -678,7 +679,7 @@ describe("WorkspaceSidebar", () => {
     state.sessions.push({
       id: "s2",
       workspaceId: "workspace-p1",
-      agentRef: "ora-space.opencode",
+      agentRef: AGENT_REF.opencode,
       status: "running",
       title: null,
       historyState: { type: "writable" },
@@ -1410,7 +1411,7 @@ describe("WorkspaceSidebar", () => {
       {
         id: "s2",
         workspaceId: "workspace-p1",
-        agentRef: "ora-space.opencode",
+        agentRef: AGENT_REF.opencode,
         status: "running",
         title: "Direct chat",
         historyState: { type: "writable" },

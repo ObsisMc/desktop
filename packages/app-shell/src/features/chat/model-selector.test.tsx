@@ -25,11 +25,12 @@ import { usePendingAgentStore } from "../../state/stores/pending-agent-store";
 import type { AgentStatus } from "@ora/contracts";
 import { ModelSelector } from "./model-selector";
 import { queryKeys } from "../../state/hooks/query-keys";
+import { AGENT_REF } from "../../test/agent-identity";
 
 beforeEach(() => {
   useWorkspaceSelectionStore.getState().clearSelection();
   useSettingsStore.setState({
-    settings: { ...DEFAULT_SETTINGS, agentCli: "ora-space.opencode" },
+    settings: { ...DEFAULT_SETTINGS, agentCli: AGENT_REF.opencode },
   });
   usePendingAgentStore.setState({ selections: {} });
 });
@@ -38,7 +39,7 @@ beforeEach(() => {
 function reportOpenCode(status: AgentStatus) {
   return (state: MockClientState) => {
     state.agentRuntimeStatuses = state.agentRuntimeStatuses.map((candidate) =>
-      candidate.agentRef === "ora-space.opencode"
+      candidate.agentRef === AGENT_REF.opencode
         ? { ...candidate, status }
         : candidate,
     );
@@ -177,7 +178,7 @@ describe("ModelSelector agent availability", () => {
     const user = userEvent.setup();
     renderModelSelector((state) => {
       state.agentRuntimeStatuses = state.agentRuntimeStatuses.filter(
-        (status) => status.agentRef !== "ora-space.opencode",
+        (status) => status.agentRef !== AGENT_REF.opencode,
       );
     });
 
@@ -190,7 +191,7 @@ describe("ModelSelector agent availability", () => {
     expect(within(picker()).queryByText("OpenCode")).toBeNull();
     expect(picker().querySelectorAll("svg")).toHaveLength(1);
     expect(useSettingsStore.getState().settings.agentCli).toBe(
-      "ora-space.opencode",
+      AGENT_REF.opencode,
     );
   });
 
@@ -203,7 +204,7 @@ describe("ModelSelector agent availability", () => {
       expect(within(picker()).queryByText("OpenCode")).toBeNull(),
     );
     expect(useSettingsStore.getState().settings.agentCli).toBe(
-      "ora-space.opencode",
+      AGENT_REF.opencode,
     );
     expect(picker().querySelectorAll("svg")).toHaveLength(1);
   });

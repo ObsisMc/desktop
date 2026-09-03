@@ -96,8 +96,8 @@ function AgentUnavailableBanner({
 /**
  * Decides whether a session's agent is currently servable, and why it is not.
  *
- * An agent package supplies exactly one agent under its plugin name (the
- * `name` segment of its id), which is the same value a session persists as its
+ * An agent package supplies exactly one agent under its whole plugin id
+ * (`namespace/name`), which is the same value a session persists as its
  * binding, so the two are matched directly; ui packages contribute no agent.
  * An identity no plugin claims is only reported as uninstalled when the runtime
  * does not supervise it either — a built-in CLI has no plugin row and must not
@@ -116,7 +116,7 @@ function resolveAvailability(
   }
   const plugin = plugins.find(
     (installed) =>
-      installed.kind === "agent" && installed.name === session.agentRef,
+      installed.kind === "agent" && installed.id === session.agentRef,
   );
   if (plugin === undefined) {
     if (

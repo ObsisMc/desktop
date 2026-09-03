@@ -10,8 +10,8 @@ import { useInstalledPlugins } from "../../state/hooks/use-installed-plugins";
  */
 export interface AgentEntry {
   /**
-   * The agent's persisted, namespaced identity — the package name, which is exactly what a
-   * session stores as its `agentRef` and what the backend keys its runtime by.
+   * The agent's persisted, namespaced identity — the package's whole `namespace/name` id, which
+   * is exactly what a session stores as its `agentRef` and what the backend keys its runtime by.
    */
   agentRef: string;
   /** Name shown in the pickers, declared by the package's agent contribution. */
@@ -34,9 +34,9 @@ export function useAgentCatalog(): AgentEntry[] {
       (plugins ?? [])
         .filter((plugin) => plugin.kind === "agent")
         .map((plugin) => ({
-          // Supervisors are keyed by the package name rather than its `namespace/name` address,
-          // because the name alone is what every session persisted as its binding.
-          agentRef: plugin.name,
+          // Supervisors are keyed by the package's whole `namespace/name` address: two sources
+          // may publish the same name, and the name alone would collapse them into one agent.
+          agentRef: plugin.id,
           label: plugin.agentDisplayName,
           logo: plugin.logo,
         })),

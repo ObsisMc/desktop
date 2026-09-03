@@ -182,7 +182,7 @@ function InstalledPluginRow({
   const update = useUpdatePlugin(plugin.id);
   const mutations = usePluginMutations(
     plugin.id,
-    plugin.kind === "agent" ? plugin.name : undefined,
+    plugin.kind === "agent" ? plugin.id : undefined,
   );
   const uninstalling = mutations.uninstall.isPending;
   const busy = uninstalling || update.isPending;
