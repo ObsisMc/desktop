@@ -515,7 +515,7 @@ describe("WorkspaceFileViewer", () => {
     expect(container.querySelector("[data-deferred-loading]")).toBeNull();
   });
 
-  it("never falls back to mounting every row when the viewport is unavailable", () => {
+  it("never falls back to mounting every row when the viewport is unavailable", async () => {
     // Regression guard for the session-switch stall: a windowed file whose
     // viewport cannot be resolved must render the loading state, not all rows.
     vi.spyOn(HTMLPreElement.prototype, "closest").mockReturnValue(null);
@@ -527,8 +527,13 @@ describe("WorkspaceFileViewer", () => {
       />,
     );
 
+    // The virtualizer's own mount/observe update lands after this synchronous
+    // render; awaiting it inside `act` keeps that update from escaping the test
+    // and tripping the clean-stderr gate.
+    await waitFor(() =>
+      expect(container.querySelector("[data-deferred-loading]")).not.toBeNull(),
+    );
     expect(container.querySelectorAll("[data-line-number]")).toHaveLength(0);
-    expect(container.querySelector("[data-deferred-loading]")).not.toBeNull();
   });
 
   it("shows a loading overlay for oversized files and brings content in after the first paint", async () => {

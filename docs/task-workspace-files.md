@@ -114,8 +114,12 @@ multi-thousand-line file scrolls with bounded DOM while every mounted row is a
 real `Diff`/`Hunk`. Windowing lives inside the file component itself, so all
 interaction behavior — chat citation jump-to-line, line quoting, collapse and
 expand — keeps working: a jump scrolls the virtualizer to the cited chunk, then
-to the highlighted row. A toolbar toggle swaps between the continuous scroll
-body and the focus body, and sticks for the session.
+to the highlighted row. The body is chosen automatically from the diff size: a
+large change-set (many files, many changed lines, or one file big enough to
+row-window) uses the single-file focus body, otherwise the continuous scroll
+body. There is no manual toggle, because the scroll body mounts every file as
+one native table and cannot window per-file — a big file there would stall,
+while the focus body's bounded-DOM rendering keeps it fast.
 
 Rust contracts live in `crates/contracts/src/file_system.rs` and export to
 `packages/contracts/src/file-system.ts`. The endpoint catalog in

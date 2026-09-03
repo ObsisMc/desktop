@@ -275,7 +275,7 @@ describe("WorkspaceReviewLayout", () => {
     );
     expect(
       screen.getByRole("button", {
-        name: /显示或隐藏变更文件目录|toggle file tree/i,
+        name: /宽屏展开变更面板|Expand changes panel/,
       }),
     ).toBeInTheDocument();
   });
@@ -447,7 +447,7 @@ describe("WorkspaceReviewLayout", () => {
     ).toBeInTheDocument();
     expect(
       screen.getByRole("button", {
-        name: /显示或隐藏变更文件目录|Show or hide changed file tree/,
+        name: /宽屏展开变更面板|Expand changes panel/,
       }),
     ).toBeInTheDocument();
 
@@ -468,7 +468,7 @@ describe("WorkspaceReviewLayout", () => {
     expect(screen.getByTestId("files-panel")).toBeInTheDocument();
     expect(
       screen.queryByRole("button", {
-        name: /显示或隐藏变更文件目录|Show or hide changed file tree/,
+        name: /宽屏展开变更面板|Expand changes panel/,
       }),
     ).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /文件|Files/ })).toHaveAttribute(

@@ -17,7 +17,11 @@ import {
   type FileData,
   type GutterOptions,
 } from "react-diff-view";
-import { IconChevronDown, IconFileDiff } from "@tabler/icons-react";
+import {
+  IconChevronDown,
+  IconFileDiff,
+  IconLayoutSidebarRightExpand,
+} from "@tabler/icons-react";
 import { useTranslation } from "react-i18next";
 import {
   buildCollapsedDiffSegments,
@@ -29,7 +33,7 @@ import {
   type DiffRenderSegment,
 } from "./task-diff-collapse";
 import { countChanges } from "./task-diff-data";
-import { diffLineScrollTop } from "./task-diff-scroll";
+import { createDiffLineAligner, type DiffLineAligner } from "./task-diff-jump";
 import { useTaskDiffQuoteGutter } from "./task-diff-quote-gutter";
 
 /**
@@ -64,6 +68,14 @@ export interface TaskDiffFileProps {
    * component, not in a sidecar.
    */
   scrollElement?: HTMLElement | null;
+  /**
+   * Whether the diff file tree is currently open. When it is closed the file
+   * header shows an expand button at its right end (the tree's own header keeps
+   * the collapse action).
+   */
+  fileTreeOpen?: boolean;
+  /** Re-opens the collapsed diff file tree; the button only shows while closed. */
+  onExpandFileTree?: () => void;
 }
 
 /** Renders one parsed patch file. */
@@ -74,9 +86,35 @@ export function TaskDiffFile({
   targetEndLine,
   targetSide = "new",
   scrollElement,
+  fileTreeOpen = true,
+  onExpandFileTree,
 }: TaskDiffFileProps) {
   const { t } = useTranslation();
   const fileRootRef = useRef<HTMLElement | null>(null);
+  // Single-file (focus) mode: the whole pane shows one file, so a per-file
+  // collapse toggle is redundant — hide it and keep the header as a plain
+  // title. The continuous scroll body (no scrollElement) keeps the collapse.
+  const isSingleFile = scrollElement !== undefined;
+  // Citation-jump aligner: waits (bounded, on rAF) for the cited row to mount
+  // in windowed mode, then vertically centers it. Held in a ref so a new jump
+  // on the same pane replaces the previous poll instead of competing with it.
+  // The root/region is the file `<article>`; the scroll region and the selected
+  // row are discovered from the DOM so this stays framework-free.
+  const jumpAlignerRef = useRef<DiffLineAligner | null>(null);
+  if (jumpAlignerRef.current === null) {
+    jumpAlignerRef.current = createDiffLineAligner({
+      getRegion: () => {
+        const region = fileRootRef.current?.closest<HTMLElement>(
+          ".ora-diff-scroll-region",
+        );
+        return region ?? null;
+      },
+      getRow: () =>
+        fileRootRef.current?.querySelector<HTMLElement>(
+          ".diff-code-selected, .diff-selected",
+        ) ?? null,
+    });
+  }
   const [expanded, setExpanded] = useState(true);
   const [expandedBlocks, setExpandedBlocks] = useState<Set<string>>(
     () => new Set(),
@@ -94,6 +132,15 @@ export function TaskDiffFile({
     const timer = setTimeout(() => setDeferred(false), 0);
     return () => clearTimeout(timer);
   }, [deferred]);
+
+  // Stop the jump-align poll if this file unmounts mid-align, so it never keeps
+  // scrolling a node that has been removed from the tree.
+  useEffect(
+    () => () => {
+      jumpAlignerRef.current?.cancel();
+    },
+    [],
+  );
 
   const { renderGutter, quoteRootRef } = useTaskDiffQuoteGutter(file, viewType);
   const fileStats = useMemo(() => countChanges([file]), [file]);
@@ -153,10 +200,18 @@ export function TaskDiffFile({
     // Overscan in chunks (each ~a viewport tall), not rows.
     overscan: 2,
     getItemKey: (index) => chunks![index]!.key,
+    // The jump effect writes scrollTop and dispatches a scroll event from inside
+    // a layout effect; the virtualizer would otherwise `flushSync` a re-render
+    // there, and React rejects a flush inside a lifecycle ("flushSync was called
+    // from inside a lifecycle method"), which trips the clean-stderr test gate.
+    // A queued (non-sync) re-render is visually identical here, so opt out.
+    useFlushSync: false,
   });
   // Jump target for the cited change, and the scroll offset of its chunk so the
   // windowed body can scroll the region directly (a native scrollTop write the
-  // virtualizer observes) instead of relying on `scrollToIndex`.
+  // virtualizer observes) instead of relying on `scrollToIndex`. The offset is
+  // the estimated height of every chunk before the target's; the final exact
+  // alignment comes from centering the highlighted row once its chunk mounts.
   const { chunkIndex, chunkOffset } = useMemo(() => {
     if (chunks === null || jumpTargets.length === 0) {
       return { chunkIndex: -1, chunkOffset: 0 };
@@ -170,27 +225,6 @@ export function TaskDiffFile({
     return { chunkIndex: index, chunkOffset: offset };
   }, [chunks, jumpTargets]);
 
-  // Scrolls the currently-mounted highlighted row into view, if any. Shared by
-  // the native and windowed paths; only re-centers when the row is outside the
-  // viewport so unrelated expand/collapse re-runs do not yank the user.
-  const scrollToHighlightedRow = useCallback(() => {
-    const selected = fileRootRef.current?.querySelector<HTMLElement>(
-      ".diff-code-selected, .diff-selected",
-    );
-    if (selected === null || selected === undefined) return;
-    const region = selected.closest<HTMLElement>(".ora-diff-scroll-region");
-    if (region === null) return;
-    if (typeof region.scrollTo !== "function") return;
-    const row = selected.getBoundingClientRect();
-    const viewport = region.getBoundingClientRect();
-    if (row.top >= viewport.top && row.bottom <= viewport.bottom) return;
-    const top = diffLineScrollTop(region, selected);
-    if (top === null) return;
-    // Scroll only vertically (block: center) while persisting scrollLeft, so a
-    // jump to a long line never yanks the whole diff sideways.
-    region.scrollTo({ top, left: region.scrollLeft });
-  }, []);
-
   useLayoutEffect(() => {
     if (jumpScrollKey === null) return;
     if (
@@ -202,26 +236,15 @@ export function TaskDiffFile({
       // Row-windowed: the cited change may live in a later chunk that is not
       // mounted until the virtualizer scrolls there. Scroll the region to the
       // target chunk's offset directly — a native scrollTop write that the
-      // virtualizer observes and re-windows from — then defer the row-scroll so
-      // the target chunk (and its `.diff-code-selected` row) mounts first.
+      // virtualizer observes and re-windows from — then the aligner waits for
+      // the row to mount and centers it.
       scrollElement.scrollTop = chunkOffset;
       scrollElement.dispatchEvent(new Event("scroll"));
-      const timer = setTimeout(scrollToHighlightedRow, 0);
-      return () => clearTimeout(timer);
     }
-    // Native path (or the row is already mounted): scroll now.
-    scrollToHighlightedRow();
-    // `deferred` re-runs this after the placeholder flips to the real rows, so
-    // a chat jump into a still-deferred file scrolls once the line exists.
-  }, [
-    chunkIndex,
-    chunkOffset,
-    chunks,
-    deferred,
-    jumpScrollKey,
-    scrollElement,
-    scrollToHighlightedRow,
-  ]);
+    // (Re)start the aligner; it cancels its own previous poll, so repeated
+    // citation jumps on the same pane each replace the last instead of missing.
+    jumpAlignerRef.current?.align();
+  }, [chunkIndex, chunkOffset, chunks, jumpScrollKey, scrollElement]);
 
   const expandCollapsed = useCallback((key: string) => {
     setExpandedBlocks((current) => {
@@ -338,38 +361,78 @@ export function TaskDiffFile({
       </div>
     );
 
+  const expandFileTreeButton =
+    !fileTreeOpen && onExpandFileTree !== undefined ? (
+      <button
+        type="button"
+        className="ml-2 flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+        aria-label={t("diff.expandFileTree")}
+        title={t("diff.expandFileTree")}
+        onClick={onExpandFileTree}
+      >
+        <IconLayoutSidebarRightExpand className="size-3.5" />
+      </button>
+    ) : null;
+
   return (
     <article ref={fileRootRef} className="bg-background">
       <header className="sticky top-0 z-10 border-b border-border/60 bg-background/95 backdrop-blur">
-        <button
-          type="button"
-          className="flex min-h-10 w-full items-center gap-2 px-2 py-2 text-left outline-none transition-colors hover:bg-muted/35 focus-visible:bg-muted/35 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-          aria-expanded={expanded}
-          aria-label={t(expanded ? "diff.collapseFile" : "diff.expandFile", {
-            path: displayPath(file),
-          })}
-          onClick={() => setExpanded((current) => !current)}
-        >
-          <IconChevronDown
-            className={`size-3.5 shrink-0 text-muted-foreground transition-transform ${expanded ? "" : "-rotate-90"}`}
-            aria-hidden="true"
-          />
-          <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-violet-500/12 text-violet-700 ring-1 ring-inset ring-violet-500/15 dark:text-violet-300">
-            <IconFileDiff className="size-3.5" />
-          </span>
-          <span
-            className="min-w-0 flex-1 truncate font-mono text-xs"
-            title={displayPath(file)}
-          >
-            {displayPath(file)}
-          </span>
-          <span className="shrink-0 text-xs tabular-nums text-emerald-600">
-            +{fileStats.additions}
-          </span>
-          <span className="shrink-0 text-xs tabular-nums text-red-600">
-            −{fileStats.deletions}
-          </span>
-        </button>
+        {isSingleFile ? (
+          <div className="flex min-h-10 w-full items-center gap-2 px-2 py-2">
+            <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-violet-500/12 text-violet-700 ring-1 ring-inset ring-violet-500/15 dark:text-violet-300">
+              <IconFileDiff className="size-3.5" />
+            </span>
+            <span
+              className="min-w-0 flex-1 truncate font-mono text-xs"
+              title={displayPath(file)}
+            >
+              {displayPath(file)}
+            </span>
+            <span className="shrink-0 text-xs tabular-nums text-emerald-600">
+              +{fileStats.additions}
+            </span>
+            <span className="shrink-0 text-xs tabular-nums text-red-600">
+              −{fileStats.deletions}
+            </span>
+            {expandFileTreeButton}
+          </div>
+        ) : (
+          <div className="flex min-h-10 w-full items-center">
+            <button
+              type="button"
+              className="flex min-h-10 min-w-0 flex-1 items-center gap-2 px-2 py-2 text-left outline-none transition-colors hover:bg-muted/35 focus-visible:bg-muted/35 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+              aria-expanded={expanded}
+              aria-label={t(
+                expanded ? "diff.collapseFile" : "diff.expandFile",
+                {
+                  path: displayPath(file),
+                },
+              )}
+              onClick={() => setExpanded((current) => !current)}
+            >
+              <IconChevronDown
+                className={`size-3.5 shrink-0 text-muted-foreground transition-transform ${expanded ? "" : "-rotate-90"}`}
+                aria-hidden="true"
+              />
+              <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-violet-500/12 text-violet-700 ring-1 ring-inset ring-violet-500/15 dark:text-violet-300">
+                <IconFileDiff className="size-3.5" />
+              </span>
+              <span
+                className="min-w-0 flex-1 truncate font-mono text-xs"
+                title={displayPath(file)}
+              >
+                {displayPath(file)}
+              </span>
+              <span className="shrink-0 text-xs tabular-nums text-emerald-600">
+                +{fileStats.additions}
+              </span>
+              <span className="shrink-0 text-xs tabular-nums text-red-600">
+                −{fileStats.deletions}
+              </span>
+            </button>
+            {expandFileTreeButton}
+          </div>
+        )}
       </header>
       {expanded && body}
     </article>
@@ -392,7 +455,9 @@ function areTaskDiffFilePropsEqual(
     previous.targetLine === next.targetLine &&
     previous.targetEndLine === next.targetEndLine &&
     previous.targetSide === next.targetSide &&
-    previous.scrollElement === next.scrollElement
+    previous.scrollElement === next.scrollElement &&
+    previous.fileTreeOpen === next.fileTreeOpen &&
+    previous.onExpandFileTree === next.onExpandFileTree
   );
 }
 

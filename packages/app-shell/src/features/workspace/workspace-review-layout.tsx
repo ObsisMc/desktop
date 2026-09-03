@@ -19,8 +19,6 @@ import {
   IconColumns2,
   IconFolderOpen,
   IconGitBranch,
-  IconLayoutSidebarRightCollapse,
-  IconLayoutSidebarRightExpand,
 } from "@tabler/icons-react";
 import { useTranslation } from "react-i18next";
 import {
@@ -602,27 +600,16 @@ export function WorkspaceReviewLayout({
           {panel === "changes" && (
             <Button
               size="icon-sm"
-              variant={fileTreeOpen ? "secondary" : "ghost"}
+              variant={expanded ? "secondary" : "ghost"}
               className="size-7"
-              aria-label={t("diff.toggleFileTree")}
-              onClick={() => setFileTreeOpen((value) => !value)}
-            >
-              {fileTreeOpen ? (
-                <IconLayoutSidebarRightCollapse />
-              ) : (
-                <IconLayoutSidebarRightExpand />
+              aria-label={t(
+                expanded ? "diff.restorePanel" : "diff.expandPanel",
               )}
+              onClick={toggleExpanded}
+            >
+              {expanded ? <IconArrowsMinimize /> : <IconArrowsMaximize />}
             </Button>
           )}
-          <Button
-            size="icon-sm"
-            variant={expanded ? "secondary" : "ghost"}
-            className="size-7"
-            aria-label={t(expanded ? "diff.restorePanel" : "diff.expandPanel")}
-            onClick={toggleExpanded}
-          >
-            {expanded ? <IconArrowsMinimize /> : <IconArrowsMaximize />}
-          </Button>
           <span className="mx-0.5 h-4 w-px bg-border/70" aria-hidden="true" />
         </>
       )}

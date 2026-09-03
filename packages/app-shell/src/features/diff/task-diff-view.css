@@ -331,8 +331,21 @@
   }
 }
 
-@container diff-toolbar (max-width: 360px) {
+/*
+ * The commit / scope summary may compress, but the view-controls buttons (view
+ * split, file tree, expand, panel switch) are functional controls and must not
+ * vanish. When the toolbar is narrow, let the controls scroll horizontally
+ * instead of hiding them, so every button stays reachable.
+ */
+@container diff-toolbar (max-width: 520px) {
   .ora-diff-toolbar__view-controls {
+    flex: 0 0 auto;
+    max-width: 50%;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .ora-diff-toolbar__view-controls::-webkit-scrollbar {
     display: none;
   }
 }

@@ -35,9 +35,7 @@ import {
 import {
   IconCode,
   IconGitBranch,
-  IconLayoutList,
   IconRefresh,
-  IconRowRemove,
   IconUpload,
 } from "@tabler/icons-react";
 import { useTranslation } from "react-i18next";
@@ -107,7 +105,6 @@ interface TaskDiffViewProps {
 }
 
 export type TaskDiffViewType = "unified" | "split";
-export type TaskDiffViewMode = "scroll" | "focus";
 
 export interface TaskDiffFileRequest {
   path: string;
@@ -199,6 +196,12 @@ export function TaskDiffView({
     },
     [fileRequest, jumpHighlightDismissed],
   );
+  // Stable so passing it into `MemoizedTaskDiffFile` does not defeat its memo:
+  // an inline arrow would change identity on every render and force every
+  // mounted file to re-render its expensive `<Diff>` subtree.
+  const openFileTree = useCallback(() => {
+    onFileTreeOpenChange(true);
+  }, [onFileTreeOpenChange]);
   // Last tree-click flash. It is never cleared by a timer: the overlay fades
   // to transparent via `animation-fill-mode`, and re-clicking re-keys it to
   // replay — so a click on an already-visible file still gets feedback.
@@ -284,11 +287,13 @@ export function TaskDiffView({
         : filePaths[0]!;
 
   /**
-   * View mode: defaults to `scroll`; large diffs auto-enter `focus`
-   * (single-file body). A manual toggle sticks for the component lifetime and
-   * wins over auto, so file-count changes cannot yank the user out of their
-   * chosen layout. Derived (not ref-stored) so the deferred parse flip below
-   * also gates the initial mode correctly.
+   * View mode is driven entirely by the diff size: a large change-set (many
+   * files, many changed lines, or one file big enough to row-window) uses the
+   * single-file focus body, otherwise the continuous scroll body. The focus
+   * body windows a huge file into native chunk hunks, so it is the only layout
+   * that stays fast for a big diff; the scroll body mounts every file as one
+   * full table and cannot window per-file. Derived (not ref-stored) so the
+   * deferred parse flip below also gates the mode correctly.
    */
   const largestFileChanges = useMemo(
     () =>
@@ -306,11 +311,7 @@ export function TaskDiffView({
     files.length > FOCUS_MODE_FILE_COUNT ||
     stats.additions + stats.deletions > FOCUS_MODE_TOTAL_CHANGES ||
     largestFileChanges > ROW_VIRTUALIZE_MIN_CHANGES;
-  const [viewModeOverride, setViewModeOverride] =
-    useState<TaskDiffViewMode | null>(null);
-  const viewMode: TaskDiffViewMode =
-    viewModeOverride ?? (autoFocus ? "focus" : "scroll");
-  const isFocusMode = viewMode === "focus";
+  const isFocusMode = autoFocus;
   const focusFile =
     isFocusMode && activeFilePath !== ""
       ? (files.find((file) => diffFilePath(file) === activeFilePath) ?? null)
@@ -679,27 +680,7 @@ export function TaskDiffView({
           </Button>
         </div>
         <div className="flex-1" />
-        <div className="ora-diff-toolbar__view-controls flex shrink-0 items-center gap-0.5">
-          <Button
-            size="icon-sm"
-            variant="ghost"
-            className="size-7"
-            aria-label={
-              isFocusMode ? t("diff.viewModeScroll") : t("diff.viewModeFocus")
-            }
-            title={
-              isFocusMode ? t("diff.viewModeScroll") : t("diff.viewModeFocus")
-            }
-            onClick={() =>
-              setViewModeOverride(isFocusMode ? "scroll" : "focus")
-            }
-          >
-            {isFocusMode ? (
-              <IconLayoutList className="size-3.5" />
-            ) : (
-              <IconRowRemove className="size-3.5" />
-            )}
-          </Button>
+        <div className="ora-diff-toolbar__view-controls flex min-w-0 shrink items-center gap-0.5">
           {toolbar}
         </div>
       </header>
@@ -760,6 +741,8 @@ export function TaskDiffView({
                 <TaskDiffFocusBody
                   file={focusFile}
                   viewType={viewType}
+                  fileTreeOpen={fileTreeOpen}
+                  onExpandFileTree={openFileTree}
                   onDismissJumpHighlight={dismissJumpHighlight}
                   fileFlash={
                     fileFlash?.path === activeFilePath ? fileFlash : null
@@ -821,6 +804,8 @@ export function TaskDiffView({
                           <TaskDiffFileViewport
                             file={file}
                             viewType={viewType}
+                            fileTreeOpen={fileTreeOpen}
+                            onExpandFileTree={openFileTree}
                             targetLine={
                               !jumpHighlightDismissed &&
                               fileRequest !== undefined &&
@@ -897,6 +882,7 @@ export function TaskDiffView({
                   files={files}
                   selectedPath={activeFilePath}
                   onSelect={selectFile}
+                  onCollapse={() => onFileTreeOpenChange(false)}
                 />
               )}
             </ResizablePanel>

@@ -1,8 +1,7 @@
 import { createElement, type ReactNode } from "react";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { render, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { appI18n } from "../../i18n/i18n-instance";
 import { AppI18nProvider } from "../../i18n/i18n";
 import { ContractsClientContext } from "../../contracts-client-context";
 import {
@@ -109,21 +108,21 @@ describe("TaskDiffView performance modes", () => {
     expect(container.querySelectorAll("article").length).toBe(1);
   });
 
-  it("switches back to scroll mode via the toolbar toggle", async () => {
+  it("keeps a multi-file change-set in the single-file body with no toggle", async () => {
     mockViewportSize(600);
     const { container } = renderDiff(manyFilesPatch(50));
 
     await waitFor(() =>
       expect(container.querySelectorAll("article").length).toBe(1),
     );
-    const toggle = screen.getByRole("button", {
-      name: appI18n.t("diff.viewModeScroll"),
-    });
-    fireEvent.click(toggle);
-
-    await waitFor(() =>
-      expect(container.querySelectorAll("article").length).toBeGreaterThan(1),
+    // A large change-set stays in the focus body; there is no manual
+    // single-file/scroll toggle anymore, only the external view controls.
+    expect(container.querySelectorAll("article").length).toBe(1);
+    // No view-mode switch is rendered by the diff itself.
+    const viewControls = container.querySelector(
+      ".ora-diff-toolbar__view-controls",
     );
+    expect(viewControls?.querySelectorAll("button").length).toBe(0);
   });
 
   it("keeps react-diff-view's tint classes on a row-windowed large file", async () => {
@@ -144,6 +143,22 @@ describe("TaskDiffView performance modes", () => {
     expect(mounted).toBeLessThan(6);
     // The summary still shows a loading state was never leaked.
     expect(container.querySelector("[data-diff-deferred-loading]")).toBeNull();
+  });
+
+  it("stays in the single-file body for a large file with no toggle", async () => {
+    mockViewportSize(600);
+    const { container } = renderDiff(filePatch("big/generated.ts", 700));
+
+    // A single big file stays in the focus body.
+    await waitFor(() =>
+      expect(container.querySelectorAll("article").length).toBe(1),
+    );
+    // There is no single-file/scroll toggle; the external view controls are
+    // the only buttons on the right, and none of them is a view-mode switch.
+    const viewControls = container.querySelector(
+      ".ora-diff-toolbar__view-controls",
+    );
+    expect(viewControls?.querySelectorAll("button").length).toBe(0);
   });
 });
 
