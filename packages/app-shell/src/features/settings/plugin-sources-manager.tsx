@@ -130,12 +130,6 @@ export function PluginSourcesManager({ onBack }: { onBack: () => void }) {
         <h2 className="text-lg font-semibold">
           {t("settings.plugins.manageSources")}
         </h2>
-        <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">
-          {t("settings.plugins.manageSourcesDescription")}
-        </p>
-        <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
-          {t("settings.plugins.sourceIdentityNote")}
-        </p>
       </header>
 
       <form
@@ -392,6 +386,17 @@ function SourceEditDialog({
           </label>
           <label className="space-y-1.5">
             <span className="text-sm font-medium">
+              {t("settings.plugins.sourceBranch")}
+            </span>
+            <Input
+              value={branch}
+              onChange={(event) => setBranch(event.target.value)}
+              aria-label={t("settings.plugins.sourceBranch")}
+              autoComplete="off"
+            />
+          </label>
+          <label className="space-y-1.5">
+            <span className="text-sm font-medium">
               {t("settings.plugins.artifactRetrieval")}
             </span>
             <Select
@@ -457,17 +462,6 @@ function SourceEditDialog({
               )}
             </div>
           )}
-          <label className="space-y-1.5">
-            <span className="text-sm font-medium">
-              {t("settings.plugins.sourceBranch")}
-            </span>
-            <Input
-              value={branch}
-              onChange={(event) => setBranch(event.target.value)}
-              aria-label={t("settings.plugins.sourceBranch")}
-              autoComplete="off"
-            />
-          </label>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
