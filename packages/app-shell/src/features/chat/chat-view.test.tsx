@@ -2140,6 +2140,26 @@ describe("ChatView", () => {
     );
   });
 
+  it("suppresses the OS context menu across the conversation area", () => {
+    renderWithI18n(
+      <ChatView
+        turns={[]}
+        userName="Eric"
+        isResponding={false}
+        error={null}
+        onSend={() => {}}
+      />,
+    );
+
+    const pane = screen.getByRole("main");
+    const event = new MouseEvent("contextmenu", {
+      bubbles: true,
+      cancelable: true,
+    });
+    fireEvent(pane, event);
+    expect(event.defaultPrevented).toBe(true);
+  });
+
   it("keeps the disabled hint shut when the pointer never left the enabled composer", async () => {
     const user = userEvent.setup();
     const view = renderWithI18n(
