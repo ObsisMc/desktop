@@ -56,10 +56,12 @@ the checked-in configuration keeps `externalBin` empty so `tauri dev` does not
 depend on that directory.
 
 The Rust-owned `ora-reaper` sidecar is built locally rather than downloaded. `run:desktop` builds
-its debug executable first, while `build:desktop` and the packaging workflow build its release
-executable. The build helper copies it into `binaries/ora-reaper-<target-triple>` so Tauri can
-package it using the same external-binary convention. Debug Desktop starts that target-qualified
-file directly; packaged builds resolve Tauri's installed `ora-reaper` executable beside Ora.
+its debug executable first, while the internal `build:desktop` base task and the packaging workflow
+build its release executable. Use `task package:desktop` for a complete local installer; the base
+task does not configure the downloaded release sidecars by itself. The build helper copies it into
+`binaries/ora-reaper-<target-triple>` so Tauri can package it using the same external-binary
+convention. Debug Desktop starts that target-qualified file directly; packaged builds resolve
+Tauri's installed `ora-reaper` executable beside Ora.
 The generated `binaries` directory is excluded from Tauri's development watcher because sidecar
 installation is not a Rust source change and must not restart a freshly launched application.
 

@@ -65,7 +65,9 @@ tasks:
       - node scripts/build-reaper.mjs --release
 
   build:desktop:
-    desc: Build and bundle the Tauri desktop app installers
+    desc: >-
+      Internal base task for building the Tauri desktop bundle; use
+      package:desktop for a complete local installer
     cmds:
       - task: build:reaper:release
       - task: export-contracts
@@ -73,8 +75,8 @@ tasks:
 
   package:desktop:
     desc: >-
-      Build a local desktop installer the same way desktop-build.yml does
-      (sidecars enabled, working-copy edits restored afterward)
+      Build a complete local desktop installer the same way desktop-build.yml
+      does (sidecars enabled, working-copy edits restored afterward)
     cmds:
       - node scripts/package-desktop.mjs {{.CLI_ARGS}}
 
