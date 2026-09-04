@@ -11,6 +11,9 @@ function leafPlainText(node: PmNode): string {
       return "\n";
     case "promptToken": {
       const kind = node.attrs.kind;
+      if (kind === "variable") {
+        return `{{#${String(node.attrs.name)}#}}`;
+      }
       const prefix = kind === "command" ? "/" : kind === "role" ? "@" : "$";
       return `${prefix}${String(node.attrs.name)}`;
     }

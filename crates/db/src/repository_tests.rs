@@ -1,8 +1,10 @@
 use ora_application::{
-    BindWorkflowNodeSessionResult, NodeRunToStart, ProjectRepository, SessionRepository,
-    SkillRepository, StartWorkflowRunResult, WorkflowRepository, WorkflowRunCreateOutcome,
-    WorkflowRunEngineRepository, WorkflowRunRepository,
+    BindWorkflowNodeSessionResult, NodeRunToStart, ProjectRepository, RestartWorkflowRunResult,
+    SessionRepository, SkillRepository, StartWorkflowRunResult, WorkflowRepository,
+    WorkflowRunCreateOutcome, WorkflowRunEngineRepository, WorkflowRunPayload,
+    WorkflowRunRepository, WorkflowVariablePool,
 };
+use ora_contracts::WorkflowRunLocale;
 use ora_domain::{
     AgentRef, AuditFields, Namespace, PluginId, Project, ProjectId, Session, SessionId,
     SessionStatus, SkillOrigin, Workflow, WorkflowId, WorkflowNodeRunId, WorkflowRun,
@@ -446,6 +448,128 @@ fn workflow_run_round_trip_uses_workspace_id() {
             created_at: run.audit_fields.created_at,
         }]
     );
+}
+
+/// Verifies a restart resets variable values but keeps the catalog, re-seeding the task input.
+#[test]
+fn restart_resets_variable_values_and_keeps_the_catalog() {
+    let (temp_dir, pool) = bootstrapped_pool();
+    let workspace_path = existing_workspace_path(&temp_dir);
+    let project_repository = SqliteProjectRepository::new(pool.clone());
+    let workspace_repository = SqliteWorkspaceRepository::new(pool.clone());
+    let workflow_repository = SqliteWorkflowRepository::new(pool.clone());
+    let run_repository = SqliteWorkflowRunRepository::new(pool.clone());
+    let engine_repository = SqliteWorkflowRunEngineRepository::new(pool.clone());
+    project_repository
+        .create_project(
+            Project::new(
+                ProjectId::new("project-1"),
+                "Demo",
+                AuditFields::new(10, 10, false),
+            ),
+            WorkspaceLocation::local_filesystem(workspace_path.to_string_lossy()),
+        )
+        .unwrap();
+    let workspace = workspace_repository
+        .find_main_workspace(&ProjectId::new("project-1"))
+        .unwrap()
+        .unwrap();
+    let workflow_id = WorkflowId::new("workflow-1");
+    let snapshot_id = WorkflowSnapshotId::new("snapshot-1");
+    workflow_repository
+        .create_workflow(
+            Workflow::new(
+                workflow_id.clone(),
+                Namespace::local(),
+                "Review",
+                None,
+                AuditFields::new(10, 10, false),
+            )
+            .unwrap(),
+            WorkflowSnapshot::new(
+                snapshot_id.clone(),
+                workflow_id.clone(),
+                "draft",
+                "{}",
+                10,
+                Some(10),
+                false,
+            ),
+        )
+        .unwrap();
+
+    let mut seeded = WorkflowVariablePool::default();
+    seeded.declare("sys.task", "string", "system");
+    seeded.declare("start.request", "string", "start");
+    seeded.declare("start.count", "integer", "start");
+    seeded.declare("review.text", "string", "review");
+    seeded
+        .set("sys.task", "system", serde_json::json!("旧任务"))
+        .unwrap();
+    seeded
+        .set("start.request", "start", serde_json::json!("旧任务"))
+        .unwrap();
+    seeded
+        .set("start.count", "start", serde_json::json!(2))
+        .unwrap();
+    seeded
+        .set("review.text", "review", serde_json::json!("旧输出"))
+        .unwrap();
+    let mut run_payload = WorkflowRunPayload::with_variable_pool(
+        WorkflowRunLocale::EnUs,
+        Default::default(),
+        Some("start".to_string()),
+        seeded,
+    );
+    run_payload
+        .condition_decisions
+        .insert("condition-1".to_string(), "case-1".to_string());
+    let payload = serde_json::to_string(&run_payload).unwrap();
+
+    let run_id = WorkflowRunId::new("run-1");
+    run_repository
+        .create_run(WorkflowRun::new(
+            run_id.clone(),
+            workspace.id,
+            workflow_id,
+            snapshot_id,
+            "Review run",
+            WorkflowRunStatus::Succeeded,
+            Some(r#"{"current_nodes":[]}"#.to_string()),
+            Some("新任务".to_string()),
+            Some("旧输出".to_string()),
+            None,
+            Some(payload),
+            Some(20),
+            Some(30),
+            AuditFields::new(20, 30, false),
+        ))
+        .unwrap();
+
+    assert_eq!(
+        engine_repository.restart_run(&run_id, 40).unwrap(),
+        RestartWorkflowRunResult::Restarted
+    );
+
+    let restarted = run_repository.find_run(&run_id).unwrap().unwrap();
+    let parsed: WorkflowRunPayload =
+        serde_json::from_str(restarted.payload.as_deref().unwrap()).unwrap();
+    // Legacy instruction aliases are removed while real declarations remain available.
+    assert!(!parsed.variable_pool.catalog.contains_key("sys.task"));
+    assert!(!parsed.variable_pool.catalog.contains_key("start.request"));
+    assert!(parsed.variable_pool.catalog.contains_key("start.count"));
+    assert!(parsed.variable_pool.catalog.contains_key("review.text"));
+    assert_eq!(
+        parsed.variable_pool.values.get("start.count"),
+        Some(&serde_json::json!(2))
+    );
+    assert!(!parsed.variable_pool.values.contains_key("review.text"));
+    assert_eq!(
+        parsed.condition_decisions,
+        std::collections::BTreeMap::new()
+    );
+    // The mutation revision advanced so readers observe the reset.
+    assert!(parsed.variable_pool.revision >= 1);
 }
 
 /// Verifies deleting a run preserves the workspace and its independent session aggregate.

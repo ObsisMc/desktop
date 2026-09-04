@@ -614,6 +614,7 @@ impl Backend {
         let completing = self.completing_node_runs.clone();
         let node_run_id = prepared.node_run_id.clone();
         let output = prepared.output.clone();
+        let structured_output = prepared.structured_output.clone();
         let stop_reason = prepared.stop_reason.clone();
         let file_changes = prepared.file_changes.clone();
         let response = spawn_repository_work(move || {
@@ -625,7 +626,14 @@ impl Backend {
             )
             .and_then(|()| {
                 engine
-                    .complete_node(&run_id, &node_run_id, output, stop_reason, file_changes)
+                    .complete_node(
+                        &run_id,
+                        &node_run_id,
+                        output,
+                        structured_output,
+                        stop_reason,
+                        file_changes,
+                    )
                     .map_err(BackendError::from)
             });
             completing
