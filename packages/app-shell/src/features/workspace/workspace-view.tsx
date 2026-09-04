@@ -32,6 +32,7 @@ import {
   pendingModelKey,
   usePendingAgentStore,
 } from "../../state/stores/pending-agent-store";
+import { useAgentModelPreferenceStore } from "../../state/stores/agent-model-preference-store";
 import { useWorkspaceSelectionStore } from "../../state/stores/workspace-selection-store";
 import { conversationKeyFor } from "../../state/stores/conversation-key";
 import { useComposerPluginSelectionStore } from "../../state/stores/composer-plugin-selection-store";
@@ -374,10 +375,20 @@ export function WorkspaceView({ userName }: WorkspaceViewProps) {
         throw new Error("No workspace is available for this chat");
       }
       const modelKey = pendingModelKey(selection, targetAgentCli);
+      // Falls back to the preference the picker is already labelling this
+      // surface with, so a chat started without opening the picker begins on
+      // the model shown rather than on the agent's own default. A remembered
+      // model the agent no longer offers is not filtered here: the backend
+      // applies an intent only when the new session reports that exact value,
+      // which lands on the same default the label falls back to.
+      const model =
+        usePendingAgentStore.getState().models[modelKey] ??
+        useAgentModelPreferenceStore.getState().models[targetAgentCli] ??
+        null;
       started = await client.session.start({
         workspaceId: selectedWorkspaceId,
         agentRef: targetAgentCli,
-        model: usePendingAgentStore.getState().models[modelKey] ?? null,
+        model,
       });
       usePendingAgentStore.getState().clearPendingModel(modelKey);
     } catch (error) {

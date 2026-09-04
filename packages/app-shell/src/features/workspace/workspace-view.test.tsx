@@ -22,6 +22,7 @@ import {
   createMockClientState,
 } from "../../test/mock-client";
 import { usePendingAgentStore } from "../../state/stores/pending-agent-store";
+import { useAgentModelPreferenceStore } from "../../state/stores/agent-model-preference-store";
 import { useWorkspaceSelectionStore } from "../../state/stores/workspace-selection-store";
 import { useDraftSessionsStore } from "../../state/stores/draft-sessions-store";
 import { useComposerInputStore } from "../../state/stores/composer-input-store";
@@ -57,7 +58,10 @@ beforeEach(() => {
   // nothing has handshaken, or an earlier test's list would answer for it.
   // Agent picks outlive a render, so a test that leaves one recorded would hand
   // the next one a surface already pointing somewhere it never chose.
-  usePendingAgentStore.setState({ selections: {}, switches: {} });
+  usePendingAgentStore.setState({ selections: {}, switches: {}, models: {} });
+  // Remembered per agent and persisted, so a preference one test records would
+  // otherwise decide which model the next test's first send starts on.
+  useAgentModelPreferenceStore.setState({ models: {} });
   useSettingsStore.setState({
     settings: { ...DEFAULT_SETTINGS, agentCli: AGENT_REF.opencode },
   });
@@ -1268,6 +1272,60 @@ describe("WorkspaceView", () => {
       ]),
     );
     expect(setConfig).not.toHaveBeenCalled();
+  });
+
+  it("starts an untouched chat on the model remembered for its agent", async () => {
+    const user = userEvent.setup();
+    useAgentModelPreferenceStore.setState({
+      models: { [AGENT_REF.opencode]: "opencode/small-pickle" },
+    });
+    const state = createMockClientState();
+    state.projects = [{ id: "p1", name: "Ora" }];
+    const baseClient = createMockClient(state);
+    const started: StartSessionRequest[] = [];
+    const client: ContractsClient = {
+      ...baseClient,
+      session: {
+        ...baseClient.session,
+        start: async (request, options) => {
+          started.push(request);
+          return baseClient.session.start(request, options);
+        },
+      },
+    };
+    const Wrapper = createHookWrapper(
+      client,
+      createTestQueryClient(),
+      createChatStore(client.session),
+    );
+    useWorkspaceSelectionStore.getState().selectProject("p1");
+
+    render(
+      <Wrapper>
+        <AppI18nProvider>
+          <PlatformProvider adapter={createStubPlatform()}>
+            <TooltipProvider>
+              <WorkspaceView userName="Eric" />
+            </TooltipProvider>
+          </PlatformProvider>
+        </AppI18nProvider>
+      </Wrapper>,
+    );
+
+    // The picker is never opened: what the surface is labelled with has to be
+    // what the send asks for, or the first turn silently runs on another model.
+    await user.type(await screen.findByRole("textbox"), "hello");
+    await user.keyboard("{Enter}");
+
+    await waitFor(() =>
+      expect(started).toEqual([
+        {
+          workspaceId: "workspace-p1",
+          agentRef: AGENT_REF.opencode,
+          model: "opencode/small-pickle",
+        },
+      ]),
+    );
   });
 
   it("says the model list is still arriving while a selected session replays", async () => {
