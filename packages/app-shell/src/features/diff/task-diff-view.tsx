@@ -68,6 +68,7 @@ import {
   runDiffFileScroll,
   type DiffFileScrollRunHandle,
 } from "./task-diff-scroll-run";
+import { TaskDiffScrollArea } from "./task-diff-scroll-area";
 
 /** Matches the changes-panel slide so the file tree toggle feels consistent. */
 const FILE_TREE_SLIDE_MS = 180;
@@ -782,9 +783,8 @@ export function TaskDiffView({
                   }
                 />
               ) : (
-                <div
-                  ref={scrollContainerRef}
-                  className="ora-scroll-region ora-diff-scroll-region h-full min-w-0 overflow-auto bg-background"
+                <TaskDiffScrollArea
+                  viewportRef={scrollContainerRef}
                   onMouseDown={dismissJumpHighlight}
                 >
                   <div className="flex w-full flex-col pb-6 pl-4">
@@ -841,7 +841,7 @@ export function TaskDiffView({
                       );
                     })}
                   </div>
-                </div>
+                </TaskDiffScrollArea>
               )}
             </ResizablePanel>
             <ResizableHandle

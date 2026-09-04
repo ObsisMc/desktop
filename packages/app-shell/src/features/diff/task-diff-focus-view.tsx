@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 import type { FileData } from "react-diff-view";
 import { MemoizedTaskDiffFile, type TaskDiffFileProps } from "./task-diff-file";
 import { diffFilePath } from "./task-diff-file-tree-utils";
+import { TaskDiffScrollArea } from "./task-diff-scroll-area";
 
 export interface TaskDiffFocusBodyProps extends Omit<
   TaskDiffFileProps,
@@ -34,9 +35,8 @@ export function TaskDiffFocusBody({
   }, [file]);
 
   return (
-    <div
-      ref={scrollRegionRef}
-      className="ora-scroll-region ora-diff-scroll-region h-full min-w-0 overflow-auto bg-background"
+    <TaskDiffScrollArea
+      viewportRef={scrollRegionRef}
       onMouseDown={onDismissJumpHighlight}
     >
       {file === null ? null : (
@@ -65,6 +65,6 @@ export function TaskDiffFocusBody({
           </div>
         </div>
       )}
-    </div>
+    </TaskDiffScrollArea>
   );
 }
