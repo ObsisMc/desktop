@@ -48,7 +48,9 @@ Ripgrep and Deno are bundled as Tauri sidecars under `binaries/rg` and
 downloaded by `scripts/setup-binary.mjs` during the desktop build and are
 intentionally excluded from version control. The script accepts `deno` or `rg`
 as an optional argument to install only that sidecar; without an argument it
-installs both. The packaging workflow adds the sidecars to Tauri's configuration
+installs both. If the target-qualified executable already exists in `binaries/`,
+the script reuses it; pass `--force` to download it again. The packaging workflow
+adds the sidecars to Tauri's configuration
 in its checkout immediately before building;
 the checked-in configuration keeps `externalBin` empty so `tauri dev` does not
 depend on that directory.

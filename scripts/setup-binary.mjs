@@ -111,11 +111,7 @@ async function installBinary({
   );
   const extractDirectory = path.join(binaryDirectory, `.extract-${name}`);
   const destination = path.join(binaryDirectory, executableName);
-  if (
-    !process.env.CI &&
-    !process.argv.includes("--force") &&
-    existsSync(destination)
-  ) {
+  if (!process.argv.includes("--force") && existsSync(destination)) {
     console.log(`${name} sidecar already exists for ${triple}.`);
     return;
   }
