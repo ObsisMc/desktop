@@ -17,6 +17,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import process from "node:process";
+import { replaceCargoPackageVersion } from "./package-desktop-version.mjs";
 
 const repositoryRoot = path.resolve(import.meta.dirname, "..");
 const tauriConfigPath = path.join(
@@ -188,15 +189,10 @@ async function applyVersionTag(versionTag) {
   await writeFile(tauriConfigPath, `${JSON.stringify(tauriConfig, null, 2)}\n`);
 
   const cargoManifest = originalFiles.get(desktopCargoPath);
-  const updatedCargoManifest = cargoManifest.replace(
-    /(^\[package\][\s\S]*?^version\s*=\s*")([^"]+)(")/m,
-    `$1${version}$3`,
+  const updatedCargoManifest = replaceCargoPackageVersion(
+    cargoManifest,
+    version,
   );
-  if (updatedCargoManifest === cargoManifest) {
-    throw new Error(
-      `Could not find the package version in ${desktopCargoPath}`,
-    );
-  }
   await writeFile(desktopCargoPath, updatedCargoManifest);
 
   const desktopPackage = JSON.parse(originalFiles.get(desktopPackagePath));
