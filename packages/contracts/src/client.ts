@@ -3,12 +3,12 @@ import {
   type EndpointOperation,
   type RequestByOperation,
   type ResponseByOperation,
-} from "./endpoints.js";
+} from "./endpoints.ts";
 import type {
   ContractCallOptions,
   ContractTransport,
   ContractTransportRequest,
-} from "./transport.js";
+} from "./transport.ts";
 
 type ClientOperation<Operation extends EndpointOperation> = (
   request: RequestByOperation[Operation],

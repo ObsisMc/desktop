@@ -3,7 +3,7 @@ import type { Mark, Node as PmNode } from "@tiptap/pm/model";
 import {
   composerFileAttrsFromNode,
   composerFilePlainText,
-} from "./composer-file";
+} from "./composer-file.ts";
 
 function leafPlainText(node: PmNode): string {
   switch (node.type.name) {
