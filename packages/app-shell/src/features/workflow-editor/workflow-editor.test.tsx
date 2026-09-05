@@ -991,7 +991,7 @@ describe("WorkflowEditor", () => {
     expect(within(dialog).getByRole("button", { name: "保存" })).toBeEnabled();
 
     await user.click(within(dialog).getByLabelText("全局变量 3 类型"));
-    await user.click(screen.getByRole("option", { name: "integer" }));
+    await user.click(await screen.findByRole("option", { name: "integer" }));
     expect(customValue).toHaveValue("");
     expect(customValue).toHaveAttribute("placeholder", "例如：1");
     await user.type(customValue, "1.5");
