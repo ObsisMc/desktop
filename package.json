@@ -8,11 +8,12 @@
   },
   "scripts": {
     "prepare": "husky",
-    "setup:binary": "deno run -A scripts/setup-binary.mjs",
+    "setup:binary": "deno run -A scripts/setup-binary.ts",
     "format:files": "prettier",
     "lint:commit": "commitlint",
-    "test:tooling": "deno test -A scripts/*.test.ts",
-    "clean:frontend": "deno run --allow-read --allow-write scripts/clean-frontend.mjs"
+    "check:tooling": "deno lint scripts && deno check scripts/*.ts",
+    "test:tooling": "deno task check:tooling && deno test -A scripts/*.test.ts",
+    "clean:frontend": "deno run --allow-read --allow-write scripts/clean-frontend.ts"
   },
   "devDependencies": {
     "@commitlint/cli": "20.5.3",

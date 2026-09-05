@@ -1,16 +1,16 @@
 import { spawnSync } from "node:child_process";
 
 const gitCommands = [
-  ["diff", "--name-only", "--diff-filter=ACMR"],
-  ["diff", "--cached", "--name-only", "--diff-filter=ACMR"],
-  ["ls-files", "--others", "--exclude-standard"],
+  ["diff", "-z", "--name-only", "--diff-filter=ACMR"],
+  ["diff", "-z", "--cached", "--name-only", "--diff-filter=ACMR"],
+  ["ls-files", "-z", "--others", "--exclude-standard"],
 ];
-const changedFiles = new Set();
+const changedFiles = new Set<string>();
 
 for (const args of gitCommands) {
   const result = spawnSync("git", args, { encoding: "utf8" });
   if (result.status !== 0) process.exit(result.status ?? 1);
-  for (const file of result.stdout.split("\n").filter(Boolean))
+  for (const file of result.stdout.split("\0").filter(Boolean))
     changedFiles.add(file);
 }
 
@@ -31,7 +31,7 @@ const prettierExtensions = new Set([
 ]);
 
 for (const file of changedFiles) {
-  const extension = file.split(".").pop();
+  const extension = file.split(".").pop() ?? "";
   if (prettierExtensions.has(extension)) prettierFiles.push(file);
   if (extension === "rs") rustFiles.push(file);
 }

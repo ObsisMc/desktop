@@ -58,12 +58,12 @@ tasks:
   build:reaper:
     desc: Build the debug process reaper sidecar for the current target
     cmds:
-      - deno run -A scripts/build-reaper.mjs
+      - deno run -A scripts/build-reaper.ts
 
   build:reaper:release:
     desc: Build the release process reaper sidecar for the current target
     cmds:
-      - deno run -A scripts/build-reaper.mjs --release
+      - deno run -A scripts/build-reaper.ts --release
 
   build:desktop:
     desc: >-
@@ -79,7 +79,7 @@ tasks:
       Build a complete local desktop installer the same way desktop-build.yml
       does (sidecars enabled, working-copy edits restored afterward)
     cmds:
-      - deno run -A scripts/package-desktop.mjs {{.CLI_ARGS}}
+      - deno run -A scripts/package-desktop.ts {{.CLI_ARGS}}
 
   clean:
     desc: Clean build artifacts
@@ -95,7 +95,7 @@ tasks:
   format:
     desc: Format files changed in the working tree or staging area
     cmds:
-      - deno run -A scripts/format-changed.mjs
+      - deno run -A scripts/format-changed.ts
 
   format:all:
     desc: Format all frontend and Rust workspace packages
@@ -130,6 +130,7 @@ tasks:
     desc: Run linters on all frontend packages
     silent: true
     cmds:
+      - deno task check:tooling
       - deno task --filter @ora/desktop lint
       - deno task --filter @ora/contracts lint
       - deno task --filter @ora/chat lint

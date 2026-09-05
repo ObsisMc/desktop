@@ -1,7 +1,8 @@
+import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { lstat, readFile, realpath, rm } from "node:fs/promises";
 
-const root = path.resolve(import.meta.dirname, "..");
+const root = fileURLToPath(new URL("..", import.meta.url));
 const { workspace } = JSON.parse(
   await readFile(path.join(root, "deno.json"), "utf8"),
 );
@@ -30,6 +31,7 @@ for (const member of [".", ...workspace]) {
     const stat = await lstat(target);
     await rm(target, { recursive: !stat.isSymbolicLink(), force: true });
   } catch (error) {
-    if (error.code !== "ENOENT") throw error;
+    if (!(error instanceof Error && "code" in error && error.code === "ENOENT"))
+      throw error;
   }
 }

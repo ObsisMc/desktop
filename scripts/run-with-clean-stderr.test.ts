@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 
-const wrapper = new URL("./run-with-clean-stderr.mjs", import.meta.url);
+const wrapper = new URL("./run-with-clean-stderr.ts", import.meta.url);
 
 // Exercise the process boundary: checking only the wrapper's bookkeeping would
 // miss task-shell diagnostics, lost exit codes, and broken command resolution.

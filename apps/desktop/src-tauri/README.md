@@ -45,7 +45,7 @@ opens as its own window and `surface_capabilities` reports `embedded: false`.
 
 Ripgrep and Deno are bundled as Tauri sidecars under `binaries/rg` and
 `binaries/deno` for release builds. Their platform-specific executables are
-downloaded by `scripts/setup-binary.mjs` during the desktop build and are
+downloaded by `scripts/setup-binary.ts` during the desktop build and are
 intentionally excluded from version control. The script accepts `deno` or `rg`
 as an optional argument to install only that sidecar; without an argument it
 installs both. If the target-qualified executable already exists in `binaries/`,

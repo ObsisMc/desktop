@@ -1,1 +1,1 @@
-deno run -A scripts/check-staged-format.mjs
+deno run -A scripts/check-staged-format.ts

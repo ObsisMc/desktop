@@ -26,7 +26,7 @@ const prettierExtensions = new Set([
 const unformattedFiles = [];
 
 for (const file of stagedFiles) {
-  const extension = file.split(".").pop();
+  const extension = file.split(".").pop() ?? "";
   if (!prettierExtensions.has(extension) && extension !== "rs") continue;
 
   const source = spawnSync("git", ["show", `:${file}`], { encoding: "buffer" });

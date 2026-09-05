@@ -7,8 +7,8 @@ async function runCleanupFixture(member: string) {
   const root = path.join(fixture, "checkout");
   await Deno.mkdir(path.join(root, "scripts"), { recursive: true });
   await Deno.copyFile(
-    new URL("./clean-frontend.mjs", import.meta.url),
-    path.join(root, "scripts", "clean-frontend.mjs"),
+    new URL("./clean-frontend.ts", import.meta.url),
+    path.join(root, "scripts", "clean-frontend.ts"),
   );
   await Deno.writeTextFile(
     path.join(root, "deno.json"),
@@ -30,7 +30,7 @@ async function runCleanupFixture(member: string) {
       "--no-lock",
       "--allow-read",
       "--allow-write",
-      path.join(root, "scripts", "clean-frontend.mjs"),
+      path.join(root, "scripts", "clean-frontend.ts"),
     ],
     stdout: "piped",
     stderr: "piped",

@@ -4,7 +4,7 @@ const [command, ...unexpectedArguments] = process.argv.slice(2);
 
 if (command === undefined || unexpectedArguments.length > 0) {
   process.stderr.write(
-    'usage: deno run -A scripts/run-with-clean-stderr.mjs "<command>"\n',
+    'usage: deno run -A scripts/run-with-clean-stderr.ts "<command>"\n',
   );
   process.exitCode = 2;
 } else {
@@ -23,7 +23,7 @@ if (command === undefined || unexpectedArguments.length > 0) {
 }
 
 /** Renders captured stderr for the failure summary (shows controls/whitespace clearly). */
-function formatCapturedStderr(text) {
+function formatCapturedStderr(text: string) {
   if (text.length === 0) {
     return "(empty)\n";
   }
@@ -36,7 +36,9 @@ function formatCapturedStderr(text) {
  * Forces CI mode so Vitest picks the non-interactive reporter. The default TTY
  * reporter clears the screen and can hide the same stderr this gate fails on.
  */
-function runCommand(command) {
+function runCommand(
+  command: string,
+): Promise<{ exitCode: number; wroteToStderr: boolean; stderrText: string }> {
   return new Promise((resolve) => {
     // Deno's task shell resolves npm binaries without Node and handles the same
     // command syntax on Windows and Unix. Quiet mode keeps task diagnostics out
@@ -56,7 +58,7 @@ function runCommand(command) {
     let wroteToStderr = false;
     let stderrText = "";
 
-    child.stderr.on("data", (chunk) => {
+    child.stderr!.on("data", (chunk) => {
       wroteToStderr ||= chunk.length > 0;
       stderrText += chunk.toString("utf8");
       process.stderr.write(chunk);
