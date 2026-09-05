@@ -18,6 +18,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import path from "node:path";
 import process from "node:process";
 import { replaceCargoPackageVersion } from "./package-desktop-version.ts";
+import { checkToolchain } from "./check-toolchain.ts";
 
 export interface PackageOptions {
   root?: string;
@@ -283,4 +284,7 @@ export async function packageDesktop(
     throw buildError;
   }
 }
-if (import.meta.main) await packageDesktop();
+if (import.meta.main) {
+  await checkToolchain();
+  await packageDesktop();
+}

@@ -44,7 +44,7 @@ live in `packages/`. All Rust packages share the root Cargo workspace.
 
 ## Development
 
-Install Deno 2.9.5, Rust (see `rust-toolchain.toml`), Task, Git, ripgrep,
+Install the Deno version pinned in [`.deno-version`](.deno-version), Rust (see `rust-toolchain.toml`), Task, Git, ripgrep,
 and the Tauri system dependencies for your platform. Node.js and pnpm are not
 required. Run `task install:frontend` to install the locked npm dependencies
 with Deno and configure Git hooks.
@@ -55,3 +55,19 @@ See [AGENTS.md](AGENTS.md) for code conventions. Common commands:
   packages (long-running)
 - `task lint` — all lint tasks
 - `task export-contracts` — regenerate frontend contracts and plugin protocol bindings from Rust
+
+## Toolchain versions
+
+`.deno-version` is the Deno release pin consumed by CI and sidecar setup. Keep
+`package.json`'s `engines.deno` in sync when changing it; `deno task check:toolchain`
+checks both the installed runtime and this declaration. The check runs before
+installation, tooling checks, and packaging. Sidecar setup replaces an existing
+Deno binary when its reported version differs from the pin. `DENO_VERSION` may
+only repeat the shared version, not override it.
+
+The root `package.json` owns the workspace TypeScript version. All packages use
+its `tsc` and compiler API; child packages must not pin their own compiler.
+Deno's `deno check` uses the compiler bundled with the pinned Deno release,
+which currently matches the workspace compiler. Third-party tools such as
+`ts-to-zod` still depend on TypeScript 5 APIs; those transitive dependencies
+retain their supported versions instead of being forced across a major boundary.

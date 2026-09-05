@@ -7,6 +7,7 @@ Deno.test(
   "sidecar setup selects the Linux musl release and installs the GNU-named executable",
   () =>
     withTempDirectory(async (root) => {
+      await Deno.writeTextFile(path.join(root, ".deno-version"), "2.9.5\n");
       const commands: { command: string; args: string[] }[] = [];
       await setupBinaries({
         root,
@@ -76,6 +77,7 @@ for (const failure of ["download", "extraction", "missing executable"]) {
     `failed ${failure} keeps the previous sidecar and removes temporary files`,
     () =>
       withTempDirectory(async (root) => {
+        await Deno.writeTextFile(path.join(root, ".deno-version"), "2.9.5\n");
         const directory = path.join(
           root,
           "apps",
@@ -123,6 +125,7 @@ Deno.test(
   "existing sidecars skip downloads and invalid names fail before filesystem changes",
   () =>
     withTempDirectory(async (root) => {
+      await Deno.writeTextFile(path.join(root, ".deno-version"), "2.9.5\n");
       const directory = path.join(
         root,
         "apps",
@@ -135,7 +138,17 @@ Deno.test(
         path.join(directory, "deno-x86_64-pc-windows-msvc.exe"),
         "cached",
       );
-      const exec = () => Promise.reject(new Error("must not download"));
+      const exec = (command: string, args: string[]) => {
+        assert.equal(
+          command,
+          path.join(directory, "deno-x86_64-pc-windows-msvc.exe"),
+        );
+        assert.deepEqual(args, ["--version"]);
+        return Promise.resolve({
+          stdout:
+            "deno 2.9.5 (stable, release, x86_64-pc-windows-msvc)\r\nv8 fixture\r\n",
+        });
+      };
       await setupBinaries({
         root,
         args: ["deno"],
@@ -149,4 +162,81 @@ Deno.test(
         /Unsupported binary/,
       );
     }),
+);
+
+for (const cachedVersion of ["2.9.4", "unreadable"]) {
+  Deno.test(`Deno ${cachedVersion} cache is replaced from the shared pin`, () =>
+    withTempDirectory(async (root) => {
+      await Deno.writeTextFile(path.join(root, ".deno-version"), "2.9.6\n");
+      const directory = path.join(
+        root,
+        "apps",
+        "desktop",
+        "src-tauri",
+        "binaries",
+      );
+      const destination = path.join(directory, "deno-x86_64-unknown-linux-gnu");
+      await Deno.mkdir(directory, { recursive: true });
+      await Deno.writeTextFile(destination, "old binary");
+      const commands: string[] = [];
+      await setupBinaries({
+        root,
+        args: ["deno"],
+        environment: {},
+        platform: "linux",
+        arch: "x64",
+        exec: async (command, args) => {
+          commands.push(command);
+          if (command === destination) {
+            assert.deepEqual(args, ["--version"]);
+            if (cachedVersion === "unreadable")
+              throw new Error("cannot execute");
+            return {
+              stdout: `deno ${cachedVersion} (stable, release, x86_64-unknown-linux-gnu)\n`,
+            };
+          }
+          if (command === "curl") {
+            assert.equal(
+              args.at(-1),
+              "https://github.com/denoland/deno/releases/download/v2.9.6/deno-x86_64-unknown-linux-gnu.zip",
+            );
+            await Deno.writeTextFile(
+              args[args.indexOf("--output") + 1],
+              "archive",
+            );
+          } else if (command === "unzip") {
+            await Deno.writeTextFile(
+              path.join(args[args.indexOf("-d") + 1], "deno"),
+              "new binary",
+            );
+          } else throw new Error(`Unexpected command: ${command}`);
+        },
+      });
+      assert.equal(await Deno.readTextFile(destination), "new binary");
+      assert.deepEqual(commands, [destination, "curl", "unzip"]);
+      assert.deepEqual(
+        [...Deno.readDirSync(directory)].map((entry) => entry.name),
+        [path.basename(destination)],
+      );
+    }),
+  );
+}
+
+Deno.test("a conflicting DENO_VERSION fails before any sidecar changes", () =>
+  withTempDirectory(async (root) => {
+    await Deno.writeTextFile(path.join(root, ".deno-version"), "2.9.5\n");
+    await assert.rejects(
+      setupBinaries({
+        root,
+        args: ["deno"],
+        environment: { DENO_VERSION: "v2.9.4" },
+        exec: () => Promise.reject(new Error("must not execute commands")),
+      }),
+      /DENO_VERSION must match/,
+    );
+    assert.deepEqual(
+      [...Deno.readDirSync(root)].map((entry) => entry.name),
+      [".deno-version"],
+    );
+  }),
 );

@@ -49,6 +49,7 @@ jobs:
               - 'package.json'
               - 'deno.lock'
               - 'deno.json'
+              - '.deno-version'
               - 'tsconfig*.json'
               - 'eslint.config.js'
               - 'Cargo.toml'
@@ -86,7 +87,7 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - uses: denoland/setup-deno@v2
         with:
-          deno-version: v2.9.5
+          deno-version-file: .deno-version
           cache: true
       # test:frontend regenerates TS contracts via `cargo xtask export-contracts`
       # and also runs the Desktop frontend tests.
@@ -109,7 +110,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: denoland/setup-deno@v2
         with:
-          deno-version: v2.9.5
+          deno-version-file: .deno-version
       # The root workspace now contains both shared crates and Tauri packages.
       - uses: Swatinem/rust-cache@v2
         with:
@@ -199,7 +200,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: denoland/setup-deno@v2
         with:
-          deno-version: v2.9.5
+          deno-version-file: .deno-version
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: . -> target

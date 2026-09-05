@@ -11,9 +11,10 @@
     "setup:binary": "deno run -A scripts/setup-binary.ts",
     "format:files": "prettier",
     "lint:commit": "commitlint",
-    "check:tooling": "deno lint scripts && deno check scripts/*.ts",
+    "check:tooling": "deno task check:toolchain && deno lint scripts && deno check scripts/*.ts",
     "test:tooling": "deno task check:tooling && deno test -A scripts/*.test.ts",
-    "clean:frontend": "deno run --allow-read --allow-write scripts/clean-frontend.ts"
+    "clean:frontend": "deno run --allow-read --allow-write scripts/clean-frontend.ts",
+    "check:toolchain": "deno run --allow-read scripts/check-toolchain.ts"
   },
   "devDependencies": {
     "@commitlint/cli": "20.5.3",

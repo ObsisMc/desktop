@@ -24,6 +24,7 @@ tasks:
   install:frontend:
     desc: Install dependencies for the frontend packages
     cmds:
+      - deno task check:toolchain
       - deno install
       - deno task prepare
 

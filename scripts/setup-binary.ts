@@ -5,6 +5,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import path from "node:path";
 import process from "node:process";
+import { checkToolchain, readDenoVersion } from "./check-toolchain.ts";
 
 export interface SetupOptions {
   root?: string;
@@ -30,7 +31,6 @@ export async function setupBinaries(options: SetupOptions = {}): Promise<void> {
   const arch = options.arch ?? process.arch;
   const args = options.args ?? Deno.args;
   const execFileAsync = options.exec ?? promisify(execFile);
-  const denoVersion = environment.DENO_VERSION ?? "v2.9.5";
   const ripgrepVersion = environment.RG_VERSION ?? "15.2.0";
   const repositoryRoot =
     options.root ?? fileURLToPath(new URL("..", import.meta.url));
@@ -53,6 +53,19 @@ export async function setupBinaries(options: SetupOptions = {}): Promise<void> {
   const binariesToInstall = new Set(
     requestedBinaries.length > 0 ? requestedBinaries : supportedBinaries,
   );
+  const denoVersion = binariesToInstall.has("deno")
+    ? await readDenoVersion(repositoryRoot)
+    : undefined;
+  const requestedDenoVersion = environment.DENO_VERSION?.replace(/^v/, "");
+  if (
+    denoVersion &&
+    requestedDenoVersion !== undefined &&
+    requestedDenoVersion !== denoVersion
+  ) {
+    throw new Error(
+      "DENO_VERSION must match .deno-version; update the shared pin to change the runtime.",
+    );
+  }
 
   /** Resolves the configured build target or the current development machine target. */
   function targetTriple(): string {
@@ -136,8 +149,26 @@ export async function setupBinaries(options: SetupOptions = {}): Promise<void> {
     const extractDirectory = path.join(binaryDirectory, `.extract-${name}`);
     const destination = path.join(binaryDirectory, executableName);
     if (!args.includes("--force") && existsSync(destination)) {
-      console.log(`${name} sidecar already exists for ${triple}.`);
-      return;
+      // Existing Deno binaries may predate a pin update. An unreadable or foreign-target
+      // executable is replaced from the pinned release instead of being trusted blindly.
+      let reusable = name !== "deno";
+      if (name === "deno") {
+        try {
+          const result = await execFileAsync(destination, ["--version"]);
+          reusable =
+            typeof result === "object" &&
+            result !== null &&
+            "stdout" in result &&
+            typeof result.stdout === "string" &&
+            result.stdout.match(/^deno (\S+)(?:\s|$)/)?.[1] === version;
+        } catch {
+          reusable = false;
+        }
+      }
+      if (reusable) {
+        console.log(`${name} sidecar already exists for ${triple}.`);
+        return;
+      }
     }
 
     const project = name === "deno" ? "denoland/deno" : "BurntSushi/ripgrep";
@@ -208,7 +239,7 @@ export async function setupBinaries(options: SetupOptions = {}): Promise<void> {
   const ripgrepAsset = `ripgrep-${ripgrepVersion}-${ripgrepAssetTriple}.${isWindows ? "zip" : "tar.gz"}`;
 
   await mkdir(binaryDirectory, { recursive: true });
-  if (binariesToInstall.has("deno")) {
+  if (denoVersion) {
     await installBinary({
       name: "deno",
       version: denoVersion,
@@ -229,4 +260,7 @@ export async function setupBinaries(options: SetupOptions = {}): Promise<void> {
     });
   }
 }
-if (import.meta.main) await setupBinaries();
+if (import.meta.main) {
+  await checkToolchain();
+  await setupBinaries();
+}

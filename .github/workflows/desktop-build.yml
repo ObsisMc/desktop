@@ -57,7 +57,7 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - uses: denoland/setup-deno@v2
         with:
-          deno-version: v2.9.5
+          deno-version-file: .deno-version
           cache: true
       # Installs the toolchain pinned by rust-toolchain.toml.
       - name: Install Rust toolchain
@@ -102,7 +102,6 @@ jobs:
       - name: Build desktop bundle(s)
         shell: bash
         env:
-          DENO_VERSION: v2.9.5
           RG_VERSION: 15.2.0
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
@@ -139,7 +138,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: denoland/setup-deno@v2
         with:
-          deno-version: v2.9.5
+          deno-version-file: .deno-version
       # Manual dispatch with release=true must name the tag explicitly; tag
       # pushes carry it in the ref.
       - name: Validate release tag input
