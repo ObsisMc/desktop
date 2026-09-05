@@ -1,13 +1,12 @@
 // Local equivalent of the `bundle` job in .github/workflows/desktop-build.yml.
 //
-// The CI workflow edits apps/desktop/src-tauri/tauri.conf.json in place on a
-// disposable runner and never restores it. A developer's checkout is not
-// disposable, so this script snapshots every file it touches and restores it
+// Both CI and local builds use this script. A developer's checkout is not
+// disposable, so it snapshots every file it touches and restores it
 // once `task build:desktop` finishes (success, failure, or interruption) unless
 // --keep-config is passed.
 //
 // Usage:
-//   node scripts/package-desktop.mjs [--tag v0.1.0] [--signing-key <path-or-key>]
+//   deno run -A scripts/package-desktop.mjs [--tag v0.1.0] [--signing-key <path-or-key>]
 //     [--signing-key-password <password>] [--keep-config]
 //
 // Signed updater artifacts are produced when a signing key is supplied, via
@@ -56,7 +55,7 @@ const signingKeyPassword =
     : undefined;
 if (args.includes("--help") || args.includes("-h")) {
   console.log(
-    "Usage: node scripts/package-desktop.mjs [options]\n\n" +
+    "Usage: deno run -A scripts/package-desktop.mjs [options]\n\n" +
       "Builds the Tauri desktop bundle(s) for the current platform, the same\n" +
       "way .github/workflows/desktop-build.yml does. Bundles land in\n" +
       "target/release/bundle/.\n\n" +

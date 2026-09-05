@@ -44,6 +44,11 @@ live in `packages/`. All Rust packages share the root Cargo workspace.
 
 ## Development
 
+Install Deno 2.9.5, Rust (see `rust-toolchain.toml`), Task, Git, ripgrep,
+and the Tauri system dependencies for your platform. Node.js and pnpm are not
+required. Run `task install:frontend` to install the locked npm dependencies
+with Deno and configure Git hooks.
+
 See [AGENTS.md](AGENTS.md) for code conventions. Common commands:
 
 - `task test` — full lint and test suite for frontend and Rust workspace

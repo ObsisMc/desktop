@@ -37,25 +37,17 @@ for (const file of changedFiles) {
 }
 
 if (prettierFiles.length > 0) {
-  const pnpmCommand = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
-  const pnpmArgs = [
-    "exec",
-    "prettier",
+  const args = [
+    "task",
+    "--quiet",
+    "format:files",
     "--write",
     "--ignore-unknown",
     "--ignore-path",
     ".prettierignore",
     ...prettierFiles,
   ];
-  const spawnCommand =
-    process.platform === "win32"
-      ? (process.env.ComSpec ?? "cmd.exe")
-      : pnpmCommand;
-  const spawnArgs =
-    process.platform === "win32"
-      ? ["/d", "/c", pnpmCommand, ...pnpmArgs]
-      : pnpmArgs;
-  const result = spawnSync(spawnCommand, spawnArgs, { stdio: "inherit" });
+  const result = spawnSync(Deno.execPath(), args, { stdio: "inherit" });
   if (result.status !== 0) process.exit(result.status ?? 1);
 }
 

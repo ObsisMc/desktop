@@ -3,7 +3,9 @@ import { spawn } from "node:child_process";
 const [command, ...unexpectedArguments] = process.argv.slice(2);
 
 if (command === undefined || unexpectedArguments.length > 0) {
-  process.stderr.write("usage: node scripts/run-with-clean-stderr.mjs \"<command>\"\n");
+  process.stderr.write(
+    'usage: deno run -A scripts/run-with-clean-stderr.mjs "<command>"\n',
+  );
   process.exitCode = 2;
 } else {
   const result = await runCommand(command);
@@ -36,15 +38,21 @@ function formatCapturedStderr(text) {
  */
 function runCommand(command) {
   return new Promise((resolve) => {
-    const child = spawn(command, {
-      shell: true,
-      stdio: ["inherit", "inherit", "pipe"],
-      windowsHide: true,
-      env: {
-        ...process.env,
-        CI: process.env.CI && process.env.CI !== "" ? process.env.CI : "1",
+    // Deno's task shell resolves npm binaries without Node and handles the same
+    // command syntax on Windows and Unix. Quiet mode keeps task diagnostics out
+    // of the stderr gate; child warnings are still captured without filtering.
+    const child = spawn(
+      Deno.execPath(),
+      ["task", "--quiet", "--eval", command],
+      {
+        stdio: ["inherit", "inherit", "pipe"],
+        windowsHide: true,
+        env: {
+          ...process.env,
+          CI: process.env.CI && process.env.CI !== "" ? process.env.CI : "1",
+        },
       },
-    });
+    );
     let wroteToStderr = false;
     let stderrText = "";
 

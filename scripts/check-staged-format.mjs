@@ -32,28 +32,20 @@ for (const file of stagedFiles) {
   const source = spawnSync("git", ["show", `:${file}`], { encoding: "buffer" });
   if (source.status !== 0) process.exit(source.status ?? 1);
 
-  const command =
-    extension === "rs"
-      ? "rustfmt"
-      : process.platform === "win32"
-        ? "pnpm.cmd"
-        : "pnpm";
+  const command = extension === "rs" ? "rustfmt" : Deno.execPath();
   const args =
     extension === "rs"
       ? ["--edition", "2024", "--emit", "stdout"]
       : [
-          "exec",
-          "prettier",
+          "task",
+          "--quiet",
+          "format:files",
           "--stdin-filepath",
           file,
           "--ignore-path",
           ".prettierignore",
         ];
-  const spawnCommand =
-    process.platform === "win32" ? (process.env.ComSpec ?? "cmd.exe") : command;
-  const spawnArgs =
-    process.platform === "win32" ? ["/d", "/c", command, ...args] : args;
-  const formatted = spawnSync(spawnCommand, spawnArgs, {
+  const formatted = spawnSync(command, args, {
     input: source.stdout,
     encoding: "buffer",
   });

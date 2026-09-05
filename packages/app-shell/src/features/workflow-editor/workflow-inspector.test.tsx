@@ -301,7 +301,7 @@ describe("WorkflowInspector kind-specific layouts", () => {
     ).not.toBeInTheDocument();
 
     await user.click(firstVariable);
-    const option = screen.getByRole("option", { name: "writer.output" });
+    const option = await screen.findByRole("option", { name: "writer.output" });
     expect(option.className).toContain(
       "[&_[data-workflow-variable-part=variable-mark]]:text-blue-600!",
     );
