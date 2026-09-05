@@ -61,8 +61,8 @@ See [AGENTS.md](AGENTS.md) for code conventions. Common commands:
 `.deno-version` is the Deno release pin consumed by CI and sidecar setup. Keep
 `package.json`'s `engines.deno` in sync when changing it; `deno task check:toolchain`
 checks both the installed runtime and this declaration. The check runs before
-installation, tooling checks, and packaging. Sidecar setup replaces an existing
-Deno binary when its reported version differs from the pin. `DENO_VERSION` may
+installation, tooling checks, and packaging. Sidecar setup verifies the content and native version of existing Deno and ripgrep
+binaries before reuse; see [sidecar download verification](docs/sidecar-downloads.md). `DENO_VERSION` may
 only repeat the shared version, not override it.
 
 The root `package.json` owns the workspace TypeScript version. All packages use

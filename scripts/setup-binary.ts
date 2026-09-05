@@ -1,11 +1,15 @@
 import { fileURLToPath } from "node:url";
 import { existsSync } from "node:fs";
-import { chmod, mkdir, readdir, rename, rm } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readdir, rename, rm } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import path from "node:path";
 import process from "node:process";
 import { checkToolchain, readDenoVersion } from "./check-toolchain.ts";
+import {
+  readSidecarChecksums,
+  verifySidecarHash,
+} from "./sidecar-integrity.ts";
 
 export interface SetupOptions {
   root?: string;
@@ -125,7 +129,7 @@ export async function setupBinaries(options: SetupOptions = {}): Promise<void> {
       if (entry.isDirectory()) {
         const nestedPath = await findExtractedBinary(entryPath, fileName);
         if (nestedPath) return nestedPath;
-      } else if (entry.name === fileName) {
+      } else if (entry.isFile() && entry.name === fileName) {
         return entryPath;
       }
     }
@@ -142,45 +146,60 @@ export async function setupBinaries(options: SetupOptions = {}): Promise<void> {
     executableName,
   }: BinaryAsset): Promise<void> {
     const isWindowsTarget = triple.endsWith("-windows-msvc");
-    const archivePath = path.join(
-      repositoryRoot,
-      `${name}-${triple}.${archiveExtension}`,
-    );
-    const extractDirectory = path.join(binaryDirectory, `.extract-${name}`);
     const destination = path.join(binaryDirectory, executableName);
-    if (!args.includes("--force") && existsSync(destination)) {
-      // Existing Deno binaries may predate a pin update. An unreadable or foreign-target
-      // executable is replaced from the pinned release instead of being trusted blindly.
-      let reusable = name !== "deno";
-      if (name === "deno") {
-        try {
-          const result = await execFileAsync(destination, ["--version"]);
-          reusable =
-            typeof result === "object" &&
-            result !== null &&
-            "stdout" in result &&
-            typeof result.stdout === "string" &&
-            result.stdout.match(/^deno (\S+)(?:\s|$)/)?.[1] === version;
-        } catch {
-          reusable = false;
-        }
-      }
-      if (reusable) {
-        console.log(`${name} sidecar already exists for ${triple}.`);
-        return;
+    const project = name === "deno" ? "denoland/deno" : "BurntSushi/ripgrep";
+    const releaseVersion = version.replace(/^v/, "");
+    const releaseTag = name === "deno" ? `v${releaseVersion}` : releaseVersion;
+    const url = `https://github.com/${project}/releases/download/${releaseTag}/${asset}`;
+    const checksums = await readSidecarChecksums(repositoryRoot, url);
+
+    /** Hash identity also validates foreign targets that cannot execute on the build host. */
+    async function verifyExecutable(file: string): Promise<void> {
+      await verifySidecarHash(file, checksums.executableSha256);
+      const hostTriple =
+        platform === "darwin"
+          ? `${arch === "arm64" ? "aarch64" : "x86_64"}-apple-darwin`
+          : platform === "win32"
+            ? "x86_64-pc-windows-msvc"
+            : "x86_64-unknown-linux-gnu";
+      if (triple !== hostTriple) return;
+      const result = await execFileAsync(file, ["--version"]);
+      const reported =
+        typeof result === "object" &&
+        result !== null &&
+        "stdout" in result &&
+        typeof result.stdout === "string"
+          ? result.stdout.match(/^(deno|ripgrep) (\S+)(?:\s|$)/)
+          : null;
+      if (reported?.[1] !== name || reported?.[2] !== releaseVersion) {
+        throw new Error(`Expected ${name} ${releaseVersion} from ${file}.`);
       }
     }
 
-    const project = name === "deno" ? "denoland/deno" : "BurntSushi/ripgrep";
-    const releaseVersion = version.replace(/^v/, "");
-    // Deno tags include a leading "v", while ripgrep release tags do not.
-    const releaseTag = name === "deno" ? `v${releaseVersion}` : releaseVersion;
-    const url = `https://github.com/${project}/releases/download/${releaseTag}/${asset}`;
+    if (!args.includes("--force") && existsSync(destination)) {
+      try {
+        await verifyExecutable(destination);
+        console.log(`${name} sidecar is verified for ${triple}.`);
+        return;
+      } catch {
+        // Replace stale, corrupt, or unexecutable cache entries only after a verified download.
+      }
+    }
+    // Same-filesystem staging keeps publication atomic. Concurrent installers own
+    // separate archives and extraction trees and can only publish the same pinned bytes.
+    const temporaryDirectory = await mkdtemp(
+      path.join(binaryDirectory, `.install-${name}-`),
+    );
+    const archivePath = path.join(
+      temporaryDirectory,
+      `archive.${archiveExtension}`,
+    );
+    const extractDirectory = path.join(temporaryDirectory, "extracted");
     console.log(`Downloading ${name} ${version} for ${triple}...`);
     try {
       await download(url, archivePath);
-      await rm(extractDirectory, { force: true, recursive: true });
-      await mkdir(extractDirectory, { recursive: true });
+      await verifySidecarHash(archivePath, checksums.archiveSha256);
+      await mkdir(extractDirectory);
       if (platform === "win32" && archiveExtension === "zip") {
         await execFileAsync("powershell", [
           "-NoProfile",
@@ -220,10 +239,10 @@ export async function setupBinaries(options: SetupOptions = {}): Promise<void> {
       if (!isWindowsTarget) {
         await chmod(extractedExecutable, 0o755);
       }
+      await verifyExecutable(extractedExecutable);
       await rename(extractedExecutable, destination);
     } finally {
-      await rm(archivePath, { force: true });
-      await rm(extractDirectory, { force: true, recursive: true });
+      await rm(temporaryDirectory, { force: true, recursive: true });
     }
   }
 
