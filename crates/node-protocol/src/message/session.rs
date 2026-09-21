@@ -37,6 +37,15 @@ pub struct Heartbeat {
     pub node: NodeRuntimeIdentity,
 }
 
+/// Liveness signal from the session's Controller, sent only when it has nothing to query.
+/// It carries no execution identity and asks for no reply; Node uses it to keep the read deadline
+/// from revoking an idle session without weakening revocation of a truly unresponsive peer.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub struct ControllerHeartbeat {
+    pub controller_id: ControllerId,
+}
+
 /// Complete Hello envelope, including only metadata valid for this message.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct HelloMessage {
@@ -133,5 +142,25 @@ impl ValidateMessage for HeartbeatMessage {
             .node
             .validate()
             .map_err(|field| MessageValidationError::EmptyField { field })
+    }
+}
+
+/// Complete Controller heartbeat envelope, including only metadata valid for this message.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ControllerHeartbeatMessage {
+    pub protocol_version: ProtocolVersion,
+    pub payload: ControllerHeartbeat,
+}
+
+impl ValidateMessage for ControllerHeartbeatMessage {
+    /// Enforces this message’s semantic rules on both send and receive.
+    fn validate(&self) -> Result<(), MessageValidationError> {
+        let Self {
+            protocol_version,
+            payload,
+        } = self;
+
+        validate_protocol_version(*protocol_version)?;
+        validate_identity(payload.controller_id.is_empty(), "controller_id")
     }
 }

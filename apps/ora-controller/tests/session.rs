@@ -158,3 +158,49 @@ fn uncertain_execution_retransmits_at_most_once_per_connection() {
         );
     });
 }
+
+/// An idle session sends heartbeats within the query interval; an accepted command turns ticks into queries.
+#[test]
+fn idle_session_sends_heartbeats_until_a_command_needs_queries() {
+    ora_logging::with_trace_logging(|| {
+        let root = tempfile::Builder::new()
+            .permissions(fs::Permissions::from_mode(/*mode*/ 0o700))
+            .tempdir_in(std::env::var_os("HOME").unwrap())
+            .unwrap();
+        let controller =
+            Controller::open(&root.path().join("controller"), ControllerId::new("owner")).unwrap();
+        fs::create_dir(root.path().join("node")).unwrap();
+        let endpoint = NodeEndpoint {
+            node_id: NodeId::new("node"),
+            endpoint: root.path().join("node").join("control.sock"),
+        };
+        let owner = Arc::new(Mutex::new(controller));
+        tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(async {
+            let listener = UnixListener::bind(&endpoint.endpoint).unwrap();
+            let settings = SessionConfig { io_timeout_ms: 1000, query_interval_ms: 20 };
+            let session = run_session(&owner, &endpoint, &settings);
+            let peer = async {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                assert!(matches!(read_controller_message(&mut stream).await.unwrap(), Some(ControllerToNodeMessage::Hello(_))));
+                let identity = NodeRuntimeIdentity { node_id: endpoint.node_id.clone(), incarnation_id: NodeIncarnationId::new("current") };
+                write_node_message(&mut stream, &NodeToControllerMessage::HelloAccepted(HelloAcceptedMessage { protocol_version: CURRENT_PROTOCOL_VERSION, payload: HelloAccepted { selected_version: CURRENT_PROTOCOL_VERSION, node: identity, capabilities: vec![NodeCapability::RepositoryClone] } })).await.unwrap();
+                for _ in 0..3 {
+                    let message = timeout(Duration::from_secs(/*secs*/ 2), read_controller_message(&mut stream)).await.unwrap().unwrap().unwrap();
+                    assert_eq!(message, ControllerToNodeMessage::Heartbeat(ControllerHeartbeatMessage { protocol_version: CURRENT_PROTOCOL_VERSION, payload: ControllerHeartbeat { controller_id: ControllerId::new("owner") } }));
+                }
+                // Acceptance during a live session changes what the next ticks send, without a reconnect.
+                let command = owner.lock().unwrap().accept_clone(RequestId::new("request"), CloneExecutionSpec { node_id: NodeId::new("node"), repository: CloneRepositoryUrl::parse("https://example.com/repo").unwrap(), branch: BranchName::new("main") }).unwrap();
+                let mut queries = 0;
+                while queries < 3 {
+                    match timeout(Duration::from_secs(/*secs*/ 2), read_controller_message(&mut stream)).await.unwrap().unwrap().unwrap() {
+                        ControllerToNodeMessage::GetExecutionStatus(query) => { assert_eq!(query.execution_id, command.execution_id); queries += 1; }
+                        // The first ticks after acceptance may still carry heartbeats already in flight.
+                        ControllerToNodeMessage::Heartbeat(_) if queries == 0 => {}
+                        message => panic!("unexpected {message:?}"),
+                    }
+                }
+            };
+            tokio::select! { _ = session => panic!("session ended before peer checks"), _ = peer => {} }
+        });
+    });
+}

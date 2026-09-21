@@ -103,7 +103,7 @@ Serde 转换不执行 codec 的语义校验。
 
 | 方向              | 消息                                                                          | 必需关联字段                               | 可选关联字段 |
 | ----------------- | ----------------------------------------------------------------------------- | ------------------------------------------ | ------------ |
-| Controller → Node | `Hello`                                                                       | 无                                         | 无           |
+| Controller → Node | `Hello`、`Heartbeat`                                                          | 无                                         | 无           |
 | Controller → Node | `EnsureWorktree`、`RemoveWorktree`                                            | `operation_id`、`execution_id`             | `request_id` |
 | Controller → Node | `GetExecutionStatus`                                                          | `operation_id`、`execution_id`             | 无           |
 | Controller → Node | `EventAck`                                                                    | `operation_id`、`execution_id`、`sequence` | 无           |
@@ -127,7 +127,9 @@ Wire 字段名和 enum tag 使用 snake_case。例如 Hello frame 内的 JSON �
 Codec 的收发路径均要求 envelope version 为 1。`Hello` 的版本列表非空、无重复且包含 envelope
 version，也可以声明其他版本。`HelloAccepted` 选择的版本必须等于 envelope version，能力集
 无重复且至少包含 `worktree_execution` 或 `repository_clone` 之一。这些检查保证单条消息自洽；
-将回复与先前的 Hello 匹配、约束握手顺序需要会话实现。心跳携带当前 Node 身份，不是执行证据。
+将回复与先前的 Hello 匹配、约束握手顺序需要会话实现。Node 心跳携带当前 Node 身份，Controller 心跳只携带
+`controller_id`，两者都不是执行证据。Controller 只在没有可查询的执行时发送心跳，使 Node 的空闲读期限
+不会撤销仍然存活的会话。
 
 解码检查必需字段、已知 enum variant 和消息方向。Payload 匹配表示满足所选消息的结构要求：
 创建和删除命令有意共用同一种 spec 结构。未知对象字段通常被忽略，因此解码不承诺拒绝所有

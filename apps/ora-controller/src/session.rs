@@ -59,7 +59,7 @@ pub async fn run_session<W: WriteGuard>(
     let hello = ControllerToNodeMessage::Hello(HelloMessage {
         protocol_version: CURRENT_PROTOCOL_VERSION,
         payload: Hello {
-            controller_id: id,
+            controller_id: id.clone(),
             supported_versions: vec![CURRENT_PROTOCOL_VERSION],
         },
     });
@@ -102,10 +102,13 @@ pub async fn run_session<W: WriteGuard>(
                         let commands = owner.commands(&target.node_id).map_err(io::Error::other)?;
                         if commands.is_empty() { None } else { let command = commands[cursor % commands.len()].clone(); cursor = cursor.wrapping_add(1); Some(command) }
                     };
-                    if let Some(command) = command {
-                        let query = ControllerToNodeMessage::GetExecutionStatus(GetExecutionStatusMessage { protocol_version: CURRENT_PROTOCOL_VERSION, operation_id: command.operation_id, execution_id: command.execution_id, payload: GetExecutionStatus { node_id: target.node_id.clone() } });
-                        timeout(deadline, write_controller_message(&mut writer, &query)).await.map_err(io::Error::other)?.map_err(io::Error::other)?;
-                    }
+                    // Node revokes a session that stays silent for its frame deadline, so an idle tick
+                    // still sends a frame; a query already proves liveness when there is one to send.
+                    let frame = match command {
+                        Some(command) => ControllerToNodeMessage::GetExecutionStatus(GetExecutionStatusMessage { protocol_version: CURRENT_PROTOCOL_VERSION, operation_id: command.operation_id, execution_id: command.execution_id, payload: GetExecutionStatus { node_id: target.node_id.clone() } }),
+                        None => ControllerToNodeMessage::Heartbeat(ControllerHeartbeatMessage { protocol_version: CURRENT_PROTOCOL_VERSION, payload: ControllerHeartbeat { controller_id: id.clone() } }),
+                    };
+                    timeout(deadline, write_controller_message(&mut writer, &frame)).await.map_err(io::Error::other)?.map_err(io::Error::other)?;
                 }
             }
         };

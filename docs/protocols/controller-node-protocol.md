@@ -118,7 +118,7 @@ depend on the message:
 
 | Direction         | Messages                                                                      | Required correlation                       | Optional correlation |
 | ----------------- | ----------------------------------------------------------------------------- | ------------------------------------------ | -------------------- |
-| Controller → Node | `Hello`                                                                       | None                                       | None                 |
+| Controller → Node | `Hello`, `Heartbeat`                                                          | None                                       | None                 |
 | Controller → Node | `EnsureWorktree`, `RemoveWorktree`                                            | `operation_id`, `execution_id`             | `request_id`         |
 | Controller → Node | `GetExecutionStatus`                                                          | `operation_id`, `execution_id`             | None                 |
 | Controller → Node | `EventAck`                                                                    | `operation_id`, `execution_id`, `sequence` | None                 |
@@ -144,7 +144,9 @@ version list containing the envelope version; it may also advertise other versio
 `HelloAccepted` selects the envelope version and advertises a duplicate-free capability set
 containing at least one of `worktree_execution` and `repository_clone`. These checks establish
 message self-consistency. Matching the response to a previous Hello and enforcing handshake order
-require a session implementation. A heartbeat carries the current Node identity, not execution evidence.
+require a session implementation. A Node heartbeat carries the current Node identity and a Controller
+heartbeat only its `controller_id`; neither is execution evidence. The Controller sends its heartbeat only
+when it has no execution to query, so the Node's idle read deadline does not revoke a live session.
 
 Required fields, known enum variants and direction are checked during decoding. Payload compatibility
 means satisfying the selected message's structure: create and remove commands intentionally share

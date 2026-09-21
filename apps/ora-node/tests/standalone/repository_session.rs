@@ -302,3 +302,106 @@ fn busy_clone_keeps_heartbeats_and_revokes_timed_out_queued_command() {
         child.terminate();
     });
 }
+
+/// Controller heartbeats keep a session open past the frame deadline even while Git occupies the worker;
+/// silence still revokes it, and a heartbeat from another Controller closes it.
+#[test]
+fn controller_heartbeats_keep_the_session_and_silence_still_expires_it() {
+    ora_logging::with_trace_logging(|| {
+        let fixture = Fixture::new();
+        fixture.git(&["update-server-info"]);
+        let server = HttpsRepository::new(fixture.path(), fixture.path().join("main").join(".git"));
+        server.paused.store(true, Ordering::SeqCst);
+        let config = configuration(&fixture, &server);
+        let endpoint = fixture.config().home_directory.join("control.sock");
+        let mut child =
+            ipc::launch_with_deadline(&fixture, &config, /*frame_timeout_ms*/ 2000);
+        until(|| {
+            fs::read_to_string(fixture.path().join("ipc.log"))
+                .unwrap_or_default()
+                .contains("Node IPC listening")
+        });
+        let busy = request(&server, "heartbeat-busy", "main");
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(async {
+                let heartbeat = |owner: &str| {
+                    ControllerToNodeMessage::Heartbeat(ControllerHeartbeatMessage {
+                        protocol_version: CURRENT_PROTOCOL_VERSION,
+                        payload: ControllerHeartbeat {
+                            controller_id: ControllerId::new(owner),
+                        },
+                    })
+                };
+                let mut stream = ipc::connect(&endpoint, "owner").await;
+                assert!(matches!(
+                    read_node_message(&mut stream).await.unwrap(),
+                    Some(NodeToControllerMessage::HelloAccepted(_))
+                ));
+                write_controller_message(
+                    &mut stream,
+                    &ControllerToNodeMessage::CloneRepository(busy.clone()),
+                )
+                .await
+                .unwrap();
+                loop {
+                    if let Some(NodeToControllerMessage::ExecutionStatus(status)) =
+                        read_node_message(&mut stream).await.unwrap()
+                    {
+                        assert_eq!(status.payload.state, ExecutionState::Accepted);
+                        break;
+                    }
+                }
+                // Git now blocks the worker behind the paused HTTPS source. Heartbeats alone must hold
+                // the session across several frame deadlines, so they cannot be queued behind it.
+                let (mut reader, mut writer) = stream.into_split();
+                let beating = async {
+                    for _ in 0..12 {
+                        tokio::time::sleep(Duration::from_millis(/*millis*/ 500)).await;
+                        write_controller_message(&mut writer, &heartbeat("owner"))
+                            .await
+                            .unwrap();
+                    }
+                };
+                let listening = async {
+                    while let Some(message) = read_node_message(&mut reader).await.unwrap() {
+                        assert!(matches!(message, NodeToControllerMessage::Heartbeat(_)));
+                    }
+                    panic!("Node closed a session that was receiving heartbeats");
+                };
+                tokio::select! { _ = beating => {}, _ = listening => {} }
+                // Silence after the last heartbeat must still be revoked within the deadline.
+                timeout(Duration::from_secs(/*secs*/ 4), async {
+                    while let Some(message) = read_node_message(&mut reader).await.unwrap() {
+                        assert!(matches!(message, NodeToControllerMessage::Heartbeat(_)));
+                    }
+                })
+                .await
+                .expect("a silent Controller must be revoked");
+                let mut replacement = ipc::connect(&endpoint, "owner").await;
+                assert!(matches!(
+                    read_node_message(&mut replacement).await.unwrap(),
+                    Some(NodeToControllerMessage::HelloAccepted(_))
+                ));
+                write_controller_message(&mut replacement, &heartbeat("intruder"))
+                    .await
+                    .unwrap();
+                timeout(Duration::from_secs(/*secs*/ 2), async {
+                    while let Some(message) = read_node_message(&mut replacement).await.unwrap() {
+                        assert!(matches!(message, NodeToControllerMessage::Heartbeat(_)));
+                    }
+                })
+                .await
+                .expect("a heartbeat from another Controller must close the session");
+                let mut again = ipc::connect(&endpoint, "owner").await;
+                assert!(matches!(
+                    read_node_message(&mut again).await.unwrap(),
+                    Some(NodeToControllerMessage::HelloAccepted(_))
+                ));
+            });
+        server.paused.store(false, Ordering::SeqCst);
+        child.terminate();
+    });
+}

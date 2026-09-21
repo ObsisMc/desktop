@@ -122,8 +122,11 @@ fn handle(
             node.acknowledge(&ack)?;
             Ok(vec![])
         }
+        // Heartbeats never reach the worker: the session answers them inline so a busy Git run
+        // cannot expire them.
         Request::Message(
             ControllerToNodeMessage::Hello(_)
+            | ControllerToNodeMessage::Heartbeat(_)
             | ControllerToNodeMessage::EnsureWorktree(_)
             | ControllerToNodeMessage::RemoveWorktree(_),
         ) => Err(crate::Error::Configuration(

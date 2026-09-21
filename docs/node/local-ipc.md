@@ -36,9 +36,10 @@ Admission uses a bounded queue and a revocable session guard. Only durable admis
 that guard; Git runs afterwards. Disconnect or session revocation discards unaccepted queued work,
 but cannot cancel already accepted clones. Reads, writes and command admission replies use the finite
 `frame_timeout_ms` deadline. A busy worker can therefore cause a query/command session to close even
-while heartbeats are arriving; reconnect queries the original execution, not a new attempt. An idle
-Controller should periodically query its executions. Slow readers may be disconnected and reconnect
-for replay. Shutdown closes admission and then performs the existing managed-process cleanup.
+while heartbeats are arriving; reconnect queries the original execution, not a new attempt. A
+Controller with nothing to query sends heartbeats within that deadline; the Node checks them inline
+against the bound Controller and never queues them behind a busy worker, and a heartbeat from another
+Controller closes the session. Slow readers may be disconnected and reconnect for replay. Shutdown closes admission and then performs the existing managed-process cleanup.
 
 The real standalone test verifies owner/duplicate rejection, HTTPS clone, Node kill/restart, unchanged
 result replay and exact acknowledgement. [Controller acceptance](../controller/local-runtime.md) adds

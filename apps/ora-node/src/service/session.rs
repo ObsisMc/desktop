@@ -127,6 +127,17 @@ async fn connected(
             let Some(message) = message else {
                 return Ok::<(), io::Error>(());
             };
+            // A Controller heartbeat only proves the peer is alive. Handle it here rather than
+            // queueing it: a worker busy with Git would let it expire and close the very session
+            // it exists to keep.
+            if let ControllerToNodeMessage::Heartbeat(heartbeat) = &message {
+                if heartbeat.payload.controller_id != info.controller {
+                    return Err(io::Error::other(
+                        "heartbeat from a Controller not bound to this session",
+                    ));
+                }
+                continue;
+            }
             // Git may occupy the worker. Bound admission waiting independently of heartbeats so
             // revocation invalidates queued work; already durable executions are not canceled.
             let replies = timeout(

@@ -62,7 +62,8 @@ Until a Client entry exists, acceptance is through the Rust interface, not direc
 Each configured Node has an independent reconnect loop over the same Controller owner. A handshake
 checks Node identity and clone capability. Periodic status queries restore original execution state;
 Unknown permits at most one exact command retransmission per connection, never a fresh execution.
-Queries also keep sessions active; configure their interval below Node's idle frame deadline. Connection
+Queries keep sessions active, and a Node with nothing pending receives a heartbeat on each query tick
+instead; configure the query interval below Node's idle frame deadline. Connection
 loss, unsupported peers and persistence errors do not manufacture a failed clone or discard its records.
 Normal Controller shutdown closes sessions, not accepted Node executions.
 
