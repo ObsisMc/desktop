@@ -1,0 +1,98 @@
+syntax = "proto3";
+
+// Cloud-facing contract of one Controller. Identities are opaque strings the API Server has already
+// authorized; there are no tenant, user or membership fields at this boundary by design.
+package ora.controller.v1;
+
+// Durable clone coordination exposed to the API Server. Every call is a request/response over the
+// Controller's persistent records: acceptance returns only after the intent is committed, and a
+// listed operation without a terminal state is pending, never failed.
+service ControllerService {
+  // Accepts a clone durably. Repeating a request identity with the same input returns the original
+  // receipt; the same identity with different input fails with ABORTED (ErrorCode CONFLICT).
+  rpc AcceptClone(AcceptCloneRequest) returns (AcceptCloneResponse);
+  // Lists accepted operations, newest first, including pending ones while the Node is offline.
+  rpc ListOperations(ListOperationsRequest) returns (ListOperationsResponse);
+  // Reads one operation; an unknown execution fails with NOT_FOUND, distinct from a pending result.
+  rpc GetOperation(GetOperationRequest) returns (GetOperationResponse);
+}
+
+message AcceptCloneRequest {
+  // Stable identity chosen by the caller so a lost response can be retried without a second clone.
+  string request_id = 1;
+  // HTTPS or SSH repository URL; the target Node and paths belong to Controller deployment.
+  string repository = 2;
+  string branch = 3;
+}
+
+message AcceptCloneResponse {
+  string request_id = 1;
+  string operation_id = 2;
+  string execution_id = 3;
+}
+
+message ListOperationsRequest {}
+
+message ListOperationsResponse {
+  repeated CloneOperation operations = 1;
+}
+
+message GetOperationRequest {
+  string execution_id = 1;
+}
+
+message GetOperationResponse {
+  CloneOperation operation = 1;
+}
+
+// One accepted clone and its durable state. Paths are Node-local facts, not caller-visible files.
+message CloneOperation {
+  string operation_id = 1;
+  string execution_id = 2;
+  string node_id = 3;
+  string repository = 4;
+  string branch = 5;
+  oneof state {
+    ClonePending pending = 6;
+    CloneSucceeded succeeded = 7;
+    CloneFailed failed = 8;
+  }
+}
+
+// Accepted with no terminal result yet; makes no claim about whether Git is currently running.
+message ClonePending {}
+
+message CloneSucceeded {
+  string path = 1;
+  string commit = 2;
+}
+
+message CloneFailed {
+  CloneFailureReason reason = 1;
+  // Directory the Node retained for inspection, when it kept one.
+  optional string retained_path = 2;
+}
+
+enum CloneFailureReason {
+  CLONE_FAILURE_REASON_UNSPECIFIED = 0;
+  CLONE_FAILURE_REASON_SOURCE_UNAVAILABLE = 1;
+  CLONE_FAILURE_REASON_BRANCH_NOT_FOUND = 2;
+  CLONE_FAILURE_REASON_DESTINATION_CONFLICT = 3;
+  CLONE_FAILURE_REASON_OPERATION_FAILED = 4;
+}
+
+// Classification attached to failed calls as a google.rpc.Status detail, so callers branch on the
+// enum rather than on status messages. The gRPC status code carries the same classification.
+message ErrorDetail {
+  ErrorCode code = 1;
+}
+
+enum ErrorCode {
+  ERROR_CODE_UNSPECIFIED = 0;
+  // Identity or input conflict with a durable record; retrying the same call cannot succeed.
+  ERROR_CODE_CONFLICT = 1;
+  ERROR_CODE_INVALID_INPUT = 2;
+  // Persistence is temporarily unavailable; nothing was accepted and the call may be retried.
+  ERROR_CODE_UNAVAILABLE = 3;
+  ERROR_CODE_NOT_FOUND = 4;
+}

@@ -1,0 +1,12 @@
+# The Controller owns this contract; Cloud generates its client from a pinned git tag of this
+# directory and never copies the .proto files.
+version: v2
+modules:
+  - path: .
+    name: buf.build/ora-space/controller
+lint:
+  use:
+    - STANDARD
+breaking:
+  use:
+    - FILE

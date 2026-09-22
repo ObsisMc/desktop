@@ -59,6 +59,38 @@ tasks:
     cmds:
       - cargo xtask check-rust-size
 
+  proto:lint:
+    desc: Lint the Cloud-facing Controller contract under proto/
+    dir: proto
+    cmds:
+      - buf lint
+
+  proto:breaking:
+    desc: Reject breaking changes to the Controller contract against the base ref (default main)
+    dir: proto
+    vars:
+      PROTO_BASE_REF: '{{.PROTO_BASE_REF | default "main"}}'
+    cmds:
+      # The first contract commit has no base to compare with; only an existing base module counts.
+      - |
+        if git -C .. cat-file -e "{{.PROTO_BASE_REF}}:proto/buf.yaml" 2>/dev/null; then
+          buf breaking --against "../.git#ref={{.PROTO_BASE_REF}},subdir=proto"
+        else
+          echo "no Controller contract on {{.PROTO_BASE_REF}}; nothing to compare"
+        fi
+
+  proto:generate:
+    desc: Regenerate crates/controller-proto from proto/ (remote buf plugins need network)
+    dir: proto
+    cmds:
+      - buf generate
+
+  proto:check:
+    desc: Fail when the committed generated Controller contract drifts from proto/
+    cmds:
+      - task: proto:generate
+      - git diff --exit-code -- crates/controller-proto/src/gen
+
   build:
     desc: Build all Rust workspace packages
     cmds:
@@ -166,6 +198,8 @@ tasks:
     cmds:
       - cargo fmt --all -- --check
       - task: check:rust-size
+      - task: proto:lint
+      - task: proto:check
       - cargo clippy --workspace --exclude ora-desktop --exclude ora-desktop-tests -- -D warnings
 
   lint:tauri:

@@ -69,6 +69,7 @@ jobs:
               - 'apps/desktop/tsconfig*.json'
             crates:
               - *shared
+              - 'proto/**'
               - 'crates/**'
               - 'apps/ora-reaper/**'
               - 'apps/ora-process-*/**'
@@ -128,6 +129,17 @@ jobs:
       - uses: denoland/setup-deno@v2
         with:
           deno-version-file: .deno-version
+      # `task lint:crates` regenerates the Controller contract with buf's remote plugins and
+      # fails on drift; the breaking check compares against the base branch, so fetch it.
+      - uses: bufbuild/buf-action@v1
+        with:
+          setup_only: true
+          version: 1.73.0
+      - name: Check the Controller contract against main
+        if: runner.os == 'Linux'
+        run: |
+          git fetch --no-tags --depth=1 origin main
+          task proto:breaking PROTO_BASE_REF=refs/remotes/origin/main
       # The root workspace now contains both shared crates and Tauri packages.
       - uses: Swatinem/rust-cache@v2
         with:

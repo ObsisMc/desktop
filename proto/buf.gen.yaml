@@ -1,0 +1,8 @@
+# Rust generation is committed under crates/controller-proto; `task proto:check` fails on drift.
+# Plugin versions are pinned so regeneration is reproducible across machines and CI.
+version: v2
+plugins:
+  - remote: buf.build/community/neoeinstein-prost:v0.5.0
+    out: ../crates/controller-proto/src/gen
+  - remote: buf.build/community/neoeinstein-tonic:v0.5.0
+    out: ../crates/controller-proto/src/gen
