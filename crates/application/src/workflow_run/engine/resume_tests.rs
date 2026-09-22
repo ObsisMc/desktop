@@ -356,10 +356,6 @@ impl WorkflowRunEngineRepository for RecordingRepository {
     }
 }
 
-fn execution_context() -> ExecutionContext {
-    execution_context_with(GRAPH)
-}
-
 fn execution_context_with(graph_json: &str) -> ExecutionContext {
     ExecutionContext {
         root_scope_id: ora_domain::WorkflowScopeId::new("root:test"),
