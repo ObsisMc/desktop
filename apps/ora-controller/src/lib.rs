@@ -18,8 +18,8 @@ mod sqlite;
 mod store;
 #[cfg(target_os = "linux")]
 mod transport;
-#[cfg(target_os = "linux")]
 pub use coordination::take_over;
+#[cfg(target_os = "linux")]
 pub use deployment::{ApiConfig, DeploymentConfig, NodeHosting, SingleNodeConfig};
 use ora_node_protocol::*;
 #[cfg(target_os = "linux")]
@@ -29,6 +29,7 @@ pub use service::Service;
 #[cfg(target_os = "linux")]
 pub use session::{NodeEndpoint, SessionConfig, run_session};
 pub use sqlite::SqliteStore;
+#[cfg(target_os = "linux")]
 use std::path::PathBuf;
 pub use store::CoordinationStore;
 #[cfg(target_os = "linux")]
