@@ -7,7 +7,7 @@ upload grants of their session history between Cloud and the Workspace's Node. C
 phase and durable receipts; the Controller keeps only connection-local queues. It forwards the Git
 Server repository and refs Cloud fixed in each input verbatim and holds, requests or relays no Git
 access credential: the Node reaches the Git Server with its own git-access identity
-([ADR](../../specs/decisions/cloud/controller-integration/20261012-git-delivery-inputs-without-bundle-grants.md)).
+([ADR](../../specs/decisions/cloud/controller-integration/20261016-snapshot-clone-input-and-execution-ref-grants.md)).
 Local SQLite mode remains clone-only.
 
 ## Dispatch and authority

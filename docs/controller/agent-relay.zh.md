@@ -6,7 +6,7 @@ Cloud 模式下，`ora-controller` 在 Cloud 与 Workspace 的 Node 之间转交
 交付及其会话历史的上传授权。IssueRun 阶段与持久回执由 Cloud 所有；Controller 只维护连接内的队列。它原样转交
 Cloud 在每份输入中固定的 Git Server 仓库地址与 ref，不持有、不申请、不转交任何 Git 访问凭据：Node 用自己的
 git-access 身份访问 Git Server
-（[ADR](../../specs/decisions/cloud/controller-integration/20261012-git-delivery-inputs-without-bundle-grants.md)）。
+（[ADR](../../specs/decisions/cloud/controller-integration/20261016-snapshot-clone-input-and-execution-ref-grants.md)）。
 SQLite 本地模式仍只承担 clone。
 
 ## 派发与权限
