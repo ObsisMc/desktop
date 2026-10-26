@@ -46,16 +46,19 @@ pub(super) async fn respond_permission(
 
 /// Picks the option an unattended approval should select from an agent's offered options.
 ///
-/// Prefers `AllowAlways` so later, similar calls in the same turn are also covered; falls back
-/// to `AllowOnce` when the agent did not offer a remembered-choice option.
+/// Prefers `AllowOnce` because a remembered choice is persisted by the agent itself: Claude writes
+/// `AllowAlways` into the project's `.claude/settings.local.json`, which on Node is the user's
+/// checkout and would ship with the Revision. No person made that "always" choice, so Ora must not
+/// leave it behind on either host; answering each similar call again costs only an in-process
+/// round trip. Falls back to `AllowAlways` only when the agent offers no one-time option.
 pub(super) fn pick_auto_allow_option(options: &[PermissionOption]) -> Option<&PermissionOption> {
     options
         .iter()
-        .find(|option| option.kind == PermissionOptionKind::AllowAlways)
+        .find(|option| option.kind == PermissionOptionKind::AllowOnce)
         .or_else(|| {
             options
                 .iter()
-                .find(|option| option.kind == PermissionOptionKind::AllowOnce)
+                .find(|option| option.kind == PermissionOptionKind::AllowAlways)
         })
 }
 
@@ -421,9 +424,9 @@ mod tests {
         );
     }
 
-    /// Prefers the remembered-choice option so later, similar calls stay unattended too.
+    /// Prefers the one-time option so the agent never persists an approval nobody chose.
     #[test]
-    fn prefers_allow_always_over_allow_once() {
+    fn prefers_allow_once_over_allow_always() {
         let allow_once =
             PermissionOption::new("allow-once", "Allow once", PermissionOptionKind::AllowOnce);
         let allow_always = PermissionOption::new(
@@ -431,24 +434,27 @@ mod tests {
             "Allow always",
             PermissionOptionKind::AllowAlways,
         );
-        let options = vec![allow_once, allow_always.clone()];
+        let options = vec![allow_always, allow_once.clone()];
 
-        assert_eq!(pick_auto_allow_option(&options), Some(&allow_always));
+        assert_eq!(pick_auto_allow_option(&options), Some(&allow_once));
     }
 
-    /// Falls back to a one-time allow when the agent offered no remembered-choice option.
+    /// Falls back to a remembered allow when the agent offered no one-time option.
     #[test]
-    fn falls_back_to_allow_once_without_allow_always() {
-        let allow_once =
-            PermissionOption::new("allow-once", "Allow once", PermissionOptionKind::AllowOnce);
+    fn falls_back_to_allow_always_without_allow_once() {
+        let allow_always = PermissionOption::new(
+            "allow-always",
+            "Allow always",
+            PermissionOptionKind::AllowAlways,
+        );
         let reject_once = PermissionOption::new(
             "reject-once",
             "Reject once",
             PermissionOptionKind::RejectOnce,
         );
-        let options = vec![reject_once, allow_once.clone()];
+        let options = vec![reject_once, allow_always.clone()];
 
-        assert_eq!(pick_auto_allow_option(&options), Some(&allow_once));
+        assert_eq!(pick_auto_allow_option(&options), Some(&allow_always));
     }
 
     /// Reports no selectable option when the agent offered only rejections.

@@ -41,7 +41,7 @@ Backend 启动时，遗留的 `Running` 会话行被协调为 `Stopped`，然后
 
 ### 权限
 
-Ora 目前没有用户可配置的审批策略。活跃的 actor 立即答复每个权限请求，走的是与用户选择相同的路径，优先选择会记住选择的选项（`AllowAlways`），否则用 `AllowOnce`。不提供任何允许选项的请求会取消本轮。没有 prompt 进行时到达的请求以取消答复。
+Ora 目前没有用户可配置的审批策略。活跃的 actor 立即答复每个权限请求，走的是与用户选择相同的路径，优先选择 `AllowOnce`，只有 Agent 没有提供一次性选项时才用 `AllowAlways`。记住的选择由 Agent 自己持久化：Claude 会把它写进项目的 `.claude/settings.local.json`，在 Node 上这就是用户仓库的 checkout，会随 Revision 交付；在 Desktop 上则会留下一条用户从未做出的批准。不提供任何允许选项的请求会取消本轮。没有 prompt 进行时到达的请求以取消答复。
 
 ### 首个标题
 

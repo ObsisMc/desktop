@@ -127,9 +127,11 @@ affects only that request; empty lists are valid.
 ### Permissions
 
 Ora currently has no user-configurable approval policy. An active actor answers every permission
-request immediately through the same path a user's choice would take, preferring the option that
-remembers the choice (`AllowAlways`) and falling back to `AllowOnce`. A request that offers no allow
-option cancels the turn. A request that arrives while no prompt is active is answered as cancelled.
+request immediately through the same path a user's choice would take, preferring `AllowOnce` and
+falling back to `AllowAlways` only when no one-time option is offered. A remembered choice is
+persisted by the agent itself: Claude writes it into the project's `.claude/settings.local.json`,
+which on Node is the user's checkout and would ship with the Revision, and on Desktop would record
+an approval the user never made. A request that offers no allow option cancels the turn. A request that arrives while no prompt is active is answered as cancelled.
 
 ### First title
 
