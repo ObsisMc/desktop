@@ -83,6 +83,7 @@ pub(super) fn resolve_declared_root(
                 RootAccess::Prepare => path_is_missing = true,
                 RootAccess::Mutate => {
                     fs::create_dir(&current).map_err(|source| SkillDirectoryError::Io {
+                        action: "create_resource_directory",
                         path: current.clone(),
                         source,
                     })?;
@@ -90,6 +91,7 @@ pub(super) fn resolve_declared_root(
             },
             Err(source) => {
                 return Err(SkillDirectoryError::Io {
+                    action: "inspect_resource_directory",
                     path: current,
                     source,
                 });
@@ -101,6 +103,7 @@ pub(super) fn resolve_declared_root(
         let canonical = current
             .canonicalize()
             .map_err(|source| SkillDirectoryError::Io {
+                action: "canonicalize_resource_directory",
                 path: current.clone(),
                 source,
             })?;

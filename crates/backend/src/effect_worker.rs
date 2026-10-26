@@ -241,6 +241,14 @@ impl<Sessions: ReplacedAgentSessions> EffectWorker<Sessions> {
         claim: &ora_effect::ReconcileClaim,
         lease_until: LocalTimestamp,
     ) {
+        let trace_id = Uuid::new_v4().to_string();
+        let span = ora_logging::span_with_trace_id("effect_reconcile", &trace_id);
+        let _entered = span.enter();
+        ora_info!(
+            operation = "effect_reconcile",
+            target = target.as_str(),
+            "Effect Target reconciliation started"
+        );
         let planner = SkillPlanner;
         let resource_adapter = SkillDirectoryResourceAdapter;
         let consumer_adapter = PluginConsumerAdapter {

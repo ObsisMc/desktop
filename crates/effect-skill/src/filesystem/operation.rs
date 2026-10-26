@@ -37,6 +37,7 @@ pub(super) fn stage(
         .parent()
         .ok_or(SkillDirectoryError::UnsafeOperationPath)?;
     fs::create_dir_all(operation_root).map_err(|source| SkillDirectoryError::Io {
+        action: "create_staging_parent",
         path: operation_root.to_path_buf(),
         source,
     })?;
@@ -56,6 +57,7 @@ pub(super) fn stage(
     let marker_bytes = serde_json::to_vec(&marker).map_err(SkillDirectoryError::MarkerJson)?;
     let marker_path = plan.staging_path.join(MARKER_FILE_NAME);
     fs::write(&marker_path, marker_bytes).map_err(|source| SkillDirectoryError::Io {
+        action: "write_ownership_marker",
         path: marker_path,
         source,
     })?;
@@ -85,11 +87,13 @@ fn validate_staged_skill(
         .ok_or(SkillDirectoryError::MissingMaterializationInput)?;
     let source_manifest =
         fs::read(source_root.join("SKILL.md")).map_err(|source| SkillDirectoryError::Io {
+            action: "read_source_manifest",
             path: source_root.join("SKILL.md"),
             source,
         })?;
     let staged_manifest =
         fs::read(staging.join("SKILL.md")).map_err(|source| SkillDirectoryError::Io {
+            action: "read_staged_manifest",
             path: staging.join("SKILL.md"),
             source,
         })?;
@@ -160,6 +164,7 @@ fn state_matches_path(
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
         Err(source) => {
             return Err(SkillDirectoryError::Io {
+                action: "inspect_present_item",
                 path: path.to_path_buf(),
                 source,
             });
@@ -188,6 +193,7 @@ fn state_is_missing(path: &Path) -> Result<bool, SkillDirectoryError> {
         Ok(_) => Ok(false),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(true),
         Err(source) => Err(SkillDirectoryError::Io {
+            action: "inspect_missing_item",
             path: path.to_path_buf(),
             source,
         }),
@@ -279,7 +285,13 @@ pub(super) fn fingerprint(path: &Path) -> Result<Fingerprint, SkillDirectoryErro
 
 /// Restores the previous tree when a swap cannot install its staging directory.
 pub(super) fn restore_backup(backup: &Path, previous: &Path) {
-    if backup.exists() && !previous.exists() {
-        let _ = fs::rename(backup, previous);
+    if backup.exists()
+        && !previous.exists()
+        && let Err(error) = ora_utils::fs::rename_with_retry(backup, previous)
+    {
+        ora_logging::ora_warn!(operation = "skill_materialization", stage = "restore_backup",
+                source_path = %backup.display(), destination_path = %previous.display(),
+                os_error = ?error.raw_os_error(), error = %error,
+                "Skill rollback failed; backup retained for explicit recovery");
     }
 }

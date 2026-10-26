@@ -28,6 +28,7 @@ mod linux_filesystem;
 mod no_follow;
 #[cfg(unix)]
 mod owned_tree;
+mod rename;
 mod trailing_newline;
 mod unique_path;
 
@@ -42,5 +43,6 @@ pub use linux_filesystem::LinuxFilesystem;
 pub use no_follow::refuse_final_link;
 #[cfg(unix)]
 pub use owned_tree::own_tree_no_follow;
+pub use rename::rename_with_retry;
 pub use trailing_newline::{LineTail, classify_line_tail};
 pub use unique_path::next_available_file_name;
