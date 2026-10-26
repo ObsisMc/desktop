@@ -61,3 +61,16 @@ reconciler 在准备时、应用后和就绪后取样业务时间；同一个 At
 - Skill Effect 变更与 MCP 刷新共用 Agent Session Barrier，见 [Session MCP](session-mcp.zh.md#实时刷新)。
 
 Schema：迁移 `0006`（Scope、Source 与 Revision、Desired State、Consumer 与 Target、Resource 与绑定、投影、所有权、状态、Condition、请求与 claim、Attempt、Operation 与 Artifact、回执、审计事件）、`0010`（独立的恢复检测时间）和 `0019`（`finalized_without_effect` 关闭阶段，通过暂存副本重建操作日志引入）。见[持久化](../core/persistence.zh.md)。
+
+## Windows 文件占用与诊断
+
+读取程序打开文件时若没有允许删除共享，Windows 会阻止其父 Skill 目录改名，返回拒绝访问（5）或共享/锁冲突（32/33）。目录交换对这些 Windows 错误按 50 ms 间隔重试，每次改名最多等待一秒；其他错误与其他平台立即失败。持续占用和 ACL 限制仍安全失败：Ora 不终止读取程序、不修改权限、不删除目标，也不改为覆盖复制。应先停止占用 Skill 文件的活动，再尝试显式恢复。
+
+恢复成功表示 journal 已关闭，并不表示 readiness 已达成：`finalized_operations` 与 `closed_without_effect_operations` 分别表示精确 planned 和精确 baseline 证明的关闭数量。访问限制仍在时，新的收敛仍可能失败。按以下日志串联定位：
+
+- `effect_recovery`：Target 身份、开始和关闭计数；后续仍需普通收敛。
+- `effect_reconcile`：每轮独立的 `trace_id` 将 Target、适配器事件与最终结果关联起来。
+- `skill_materialization`：不可变 operation/attempt/Resource 身份、generation、mutation、stage、outcome 和耗时。`stage_package`、`verify_planned`、`verify_expected` 区分复制校验与状态证明。`backup_previous`、`install_staging` 记录改名前后路径、成功尝试次数或失败的 OS 错误；IO 错误链标明具体 action。
+- 回滚和 Artifact 清理失败均记录日志，不再静默丢弃。
+
+日志不包含 Skill 文件正文、ownership marker 原文或凭据。本地诊断日志中的文件路径可能标识用户 Workspace，对外公开前应脱敏。

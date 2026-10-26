@@ -9,6 +9,8 @@ use rusqlite::params;
 
 mod evidence;
 mod paths;
+#[cfg(windows)]
+mod windows_lock;
 
 /// Writes one Skill package directory and returns its validated projection.
 fn skill_package(

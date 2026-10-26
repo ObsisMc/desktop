@@ -47,6 +47,12 @@ impl Effects {
         &self,
         request: RecoverEffectTargetRequest,
     ) -> Result<RecoverEffectTargetResponse, BackendError> {
+        let target_id = request.target_id.clone();
+        ora_logging::ora_info!(
+            operation = "effect_recovery",
+            target = target_id.as_str(),
+            "Effect Target explicit recovery started"
+        );
         let repository = SqliteEffectRepository::new(self.pool.clone());
         let outcome = EffectRecoverer::new(
             &repository,
@@ -86,6 +92,14 @@ impl Effects {
             } => (true, finalized, closed_without_effect),
             RecoveryOutcome::AlreadyHealthy { .. } => (false, 0, 0),
         };
+        ora_logging::ora_info!(
+            operation = "effect_recovery",
+            target = target_id.as_str(),
+            recovered,
+            finalized_operations = finalized,
+            closed_without_effect_operations = closed_without_effect,
+            "Effect recovery proof completed; ordinary reconciliation still required"
+        );
         Ok(RecoverEffectTargetResponse {
             recovered,
             finalized_operations: finalized,

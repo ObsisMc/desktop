@@ -16,8 +16,11 @@ use std::io;
 use std::path::PathBuf;
 use thiserror::Error;
 
+mod diagnostics;
 mod operation;
 mod path;
+#[cfg(all(test, windows))]
+mod windows_tests;
 
 use operation::{
     apply_receipt, expected_path, fingerprint, planned_path, read_marker, restore_backup, stage,
@@ -144,10 +147,12 @@ impl SkillDirectoryResourceAdapter {
         };
         let mut items = BTreeMap::new();
         for entry in fs::read_dir(&root).map_err(|source| SkillDirectoryError::Io {
+            action: "read_resource_directory",
             path: root.clone(),
             source,
         })? {
             let entry = entry.map_err(|source| SkillDirectoryError::Io {
+                action: "read_resource_entry",
                 path: root.clone(),
                 source,
             })?;
@@ -160,6 +165,7 @@ impl SkillDirectoryResourceAdapter {
             let path = entry.path();
             let metadata =
                 fs::symlink_metadata(&path).map_err(|source| SkillDirectoryError::Io {
+                    action: "inspect_resource_entry",
                     path: path.clone(),
                     source,
                 })?;
@@ -222,20 +228,21 @@ impl SkillDirectoryResourceAdapter {
 
         match operation.mutation() {
             EffectMutation::Create => {
-                stage(operation, plan)?;
+                diagnostics::operation_step(operation, "stage_package", || stage(operation, plan))?;
                 let target = planned_path(operation, plan)?;
                 if target.exists() {
                     return Err(SkillDirectoryError::TargetOccupied { path: target });
                 }
-                fs::rename(&plan.staging_path, &target).map_err(|source| {
-                    SkillDirectoryError::Io {
+                diagnostics::rename_step("install_staging", &plan.staging_path, &target).map_err(
+                    |source| SkillDirectoryError::Io {
+                        action: "install_staging",
                         path: target,
                         source,
-                    }
-                })?;
+                    },
+                )?;
             }
             EffectMutation::Update | EffectMutation::Replace => {
-                stage(operation, plan)?;
+                diagnostics::operation_step(operation, "stage_package", || stage(operation, plan))?;
                 let previous = expected_path(operation, plan)?;
                 let target = planned_path(operation, plan)?;
                 fs::create_dir_all(
@@ -244,22 +251,27 @@ impl SkillDirectoryResourceAdapter {
                         .ok_or(SkillDirectoryError::UnsafeOperationPath)?,
                 )
                 .map_err(|source| SkillDirectoryError::Io {
+                    action: "create_backup_parent",
                     path: plan.backup_path.clone(),
                     source,
                 })?;
-                fs::rename(&previous, &plan.backup_path).map_err(|source| {
-                    SkillDirectoryError::Io {
+                diagnostics::rename_step("backup_previous", &previous, &plan.backup_path).map_err(
+                    |source| SkillDirectoryError::Io {
+                        action: "backup_previous",
                         path: previous.clone(),
                         source,
-                    }
-                })?;
+                    },
+                )?;
                 if target != previous && target.exists() {
                     restore_backup(&plan.backup_path, &previous);
                     return Err(SkillDirectoryError::TargetOccupied { path: target });
                 }
-                if let Err(source) = fs::rename(&plan.staging_path, &target) {
+                if let Err(source) =
+                    diagnostics::rename_step("install_staging", &plan.staging_path, &target)
+                {
                     restore_backup(&plan.backup_path, &previous);
                     return Err(SkillDirectoryError::Io {
+                        action: "install_staging",
                         path: target,
                         source,
                     });
@@ -273,15 +285,17 @@ impl SkillDirectoryResourceAdapter {
                         .ok_or(SkillDirectoryError::UnsafeOperationPath)?,
                 )
                 .map_err(|source| SkillDirectoryError::Io {
+                    action: "create_backup_parent",
                     path: plan.backup_path.clone(),
                     source,
                 })?;
-                fs::rename(&previous, &plan.backup_path).map_err(|source| {
-                    SkillDirectoryError::Io {
+                diagnostics::rename_step("backup_previous", &previous, &plan.backup_path).map_err(
+                    |source| SkillDirectoryError::Io {
+                        action: "backup_previous",
                         path: previous,
                         source,
-                    }
-                })?;
+                    },
+                )?;
             }
         }
         Ok(apply_receipt(operation))
@@ -346,6 +360,7 @@ impl SkillDirectoryResourceAdapter {
                 });
             }
             fs::remove_dir_all(path).map_err(|source| SkillDirectoryError::Io {
+                action: "remove_artifact",
                 path: path.clone(),
                 source,
             })?;
@@ -392,8 +407,7 @@ impl ResourceAdapter for SkillDirectoryResourceAdapter {
     }
 
     fn apply(&self, operation: &EffectOperation) -> Result<ApplyReceipt, ResourceAdapterError> {
-        (*self)
-            .apply_operation(operation)
+        diagnostics::operation_step(operation, "apply", || (*self).apply_operation(operation))
             .map_err(ResourceAdapterError::new)
     }
 
@@ -401,27 +415,35 @@ impl ResourceAdapter for SkillDirectoryResourceAdapter {
         &self,
         operation: &EffectOperation,
     ) -> Result<VerificationReceipt, ResourceAdapterError> {
-        (*self)
-            .verify_operation(operation)
-            .map_err(ResourceAdapterError::new)
+        diagnostics::operation_step(operation, "verify_planned", || {
+            (*self).verify_operation(operation)
+        })
+        .map_err(ResourceAdapterError::new)
     }
 
     fn verify_expected(
         &self,
         operation: &EffectOperation,
     ) -> Result<VerificationReceipt, ResourceAdapterError> {
-        (*self)
-            .verify_expected_operation(operation)
-            .map_err(ResourceAdapterError::new)
+        diagnostics::operation_step(operation, "verify_expected", || {
+            (*self).verify_expected_operation(operation)
+        })
+        .map_err(ResourceAdapterError::new)
     }
 
     fn cleanup(
         &self,
         artifact: &OperationArtifact,
     ) -> Result<CleanupReceipt, ResourceAdapterError> {
-        (*self)
-            .cleanup_artifact(artifact)
-            .map_err(ResourceAdapterError::new)
+        let result = (*self).cleanup_artifact(artifact);
+        if let Err(error) = &result {
+            let report = ora_logging::ErrorReport::from_error(error);
+            ora_logging::ora_warn!(operation = "skill_materialization", stage = "cleanup_artifact",
+                operation_id = artifact.operation.as_str(), artifact_id = artifact.identity.as_str(),
+                artifact_role = ?artifact.role, error.chain = report.chain(),
+                "Skill artifact cleanup failed; durable artifact retained");
+        }
+        result.map_err(ResourceAdapterError::new)
     }
 }
 
@@ -472,8 +494,9 @@ pub enum SkillDirectoryError {
     ExpectedVerificationFailed { operation: EffectOperationId },
     #[error("artifact {artifact} no longer matches its cleanup authority")]
     ArtifactFingerprintMismatch { artifact: ArtifactId },
-    #[error("Effect Resource filesystem operation failed: {path:?}")]
+    #[error("Effect Resource filesystem operation {action} failed: {path:?}")]
     Io {
+        action: &'static str,
         path: PathBuf,
         #[source]
         source: io::Error,

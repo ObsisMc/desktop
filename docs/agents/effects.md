@@ -151,3 +151,27 @@ Resources and bindings, projections, ownership, statuses, Conditions, requests a
 Attempts, Operations and Artifacts, receipts, audit events), `0010` (independent recovery
 detection time) and `0019` (the `finalized_without_effect` closure phase, added by rebuilding the
 operation journal through staging copies). See [Persistence](../core/persistence.md).
+
+## Windows contention and diagnostics
+
+A reader that opens a file without delete sharing can prevent Windows from renaming its parent
+Skill directory, returning access denied (5) or a sharing/lock violation (32/33). Directory swaps
+retry these Windows errors at 50 ms intervals for up to one second per rename. Other errors and
+other platforms fail immediately. Persistent locks and ACL restrictions still fail safely: Ora
+neither terminates the reader nor changes permissions, deletes the destination, or copies over it.
+Stop the activity holding the Skill files before trying explicit recovery again.
+
+Recovery success means journal closure, not readiness: `finalized_operations` and
+`closed_without_effect_operations` distinguish exact planned from exact baseline proof. A new
+reconcile may still fail while the original access restriction remains. Diagnose that sequence using:
+
+- `effect_recovery`: Target identity, start, and closure counts; subsequent convergence is still required.
+- `effect_reconcile`: a per-pass `trace_id` links the Target to adapter events and the final outcome.
+- `skill_materialization`: immutable operation/attempt/Resource identities, generation, mutation,
+  stage, outcome and duration. `stage_package`, `verify_planned` and `verify_expected` distinguish
+  copy/validation from state proof. `backup_previous` and `install_staging` record both rename paths,
+  attempts on success, and the OS error on failure. IO error chains name the exact action.
+- Rollback and artifact cleanup failures are logged rather than silently discarded.
+
+Logs never include Skill file contents, ownership marker bytes or credentials. Filesystem paths
+in local diagnostic logs may identify the user's workspace; redact them before sharing publicly.
